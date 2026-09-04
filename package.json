@@ -23,6 +23,8 @@
     "@types/node": "^26.3.0",
     "typescript": "^7.0.2"
   },
+  "//dependencies": "@pierre/diffs is hoisted to the root so npm installs its full dependency subtree (shiki, diff, lru_map, …). Pinned to the same 1.3.6 as packages/ui: 1.4.0 changed FileDiffOptions' generics and breaks the vendored diff-view. Under workspaces, declaring it only in packages/ui nested it without its deps (an npm reify bug), which broke the renderer bundle.",
+  "dependencies": { "@pierre/diffs": "1.3.6" },
   "overrides": { "esbuild": "^0.28.2" },
   "engines": { "node": ">=22" }
 }

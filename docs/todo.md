@@ -138,5 +138,10 @@ item lands, delete it here.
   second esbuild under `tsx/` and npm 11 drops its platform binaries from the lockfile
   (npm/cli#4828), so `tsx watch` fails on any machine that did not generate the lockfile.
   Drop the override once electron-vite depends on esbuild 0.28+.
-- `@pierre/diffs` is pinned to 1.3.6 in `packages/ui`: 1.4.0 made `FileDiffOptions` take a second
-  type argument, which breaks `diff-view.tsx`. Bump it together with a fix there.
+- `@pierre/diffs` is pinned to 1.3.6 (root `dependencies` and `packages/ui`): 1.4.0 made
+  `FileDiffOptions` take a second type argument, which breaks the vendored `diff-view.tsx`. It sits
+  in the root `dependencies` on purpose — declared only in `packages/ui`, npm's workspace resolver
+  nested it under `packages/ui/node_modules` without its own dependency subtree (shiki, diff,
+  lru_map, …), so the renderer bundle failed to resolve them; hoisting it to the root installs the
+  full tree. Bump it together with a fix in `diff-view.tsx`, and it can move back to `packages/ui`
+  alone once the nesting bug is gone.
