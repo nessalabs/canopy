@@ -44,6 +44,9 @@ const foldStreaming = (state: TurnState): TranscriptItem[] =>
 /** Each event type maps to one state transition; no branching inside the reducer body. */
 const ON_EVENT: { [K in AgentStreamEvent['type']]: (state: TurnState, event: Extract<AgentStreamEvent, { type: K }>) => TurnState } = {
   session: (state, event) => ({ ...state, sessionId: event.sessionId }),
+  // Bridged in the agent-stream migration: folded by the transcript model once the UI reads events.
+  event: (state) => state,
+  files: (state) => state,
   delta: (state, event) => ({ ...state, streamingText: (state.streamingText ?? '') + event.text, activity: 'solving' }),
   item: (state, event) => ({
     ...state,

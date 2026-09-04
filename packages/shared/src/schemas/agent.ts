@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import type { AgentEvent } from '../agent-stream'
 import { Millis } from './common'
 
 export const AgentProvider = z.enum(['claude', 'codex'])
@@ -18,8 +19,11 @@ export const TurnOptions = z.object({
   /** Model alias or id ('opus', 'sonnet', …); the session's own model when omitted. */
   model: z.string().min(1).optional(),
   effort: Effort.optional(),
-  /** True while a terminal has this session open; turns sent from Canopy go to that terminal. */
-  live: z.boolean().optional()
+  /**
+   * Where the turn's event numbering starts: the `nextSeq` of the transcript the client already
+   * holds, so live events extend that log instead of colliding with it. Defaults to 0.
+   */
+  startSeq: z.number().int().nonnegative().optional()
 })
 export type TurnOptions = z.infer<typeof TurnOptions>
 
@@ -78,20 +82,72 @@ export const TranscriptItem = z.object({
 })
 export type TranscriptItem = z.infer<typeof TranscriptItem>
 
-/** A replayed session plus what it was running with, so the composer can default to it. */
+/**
+ * @deprecated Replaced by `TranscriptResponse` (agent-stream events); removed once the UI folds
+ * events itself.
+ */
 export const Transcript = z.object({
   items: z.array(TranscriptItem),
   /** Model id of the last assistant turn (e.g. `claude-opus-5`). */
   model: z.string().optional(),
   effort: Effort.optional(),
-  /** True while a terminal has this session open; turns sent from Canopy go to that terminal. */
   live: z.boolean().optional()
 })
 export type Transcript = z.infer<typeof Transcript>
 
+/**
+ * One normalized agent-stream event as it crosses the wire. Only the envelope is validated; the
+ * payload is a 28-arm union owned by the vendored parser, and a daemon newer than this client may
+ * emit payload kinds it has never heard of — the fold renders those as nothing rather than failing
+ * the whole stream, which zod mirrors of every arm would do.
+ */
+const isAgentEventEnvelope = (value: unknown): value is AgentEvent => {
+  if (typeof value !== 'object' || value === null) return false
+  const event = value as Record<string, unknown>
+  const payload = event.payload as Record<string, unknown> | null | undefined
+  return (
+    typeof event.id === 'string' &&
+    typeof event.sessionId === 'string' &&
+    typeof event.seq === 'number' &&
+    Array.isArray(event.agentPath) &&
+    typeof payload === 'object' &&
+    payload !== null &&
+    typeof payload.type === 'string'
+  )
+}
+export const AgentEventFrame = z.custom<AgentEvent>(isAgentEventEnvelope, { message: 'not an agent-stream event' })
+
+/** A replayed session as an agent-stream event log, plus what it was running with. */
+export const TranscriptResponse = z.object({
+  /** Main conversation and delegated runs alike, in `seq` order, numbered from 0. */
+  events: z.array(AgentEventFrame),
+  /** Absolute paths each tool call wrote, by `callId` — edit-tool inputs or shell write targets. */
+  files: z.record(z.string(), z.array(z.string())),
+  /** Canopy-only data hung off an event: the images a user turn carried. */
+  extras: z.record(z.string(), z.object({ images: z.array(TurnImage) })),
+  /** Model id of the last assistant turn (e.g. `claude-opus-5`). */
+  model: z.string().optional(),
+  effort: Effort.optional(),
+  /**
+   * A terminal has this session open. Turns sent from Canopy still go to the session (via the
+   * Agent SDK), but that terminal will not show them until it resumes.
+   */
+  openInTerminal: z.boolean().optional(),
+  /** The `startSeq` a live turn on top of this replay must use. */
+  nextSeq: z.number().int().nonnegative()
+})
+export type TranscriptResponse = z.infer<typeof TranscriptResponse>
+
 export const AgentStreamEvent = z.discriminatedUnion('type', [
+  /** The session the turn runs in; for a new session, the id the agent assigned. Always first. */
   z.object({ type: z.literal('session'), provider: AgentProvider, sessionId: z.string() }),
+  /** One agent-stream event (assistant text, tool calls, deltas, task progress, …). */
+  z.object({ type: z.literal('event'), event: AgentEventFrame }),
+  /** Absolute paths a tool call is about to write, so edits can be attributed to it. */
+  z.object({ type: z.literal('files'), callId: z.string(), files: z.array(z.string()) }),
+  /** @deprecated Streamed text now arrives as `event` frames with a `delta` payload. */
   z.object({ type: z.literal('delta'), text: z.string() }),
+  /** @deprecated Transcript items now arrive as `event` frames. */
   z.object({ type: z.literal('item'), item: TranscriptItem }),
   /** Output tokens produced so far this turn; drives the live status line. */
   z.object({ type: z.literal('progress'), tokens: z.number() }),
