@@ -122,3 +122,13 @@ item lands, delete it here.
   add a tsup build for a real binary.
 - better-sqlite3 loads a prebuilt binding under Node 25 today; pin Node 22 (`.node-version`)
   if a future Node lacks prebuilds.
+
+## Dependencies
+
+- Root `package.json` overrides `esbuild` to `^0.28.2` so the whole tree shares one esbuild
+  (vite 7 and tsx 4 want 0.28, electron-vite 5.0.0 still pins `^0.25.11`). Without it npm nests a
+  second esbuild under `tsx/` and npm 11 drops its platform binaries from the lockfile
+  (npm/cli#4828), so `tsx watch` fails on any machine that did not generate the lockfile.
+  Drop the override once electron-vite depends on esbuild 0.28+.
+- `@pierre/diffs` is pinned to 1.3.6 in `packages/ui`: 1.4.0 made `FileDiffOptions` take a second
+  type argument, which breaks `diff-view.tsx`. Bump it together with a fix there.
