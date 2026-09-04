@@ -2,6 +2,15 @@ import type { Database } from 'better-sqlite3'
 
 import type { AddCommentInput, AgentStreamEvent, ReviewComment, ReviewRequest, SessionRef, TurnOptions } from '@canopy/shared'
 
+/** Payload kinds that count as the agent having produced review work, so its comments stay sent. */
+const PRODUCED = new Set(['assistant_text', 'reasoning', 'tool_call_started', 'delta'])
+
+/** Whether a stream event is the agent producing content (vs. session/progress/error bookkeeping). */
+function producedContent(event: AgentStreamEvent): boolean {
+  if (event.type === 'delta' || event.type === 'item') return true
+  return event.type === 'event' && PRODUCED.has(event.event.payload.type)
+}
+
 import type { AgentRegistry } from '../agents/registry'
 import { badRequest, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
@@ -147,7 +156,7 @@ export class ReviewService {
     try {
       const adapter = this.deps.agents.adapterFor(turn.ref.provider)
       for await (const event of adapter.send(turn.ref.sessionId, turn.prompt, { ...turn.options, cwd: turn.cwd, signal })) {
-        produced ||= event.type === 'delta' || event.type === 'item'
+        produced ||= producedContent(event)
         if (event.type === 'session') adopt({ provider: event.provider, sessionId: event.sessionId })
         if (event.type === 'error') rollback()
         yield event

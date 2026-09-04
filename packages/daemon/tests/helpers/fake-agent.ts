@@ -1,6 +1,18 @@
 import type { AgentStreamEvent } from '@canopy/shared'
+import type { AgentEvent } from '@canopy/shared/agent-stream'
 
-import type { AgentAdapter, AgentSessionSummary, SendOptions, Transcript } from '../../src/agents/types'
+import type { AgentAdapter, AgentSessionSummary, SendOptions, TranscriptResponse } from '../../src/agents/types'
+
+/** A minimal agent-stream event, for scripting adapter output in tests. */
+export const fakeEvent = (seq: number, payload: AgentEvent['payload'], sessionId = 's1'): AgentEvent => ({
+  id: `${sessionId}:${seq}`,
+  sessionId,
+  seq,
+  ts: null,
+  agentPath: [],
+  payload,
+  raw: null
+})
 
 /** Scripted adapter: whatever `script` returns is streamed; every send is recorded. */
 export class FakeAgent implements AgentAdapter {
@@ -11,13 +23,20 @@ export class FakeAgent implements AgentAdapter {
   sessions: AgentSessionSummary[] = [{ provider: 'claude', sessionId: 's1', title: 'fixture session', updatedAt: 1 }]
   script: (text: string) => AgentStreamEvent[] = (text) => [
     { type: 'session', provider: 'claude', sessionId: 's1' },
-    { type: 'delta', text: `ack: ${text.length} chars` },
+    { type: 'event', event: fakeEvent(0, { type: 'assistant_text', text: `ack: ${text.length} chars`, block: null }) },
     { type: 'done', sessionId: 's1' }
   ]
 
   available = async (): Promise<boolean> => true
   listSessions = async (): Promise<AgentSessionSummary[]> => this.sessions
-  transcript = async (): Promise<Transcript> => ({ items: [{ id: 't1', role: 'user', text: 'hello' }], model: 'claude-opus-5', effort: 'medium' })
+  transcript = async (): Promise<TranscriptResponse> => ({
+    events: [fakeEvent(0, { type: 'user_message', text: 'hello', synthetic: false })],
+    files: {},
+    extras: {},
+    model: 'claude-opus-5',
+    effort: 'medium',
+    nextSeq: 1
+  })
 
   async *send(sessionId: string | null, text: string, options?: SendOptions): AsyncIterable<AgentStreamEvent> {
     this.sent.push({ sessionId, text, options })

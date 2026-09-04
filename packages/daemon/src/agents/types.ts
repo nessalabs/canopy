@@ -6,9 +6,9 @@
  *   send       — resume it (or start a fresh one when sessionId is null) and append a user turn
  * Wire types live in @canopy/shared so the UI renders exactly what the daemon emits.
  */
-import type { AgentProvider, AgentSessionSummary, AgentStreamEvent, Transcript, TranscriptItem, TranscriptRole, TurnImage, TurnOptions } from '@canopy/shared'
+import type { AgentProvider, AgentSessionSummary, AgentStreamEvent, TranscriptResponse, TurnImage, TurnOptions } from '@canopy/shared'
 
-export type { AgentProvider, AgentSessionSummary, AgentStreamEvent, Transcript, TranscriptItem, TranscriptRole }
+export type { AgentProvider, AgentSessionSummary, AgentStreamEvent, TranscriptResponse }
 
 export interface SendOptions extends TurnOptions {
   /** Worktree checkout the turn should run in. Defaults to the session's own cwd. */
@@ -23,6 +23,6 @@ export interface AgentAdapter {
   /** False when the provider's CLI/SDK isn't installed or authenticated. */
   available(): Promise<boolean>
   listSessions(cwd: string, limit?: number): Promise<AgentSessionSummary[]>
-  transcript(sessionId: string, cwd?: string): Promise<Transcript>
+  transcript(sessionId: string, cwd?: string): Promise<TranscriptResponse>
   send(sessionId: string | null, text: string, options?: SendOptions): AsyncIterable<AgentStreamEvent>
 }

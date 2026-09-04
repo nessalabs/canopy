@@ -1,17 +1,15 @@
-import { createHash, randomUUID } from 'node:crypto'
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { createConnection } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
 /**
  * A Claude Code session that is open in a terminal right now.
  *
- * Every interactive `claude` process registers itself in `~/.claude/sessions/<pid>.json`
- * with a Unix messaging socket, and accepts newline-delimited JSON frames on it — the
- * channel one local Claude session uses to message another. Handing a prompt to that
- * process, rather than resuming the session in a second process, means the terminal
- * shows the message live, and only one process ever writes the session file.
+ * Every interactive `claude` process registers itself in `~/.claude/sessions/<pid>.json`. Canopy
+ * only reads that registry — to tell the user a session is also live in a terminal, and that a turn
+ * sent from here (through the Agent SDK) will not appear in that terminal until it resumes. Canopy
+ * no longer delivers prompts over the session's inbox socket: those arrive as *peer* messages
+ * ("Another Claude session sent a message…"), never as the user's own turn.
  */
 export interface LiveSession {
   pid: number
@@ -76,44 +74,3 @@ export async function liveSessions(): Promise<LiveSession[]> {
 
 export const liveSessionFor = async (sessionId: string): Promise<LiveSession | undefined> =>
   (await liveSessions()).find((entry) => entry.sessionId === sessionId)
-
-/** Re-reads a live session's registry record; `busy` while a turn runs, `idle` between turns. */
-export async function liveStatus(pid: number): Promise<string | undefined> {
-  const entry = await readFile(join(sessionsDir(), `${pid}.json`), 'utf8').then(parseRegistryEntry, () => undefined)
-  return entry?.status
-}
-
-/** Claude Code names a session's peer key after its pid and the sha256 of its socket path. */
-export const keyFileName = (pid: number, socketPath: string): string =>
-  `${pid}.${createHash('sha256').update(socketPath).digest('hex')}.key`
-
-async function peerToken(live: LiveSession): Promise<string | undefined> {
-  try {
-    const key = JSON.parse(await readFile(join(sessionsDir(), keyFileName(live.pid, live.socketPath)), 'utf8')) as { peerToken?: string }
-    return key.peerToken
-  } catch {
-    return undefined
-  }
-}
-
-/** A user prompt frame; `next` queues it behind the running turn, the way typing mid-turn does. */
-export const promptFrame = (text: string): Record<string, unknown> => ({
-  msg_id: randomUUID(),
-  uuid: randomUUID(),
-  type: 'user',
-  message: { role: 'user', content: text },
-  priority: 'next',
-  from: 'canopy'
-})
-
-/** Writes the auth frame (when the key is readable) and the prompt to the session's socket. */
-export async function deliver(live: LiveSession, text: string): Promise<void> {
-  const token = await peerToken(live)
-  const frames = [...(token ? [{ type: 'auth', token }] : []), promptFrame(text)]
-  await new Promise<void>((resolve, reject) => {
-    const socket = createConnection({ path: live.socketPath })
-    socket.once('error', reject)
-    socket.once('connect', () => socket.end(frames.map((frame) => `${JSON.stringify(frame)}\n`).join('')))
-    socket.once('close', () => resolve())
-  })
-}
