@@ -10,6 +10,9 @@
       ],
       "@canopy/shared": [
         "../shared/src/index.ts"
+      ],
+      "@canopy/shared/agent-stream": [
+        "../shared/src/agent-stream/index.ts"
       ]
     },
     "noUncheckedIndexedAccess": false

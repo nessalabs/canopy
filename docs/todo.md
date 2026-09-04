@@ -27,6 +27,13 @@ item lands, delete it here.
 - Components on the local `feat/canopy-dashboard-primitives` branch but not on `main`
   (dialog, select, tooltip, scroll-area, switch, textarea, accordion, status-dot, diff-view,
   framed-box, …) can only be re-vendored from the checkout until PR #48 merges.
+- `packages/shared/src/agent-stream/**` is a **vendored, trimmed copy** of nessa's `agent-stream`
+  registry item (`@nessa-ui/agent-stream`, unpublished as of 2026-09-04), installed with
+  `npm run vendor:agent-stream` (not `ui:add`: it is pure TS the daemon needs too, so it lives in
+  `@canopy/shared` and is imported as `@canopy/shared/agent-stream`). Only the core, the transcript
+  fold, Claude stream-json and Codex app-server are copied; acp/cursor/opencode/`codex exec` are not,
+  so nessa's own barrels are dropped and `index.ts` there is Canopy's. `VENDORED.md` records the
+  nessa commit. Replace with the npm package once it is published.
 
 ## Agent tab
 

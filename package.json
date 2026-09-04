@@ -16,6 +16,7 @@
     "test": "npm test --workspaces --if-present",
     "ui:add": "node scripts/ui-add.mjs",
     "ui:registry": "npx --yes pnpm@11.9.0 --dir ../nessa_ui build:registry",
+    "vendor:agent-stream": "node scripts/vendor-agent-stream.mjs",
     "hooks:setup": "node packages/daemon/bin/canopy-hooks-setup.mjs"
   },
   "devDependencies": {

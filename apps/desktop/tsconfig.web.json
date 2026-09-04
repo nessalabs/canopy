@@ -15,6 +15,9 @@
       "@canopy/shared": [
         "../../packages/shared/src/index.ts"
       ],
+      "@canopy/shared/agent-stream": [
+        "../../packages/shared/src/agent-stream/index.ts"
+      ],
       "@canopy/ui": [
         "../../packages/ui/src/index.ts"
       ]
