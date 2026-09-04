@@ -86,7 +86,7 @@ export function onEvent(state: TurnState, event: AgentStreamEvent): TurnState {
   if (event.type === 'files') return { ...state, filesByCall: { ...state.filesByCall, [event.callId]: event.files } }
   if (event.type === 'done') return { ...state, streamingText: '', activity: null }
   if (event.type === 'error') return { ...state, streamingText: '', activity: null, error: event.message }
-  if (event.type !== 'event') return state // deprecated delta/item arms: ignored, the fold owns rendering
+  if (event.type !== 'event') return state // exhaustive: every other arm is handled above
 
   const payload = event.event.payload
   const next: TurnState = { ...state, events: [...state.events, event.event] }

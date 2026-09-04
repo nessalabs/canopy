@@ -47,8 +47,6 @@ export type AgentSessionSummary = z.infer<typeof AgentSessionSummary>
 export const SessionRef = AgentSessionSummary.pick({ provider: true, sessionId: true })
 export type SessionRef = z.infer<typeof SessionRef>
 
-export const TranscriptRole = z.enum(['user', 'assistant', 'reasoning', 'tool', 'system'])
-export type TranscriptRole = z.infer<typeof TranscriptRole>
 
 export const ImageMediaType = z.enum(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 export type ImageMediaType = z.infer<typeof ImageMediaType>
@@ -60,40 +58,6 @@ export type TurnImage = z.infer<typeof TurnImage>
 /** Context the user staged alongside a message; the agent receives it inside `text`. */
 export const TurnAttachment = z.object({ kind: z.string(), label: z.string(), text: z.string() })
 export type TurnAttachment = z.infer<typeof TurnAttachment>
-
-export const TranscriptItem = z.object({
-  id: z.string(),
-  role: TranscriptRole,
-  /** The full content as the agent saw it. */
-  text: z.string(),
-  at: Millis.optional(),
-  /** Tool name for role 'tool'. */
-  tool: z.string().optional(),
-  /** Human summary of a tool call when the agent gave one (e.g. Bash's `description`). */
-  title: z.string().optional(),
-  /** For user turns composed in Canopy: what was typed, shown instead of `text`. */
-  display: z.string().optional(),
-  attachments: z.array(TurnAttachment).optional(),
-  images: z.array(TurnImage).optional(),
-  /** Absolute paths a tool call wrote (edit-tool inputs, or parsed from a shell command). */
-  files: z.array(z.string()).optional(),
-  /** The provider's id for a tool call, joining it to `AgentEdit` snapshots. */
-  toolUseId: z.string().optional()
-})
-export type TranscriptItem = z.infer<typeof TranscriptItem>
-
-/**
- * @deprecated Replaced by `TranscriptResponse` (agent-stream events); removed once the UI folds
- * events itself.
- */
-export const Transcript = z.object({
-  items: z.array(TranscriptItem),
-  /** Model id of the last assistant turn (e.g. `claude-opus-5`). */
-  model: z.string().optional(),
-  effort: Effort.optional(),
-  live: z.boolean().optional()
-})
-export type Transcript = z.infer<typeof Transcript>
 
 /**
  * One normalized agent-stream event as it crosses the wire. Only the envelope is validated; the
@@ -145,10 +109,6 @@ export const AgentStreamEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('event'), event: AgentEventFrame }),
   /** Absolute paths a tool call is about to write, so edits can be attributed to it. */
   z.object({ type: z.literal('files'), callId: z.string(), files: z.array(z.string()) }),
-  /** @deprecated Streamed text now arrives as `event` frames with a `delta` payload. */
-  z.object({ type: z.literal('delta'), text: z.string() }),
-  /** @deprecated Transcript items now arrive as `event` frames. */
-  z.object({ type: z.literal('item'), item: TranscriptItem }),
   /** Output tokens produced so far this turn; drives the live status line. */
   z.object({ type: z.literal('progress'), tokens: z.number() }),
   z.object({ type: z.literal('done'), sessionId: z.string() }),

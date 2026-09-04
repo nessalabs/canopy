@@ -62,9 +62,10 @@ item lands, delete it here.
   same Pre/Post snapshots there. Snapshot refs (`refs/canopy/snapshots/*`) are never pruned yet;
   prune with the worktree and by session age. Comments left on a `trees` diff are stored like
   working-tree comments (no spec key), so their line may not match once the file moves on.
-- Adopt nessa `agent-stream` (`buildTranscript`, tool groups, delegated runs, plan) once the
-  daemon forwards raw provider events (Claude `stream-json`, Codex JSON-RPC) instead of the
-  normalized `TranscriptItem`s the ported adapters emit today.
+- Codex turns run through agent-stream's app-server mapper but Codex is not installed here, so the
+  live path and `thread/read` replay shapes are covered only by fixture tests — verify end to end
+  against a real `codex app-server` (0.144.1+). Codex approvals also emit no `permission_requested`;
+  the daemon still auto-answers them, but a real approval UI would need the ACP transport.
 - Per-turn `model` / `effort` reach Claude via the SDK; the Codex adapter ignores them (its
   app-server `turn/start` takes a model too — wire it when Codex turns are verified end to end).
 - Codex: `available()` is true whenever the binary exists; stale credentials surface as a

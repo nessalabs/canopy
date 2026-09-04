@@ -7,7 +7,6 @@ const PRODUCED = new Set(['assistant_text', 'reasoning', 'tool_call_started', 'd
 
 /** Whether a stream event is the agent producing content (vs. session/progress/error bookkeeping). */
 function producedContent(event: AgentStreamEvent): boolean {
-  if (event.type === 'delta' || event.type === 'item') return true
   return event.type === 'event' && PRODUCED.has(event.event.payload.type)
 }
 

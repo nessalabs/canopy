@@ -7,8 +7,8 @@ const response = (...frames: string[]): Response => new Response(frames.map((f) 
 describe('readSse', () => {
   it('yields known events and skips ones this client does not understand', async () => {
     const events = []
-    for await (const event of readSse(response('{"type":"delta","text":"hi"}', '{"type":"from-the-future"}', '{"type":"done","sessionId":"s"}'))) events.push(event)
-    expect(events.map((e) => e.type)).toEqual(['delta', 'done'])
+    for await (const event of readSse(response('{"type":"progress","tokens":5}', '{"type":"from-the-future"}', '{"type":"done","sessionId":"s"}'))) events.push(event)
+    expect(events.map((e) => e.type)).toEqual(['progress', 'done'])
   })
 
   it('passes agent-stream events through by envelope, whatever their payload kind', async () => {

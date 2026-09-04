@@ -39,10 +39,10 @@ Schemas are zod in `packages/shared/src/schemas`; route paths in `packages/share
 | GET | `/agents/providers` | | `{ providers }` |
 | GET | `/agent/sessions/:provider/:sid/edits` | | `{ edits: AgentEdit[] }` — files changed per tool call with before/after trees, recorded by the Claude Code hooks (`npm run hooks:setup`) |
 | POST | `/hooks/claude` | Claude Code PreToolUse/PostToolUse payload | `204`; snapshots the worktree containing `cwd` around the call |
-| GET | `/agent/sessions/:provider/:sid/transcript` | `?cwd=` | `{ items, model?, effort?, live? }` — tool items that wrote files carry `files: string[]` (absolute paths; edit-tool inputs, or write targets parsed from Bash command text) |
+| GET | `/agent/sessions/:provider/:sid/transcript` | `?cwd=` | `TranscriptResponse` — `{ events: AgentEvent[], files: Record<callId, string[]>, extras, model?, effort?, openInTerminal?, nextSeq }`; the normalized agent-stream event log plus the paths each tool call wrote (absolute; edit-tool inputs or Bash write targets) |
 | POST | `/agent/sessions/:provider/:sid/messages` | `{ text, cwd?, autonomy? }` | SSE `AgentStreamEvent` |
 
-SSE streams carry one `data: <json>` frame per event: `session` → `delta`* / `item`* → `done` | `error`.
+SSE streams carry one `data: <json>` frame per event: `session` → (`event` | `files` | `progress`)* → `done` | `error`. An `event` frame wraps one agent-stream `AgentEvent`; a `files` frame names the paths a tool call wrote.
 Closing the connection aborts the agent turn.
 
 `FilePatch.patch` is `null` for binary files and for patches over 512 KiB (`truncated: true`);
