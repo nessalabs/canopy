@@ -1,0 +1,25 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": [
+    "src/renderer/src/**/*",
+    "src/preload/global.d.ts",
+    "src/preload/index.ts"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "noUncheckedIndexedAccess": false,
+    "paths": {
+      "@/*": [
+        "../../packages/ui/src/*"
+      ],
+      "@canopy/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@canopy/ui": [
+        "../../packages/ui/src/index.ts"
+      ]
+    },
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
+}

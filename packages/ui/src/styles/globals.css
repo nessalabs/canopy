@@ -1,0 +1,398 @@
+@import "tailwindcss";
+@source "../";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
+    --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+    --nessa-motion-duration-instant: 0ms;
+    --nessa-motion-duration-fast: 120ms;
+    --nessa-motion-duration-normal: 200ms;
+    --nessa-motion-duration-slow: 300ms;
+    --nessa-motion-duration-ambient: 3.2s;
+    --nessa-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+    --nessa-motion-easing-emphasized: cubic-bezier(0.4, 0, 0.2, 1);
+    --radius: 0.625rem;
+    --color-nessa-diff-deletion: var(--nessa-diff-deletion);
+    --color-nessa-diff-addition: var(--nessa-diff-addition);
+    --color-nessa-fast-mode-active: var(--nessa-fast-mode-active);
+    --color-nessa-thinking-fill-highlight: var(--nessa-thinking-fill-highlight);
+    --color-nessa-thinking-fill-current: var(--nessa-thinking-fill-current);
+    --color-nessa-thinking-fill-base: var(--nessa-thinking-fill-base);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive-foreground: var(--destructive-foreground);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+    --color-nessa-chart-6: var(--nessa-chart-6);
+    --color-nessa-chart-5: var(--nessa-chart-5);
+    --color-nessa-chart-4: var(--nessa-chart-4);
+    --color-nessa-chart-3: var(--nessa-chart-3);
+    --color-nessa-chart-2: var(--nessa-chart-2);
+    --color-nessa-chart-1: var(--nessa-chart-1);
+    --color-nessa-chat-rim-head: var(--nessa-chat-rim-head);
+    --color-nessa-chat-rim-4: var(--nessa-chat-rim-4);
+    --color-nessa-chat-rim-3: var(--nessa-chat-rim-3);
+    --color-nessa-chat-rim-2: var(--nessa-chat-rim-2);
+    --color-nessa-chat-rim-1: var(--nessa-chat-rim-1);
+    --color-nessa-chat-rim-0: var(--nessa-chat-rim-0);
+    --color-nessa-chat-accent: var(--nessa-chat-accent);
+    --color-nessa-diff-dark-addition: var(--nessa-diff-dark-addition);
+    --nessa-invalid-ring: var(--nessa-invalid-ring);
+    --color-nessa-chart-series-8-strong: var(--nessa-chart-series-8-strong);
+    --color-nessa-chart-series-8: var(--nessa-chart-series-8);
+    --color-nessa-chart-series-7-strong: var(--nessa-chart-series-7-strong);
+    --color-nessa-chart-series-7: var(--nessa-chart-series-7);
+    --color-nessa-chart-series-6-strong: var(--nessa-chart-series-6-strong);
+    --color-nessa-chart-series-6: var(--nessa-chart-series-6);
+    --color-nessa-chart-series-5-strong: var(--nessa-chart-series-5-strong);
+    --color-nessa-chart-series-5: var(--nessa-chart-series-5);
+    --color-nessa-chart-series-4-strong: var(--nessa-chart-series-4-strong);
+    --color-nessa-chart-series-4: var(--nessa-chart-series-4);
+    --color-nessa-chart-series-3-strong: var(--nessa-chart-series-3-strong);
+    --color-nessa-chart-series-3: var(--nessa-chart-series-3);
+    --color-nessa-chart-series-2-strong: var(--nessa-chart-series-2-strong);
+    --color-nessa-chart-series-2: var(--nessa-chart-series-2);
+    --color-nessa-chart-series-1-strong: var(--nessa-chart-series-1-strong);
+    --color-nessa-chart-series-1: var(--nessa-chart-series-1);
+    --nessa-letter-spacing-7: var(--nessa-letter-spacing-7);
+    --nessa-letter-spacing-6: var(--nessa-letter-spacing-6);
+    --nessa-letter-spacing-5: var(--nessa-letter-spacing-5);
+    --nessa-letter-spacing-4: var(--nessa-letter-spacing-4);
+    --nessa-letter-spacing-3: var(--nessa-letter-spacing-3);
+    --nessa-letter-spacing-2: var(--nessa-letter-spacing-2);
+    --nessa-letter-spacing-1: var(--nessa-letter-spacing-1);
+    --nessa-line-height-7: var(--nessa-line-height-7);
+    --nessa-line-height-6: var(--nessa-line-height-6);
+    --nessa-line-height-5: var(--nessa-line-height-5);
+    --nessa-line-height-4: var(--nessa-line-height-4);
+    --nessa-line-height-3: var(--nessa-line-height-3);
+    --nessa-line-height-2: var(--nessa-line-height-2);
+    --nessa-line-height-1: var(--nessa-line-height-1);
+    --nessa-font-size-7: var(--nessa-font-size-7);
+    --nessa-font-size-6: var(--nessa-font-size-6);
+    --nessa-font-size-5: var(--nessa-font-size-5);
+    --nessa-font-size-4: var(--nessa-font-size-4);
+    --nessa-font-size-3: var(--nessa-font-size-3);
+    --nessa-font-size-2: var(--nessa-font-size-2);
+    --nessa-font-size-1: var(--nessa-font-size-1);
+}
+
+:root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.52 0 0);
+    --accent: oklch(0.97 0 0);
+    --accent-foreground: oklch(0.205 0 0);
+    --destructive: oklch(0.577 0.235 27.325);
+    --destructive-foreground: oklch(0.985 0 0);
+    --border: oklch(0.922 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.556 0 0);
+    --sidebar: oklch(0.985 0 0);
+    --sidebar-foreground: oklch(0.141 0.005 285.823);
+    --sidebar-accent: oklch(0.97 0 0);
+    --sidebar-accent-foreground: oklch(0.205 0 0);
+    --sidebar-border: oklch(0.922 0 0);
+    --sidebar-ring: oklch(0.556 0 0);
+    --nessa-motion-duration-instant: 0ms;
+    --nessa-motion-duration-fast: 120ms;
+    --nessa-motion-duration-normal: 200ms;
+    --nessa-motion-duration-slow: 300ms;
+    --nessa-motion-duration-ambient: 3.2s;
+    --nessa-motion-easing-standard: cubic-bezier(0.2, 0, 0, 1);
+    --nessa-motion-easing-emphasized: cubic-bezier(0.4, 0, 0.2, 1);
+    --nessa-thinking-fill-base: oklch(0.56 0.2 265);
+    --nessa-thinking-fill-current: oklch(0.68 0.2 304);
+    --nessa-thinking-fill-highlight: oklch(0.86 0.11 214);
+    --nessa-fast-mode-active: oklch(0.57 0.22 300);
+    --nessa-diff-addition: oklch(0.5 0.137 150);
+    --nessa-diff-deletion: oklch(0.55 0.19 27);
+    --nessa-font-size-1: 0.6875rem;
+    --nessa-font-size-2: 0.75rem;
+    --nessa-font-size-3: 0.8125rem;
+    --nessa-font-size-4: 0.875rem;
+    --nessa-font-size-5: 1rem;
+    --nessa-font-size-6: 1.125rem;
+    --nessa-font-size-7: 1.25rem;
+    --nessa-line-height-1: 1.454545;
+    --nessa-line-height-2: 1.333333;
+    --nessa-line-height-3: 1.538462;
+    --nessa-line-height-4: 1.428571;
+    --nessa-line-height-5: 1.5;
+    --nessa-line-height-6: 1.555556;
+    --nessa-line-height-7: 1.4;
+    --nessa-letter-spacing-1: 0em;
+    --nessa-letter-spacing-2: 0em;
+    --nessa-letter-spacing-3: 0em;
+    --nessa-letter-spacing-4: 0em;
+    --nessa-letter-spacing-5: 0em;
+    --nessa-letter-spacing-6: 0em;
+    --nessa-letter-spacing-7: 0em;
+    --nessa-chart-series-1: oklch(0.7732 0.075 265);
+    --nessa-chart-series-1-strong: oklch(0.46 0.1 265);
+    --nessa-chart-series-2: oklch(0.8656 0.075 45);
+    --nessa-chart-series-2-strong: oklch(0.68 0.1 45);
+    --nessa-chart-series-3: oklch(0.8236 0.075 190);
+    --nessa-chart-series-3-strong: oklch(0.58 0.1 190);
+    --nessa-chart-series-4: oklch(0.9076 0.075 85);
+    --nessa-chart-series-4-strong: oklch(0.78 0.1 85);
+    --nessa-chart-series-5: oklch(0.8446 0.075 15);
+    --nessa-chart-series-5-strong: oklch(0.63 0.1 15);
+    --nessa-chart-series-6: oklch(0.7984 0.075 145);
+    --nessa-chart-series-6-strong: oklch(0.52 0.1 145);
+    --nessa-chart-series-7: oklch(0.79 0.075 305);
+    --nessa-chart-series-7-strong: oklch(0.5 0.1 305);
+    --nessa-chart-series-8: oklch(0.8824 0.071 230);
+    --nessa-chart-series-8-strong: oklch(0.72 0.1 230);
+    --nessa-invalid-ring: color-mix(in oklab, var(--destructive) 20%, transparent);
+    --nessa-diff-dark-addition: oklch(0.6222 0.1661 146.22);
+    --nessa-chat-accent: #0071e3;
+    --nessa-chat-rim-0: rgba(245, 158, 11, 0.06);
+    --nessa-chat-rim-1: rgba(245, 158, 11, 0.22);
+    --nessa-chat-rim-2: rgba(236, 72, 153, 0.42);
+    --nessa-chat-rim-3: rgba(168, 85, 247, 0.62);
+    --nessa-chat-rim-4: rgba(56, 189, 248, 0.85);
+    --nessa-chat-rim-head: #ffffff;
+    --nessa-chart-1: #2a78d6;
+    --nessa-chart-2: #eb6834;
+    --nessa-chart-3: #1baf7a;
+    --nessa-chart-4: #eda100;
+    --nessa-chart-5: #e87ba4;
+    --nessa-chart-6: #4a3aa7;
+}
+
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.704 0.187 22.216);
+    --destructive-foreground: oklch(0.145 0 0);
+    --border: oklch(1 0 0 / 12%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.708 0 0);
+    --sidebar: oklch(0.141 0.005 285.823);
+    --sidebar-foreground: oklch(0.985 0 0);
+    --sidebar-accent: oklch(0.274 0.006 286.033);
+    --sidebar-accent-foreground: oklch(0.985 0 0);
+    --sidebar-border: oklch(0.274 0.006 286.033);
+    --sidebar-ring: oklch(0.708 0 0);
+    --nessa-thinking-fill-base: oklch(0.54 0.19 264);
+    --nessa-thinking-fill-current: oklch(0.67 0.2 306);
+    --nessa-thinking-fill-highlight: oklch(0.82 0.12 210);
+    --nessa-fast-mode-active: oklch(0.72 0.185 306);
+    --nessa-diff-addition: oklch(0.77 0.17 152);
+    --nessa-diff-deletion: oklch(0.7 0.19 25);
+    --nessa-chart-series-1: oklch(0.3442 0.07 265);
+    --nessa-chart-series-1-strong: oklch(0.56 0.1 265);
+    --nessa-chart-series-2: oklch(0.3922 0.07 45);
+    --nessa-chart-series-2-strong: oklch(0.66 0.1 45);
+    --nessa-chart-series-3: oklch(0.3634 0.062 190);
+    --nessa-chart-series-3-strong: oklch(0.6 0.1 190);
+    --nessa-chart-series-4: oklch(0.421 0.07 85);
+    --nessa-chart-series-4-strong: oklch(0.72 0.1 85);
+    --nessa-chart-series-5: oklch(0.373 0.07 15);
+    --nessa-chart-series-5-strong: oklch(0.62 0.1 15);
+    --nessa-chart-series-6: oklch(0.3346 0.07 145);
+    --nessa-chart-series-6-strong: oklch(0.54 0.1 145);
+    --nessa-chart-series-7: oklch(0.3538 0.07 305);
+    --nessa-chart-series-7-strong: oklch(0.58 0.1 305);
+    --nessa-chart-series-8: oklch(0.4018 0.07 230);
+    --nessa-chart-series-8-strong: oklch(0.68 0.1 230);
+    --nessa-invalid-ring: color-mix(in oklab, var(--destructive) 40%, transparent);
+    --nessa-diff-dark-addition: oklch(0.6222 0.1661 146.22);
+    --nessa-chat-accent: #0071e3;
+    --nessa-chat-rim-0: rgba(245, 158, 11, 0.06);
+    --nessa-chat-rim-1: rgba(245, 158, 11, 0.22);
+    --nessa-chat-rim-2: rgba(236, 72, 153, 0.42);
+    --nessa-chat-rim-3: rgba(168, 85, 247, 0.62);
+    --nessa-chat-rim-4: rgba(56, 189, 248, 0.85);
+    --nessa-chat-rim-head: #ffffff;
+    --nessa-chart-1: #3987e5;
+    --nessa-chart-2: #d95926;
+    --nessa-chart-3: #199e70;
+    --nessa-chart-4: #c98500;
+    --nessa-chart-5: #d55181;
+    --nessa-chart-6: #9085e9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root, :where([data-nessa-root], [data-nessa-theme], [data-nessa-scale]) {
+    --nessa-motion-duration-fast: 0ms;
+    --nessa-motion-duration-normal: 0ms;
+    --nessa-motion-duration-slow: 0ms;
+    --nessa-motion-duration-ambient: 0ms;
+    }
+}
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+}
+  :where(:root, [data-nessa-root]) {
+    --_nessa-scale-factor: 1;
+}
+  :where([data-nessa-scale="90"]) {
+    --_nessa-scale-factor: 0.9;
+}
+  :where([data-nessa-scale="95"]) {
+    --_nessa-scale-factor: 0.95;
+}
+  :where([data-nessa-scale="100"]) {
+    --_nessa-scale-factor: 1;
+}
+  :where([data-nessa-scale="105"]) {
+    --_nessa-scale-factor: 1.05;
+}
+  :where([data-nessa-scale="110"]) {
+    --_nessa-scale-factor: 1.1;
+}
+  :where([data-nessa-scale="125"]) {
+    --_nessa-scale-factor: 1.25;
+}
+  :where(:root, [data-nessa-root], [data-nessa-theme], [data-nessa-scale]) {
+    --_nessa-font-size-1: calc(var(--nessa-font-size-1) * var(--_nessa-scale-factor));
+    --_nessa-font-size-2: calc(var(--nessa-font-size-2) * var(--_nessa-scale-factor));
+    --_nessa-font-size-3: calc(var(--nessa-font-size-3) * var(--_nessa-scale-factor));
+    --_nessa-font-size-4: calc(var(--nessa-font-size-4) * var(--_nessa-scale-factor));
+    --_nessa-font-size-5: calc(var(--nessa-font-size-5) * var(--_nessa-scale-factor));
+    --_nessa-font-size-6: calc(var(--nessa-font-size-6) * var(--_nessa-scale-factor));
+    --_nessa-font-size-7: calc(var(--nessa-font-size-7) * var(--_nessa-scale-factor));
+    --_nessa-line-height-1: var(--nessa-line-height-1);
+    --_nessa-line-height-2: var(--nessa-line-height-2);
+    --_nessa-line-height-3: var(--nessa-line-height-3);
+    --_nessa-line-height-4: var(--nessa-line-height-4);
+    --_nessa-line-height-5: var(--nessa-line-height-5);
+    --_nessa-line-height-6: var(--nessa-line-height-6);
+    --_nessa-line-height-7: var(--nessa-line-height-7);
+    --_nessa-letter-spacing-1: var(--nessa-letter-spacing-1);
+    --_nessa-letter-spacing-2: var(--nessa-letter-spacing-2);
+    --_nessa-letter-spacing-3: var(--nessa-letter-spacing-3);
+    --_nessa-letter-spacing-4: var(--nessa-letter-spacing-4);
+    --_nessa-letter-spacing-5: var(--nessa-letter-spacing-5);
+    --_nessa-letter-spacing-6: var(--nessa-letter-spacing-6);
+    --_nessa-letter-spacing-7: var(--nessa-letter-spacing-7);
+}
+  :root, :where([data-nessa-root], [data-nessa-theme], [data-nessa-scale]) {
+    --spacing: calc(0.25rem * var(--_nessa-scale-factor));
+}
+
+@layer components {
+  .nessa-text-1 {
+    font-size: var(--_nessa-font-size-1);
+    line-height: var(--_nessa-line-height-1);
+    letter-spacing: var(--_nessa-letter-spacing-1);
+    }
+  .nessa-text-2 {
+    font-size: var(--_nessa-font-size-2);
+    line-height: var(--_nessa-line-height-2);
+    letter-spacing: var(--_nessa-letter-spacing-2);
+    }
+  .nessa-text-3 {
+    font-size: var(--_nessa-font-size-3);
+    line-height: var(--_nessa-line-height-3);
+    letter-spacing: var(--_nessa-letter-spacing-3);
+    }
+  .nessa-text-4 {
+    font-size: var(--_nessa-font-size-4);
+    line-height: var(--_nessa-line-height-4);
+    letter-spacing: var(--_nessa-letter-spacing-4);
+    }
+  .nessa-text-5 {
+    font-size: var(--_nessa-font-size-5);
+    line-height: var(--_nessa-line-height-5);
+    letter-spacing: var(--_nessa-letter-spacing-5);
+    }
+  .nessa-text-6 {
+    font-size: var(--_nessa-font-size-6);
+    line-height: var(--_nessa-line-height-6);
+    letter-spacing: var(--_nessa-letter-spacing-6);
+    }
+  .nessa-text-7 {
+    font-size: var(--_nessa-font-size-7);
+    line-height: var(--_nessa-line-height-7);
+    letter-spacing: var(--_nessa-letter-spacing-7);
+    }
+  .nessa-text-input {
+    font-size: max(1rem, var(--_nessa-font-size-4));
+    line-height: var(--_nessa-line-height-4);
+    letter-spacing: var(--_nessa-letter-spacing-4);
+    }
+  .nessa-text-input-2 {
+    font-size: max(1rem, var(--_nessa-font-size-2));
+    line-height: var(--_nessa-line-height-2);
+    letter-spacing: var(--_nessa-letter-spacing-2);
+    }
+
+@media (width >= 48rem) {
+  .nessa-text-input {
+    font-size: var(--_nessa-font-size-4);
+        }
+  .nessa-text-input-2 {
+    font-size: var(--_nessa-font-size-2);
+        }
+    }
+}

@@ -1,0 +1,24 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [
+      "vite/client"
+    ],
+    "paths": {
+      "@/*": [
+        "../../packages/ui/src/*"
+      ],
+      "@canopy/shared": [
+        "../../packages/shared/src/index.ts"
+      ],
+      "@canopy/ui": [
+        "../../packages/ui/src/index.ts"
+      ]
+    },
+    "noUncheckedIndexedAccess": false
+  },
+  "include": [
+    "src",
+    "vite.config.ts"
+  ]
+}

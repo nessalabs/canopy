@@ -1,0 +1,96 @@
+/**
+ * Exact per-tool-call edits: a worktree snapshot before and after every tool call that can
+ * write, keyed by the call's id so the Agent tab can fold them into per-turn diffs. Hooks
+ * deliver the before/after moments; git trees hold the content; SQLite holds the index.
+ */
+import type { Database } from 'better-sqlite3'
+
+import type { AgentEdit, AgentProvider } from '@canopy/shared'
+
+import { now } from '../../lib/ids'
+import type { WorktreesService } from '../../worktrees/service'
+import type { ClaudeHookPayload } from './hook'
+import type { Snapshots } from './snapshots'
+import { claudeWrittenFiles } from './written-files'
+
+interface EditRow {
+  provider: string
+  session_id: string
+  tool_use_id: string
+  worktree_id: string
+  path: string
+  before_tree: string
+  after_tree: string
+  attributed: number
+  at: number
+}
+
+const toEdit = (row: EditRow): AgentEdit => ({
+  toolUseId: row.tool_use_id,
+  worktreeId: row.worktree_id,
+  path: row.path,
+  beforeTree: row.before_tree,
+  afterTree: row.after_tree,
+  attributed: row.attributed === 1,
+  at: row.at
+})
+
+interface Pending {
+  worktreeId: string
+  cwd: string
+  tree: string
+}
+
+interface Deps {
+  db: Database
+  worktrees: WorktreesService
+  snapshots: Snapshots
+}
+
+export class EditDiffsService {
+  /** Pre-snapshots waiting for their PostToolUse, by tool_use_id. */
+  private readonly pending = new Map<string, Pending>()
+
+  constructor(private readonly deps: Deps) {}
+
+  list(provider: AgentProvider, sessionId: string): AgentEdit[] {
+    const rows = this.deps.db.prepare('SELECT * FROM agent_edits WHERE provider = ? AND session_id = ? ORDER BY at, path').all(provider, sessionId) as EditRow[]
+    return rows.map(toEdit)
+  }
+
+  /** One hook event. Unknown worktrees are ignored so hooks outside Canopy's projects cost nothing. */
+  async onClaudeHook(payload: ClaudeHookPayload): Promise<void> {
+    await HANDLERS[payload.hook_event_name](this, payload)
+  }
+
+  async pre(payload: ClaudeHookPayload): Promise<void> {
+    const worktree = this.deps.worktrees.containing(payload.cwd)
+    if (!worktree) return
+    const tree = await this.deps.snapshots.take(worktree.path)
+    this.pending.set(payload.tool_use_id, { worktreeId: worktree.id, cwd: worktree.path, tree })
+  }
+
+  async post(payload: ClaudeHookPayload): Promise<void> {
+    const before = this.pending.get(payload.tool_use_id)
+    this.pending.delete(payload.tool_use_id)
+    if (!before) return
+    const after = await this.deps.snapshots.take(before.cwd)
+    const paths = await this.deps.snapshots.changedPaths(before.cwd, before.tree, after)
+    if (paths.length === 0) return
+    const named = new Set(claudeWrittenFiles(payload.tool_name, payload.tool_input, payload.cwd).map((abs) => abs.slice(before.cwd.length + 1)))
+    const insert = this.deps.db.prepare(
+      `INSERT OR REPLACE INTO agent_edits (provider, session_id, tool_use_id, worktree_id, path, before_tree, after_tree, attributed, at)
+       VALUES ('claude', ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    const at = now()
+    this.deps.db.transaction(() => {
+      for (const path of paths) insert.run(payload.session_id, payload.tool_use_id, before.worktreeId, path, before.tree, after, named.has(path) ? 1 : 0, at)
+    })()
+  }
+}
+
+/** Event name → handler; the hook matcher already chose which tools reach us. */
+const HANDLERS: Record<ClaudeHookPayload['hook_event_name'], (service: EditDiffsService, payload: ClaudeHookPayload) => Promise<void>> = {
+  PreToolUse: (service, payload) => service.pre(payload),
+  PostToolUse: (service, payload) => service.post(payload)
+}

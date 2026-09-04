@@ -1,0 +1,14 @@
+appId: ai.nessalabs.canopy
+productName: Canopy
+directories:
+  buildResources: resources
+files:
+  - "out/**"
+  - "package.json"
+linux:
+  target: [AppImage]
+  category: Utility
+mac:
+  target: [dmg]
+win:
+  target: [nsis]

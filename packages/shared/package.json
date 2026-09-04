@@ -1,0 +1,13 @@
+{
+  "name": "@canopy/shared",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": { "zod": "^4.5.4" },
+  "devDependencies": { "vitest": "^4.1.11" }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "canopy",
+  "version": "0.1.0",
+  "description": "Canopy \u2014 a development-environment manager for git worktrees (canopyd daemon + desktop/web clients).",
+  "author": "gp0065@uah.edu",
+  "private": true,
+  "type": "module",
+  "workspaces": ["packages/*", "apps/*"],
+  "scripts": {
+    "dev": "./dev.sh",
+    "daemon": "npm -w @canopy/daemon run dev",
+    "desktop": "npm -w @canopy/desktop run dev",
+    "web": "npm -w @canopy/web run dev",
+    "build:web": "npm -w @canopy/web run build",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "ui:add": "node scripts/ui-add.mjs",
+    "ui:registry": "npx --yes pnpm@11.9.0 --dir ../nessa_ui build:registry",
+    "hooks:setup": "node packages/daemon/bin/canopy-hooks-setup.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.3.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": { "node": ">=22" }
+}

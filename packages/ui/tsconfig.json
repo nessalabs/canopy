@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": [
+      "vite/client"
+    ],
+    "paths": {
+      "@/*": [
+        "./src/*"
+      ],
+      "@canopy/shared": [
+        "../shared/src/index.ts"
+      ]
+    },
+    "noUncheckedIndexedAccess": false
+  },
+  "include": [
+    "src"
+  ]
+}
