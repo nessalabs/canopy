@@ -105,6 +105,9 @@
     --nessa-font-size-3: var(--nessa-font-size-3);
     --nessa-font-size-2: var(--nessa-font-size-2);
     --nessa-font-size-1: var(--nessa-font-size-1);
+    --color-nessa-market-loss: var(--nessa-market-loss);
+    --color-nessa-market-gain: var(--nessa-market-gain);
+    --color-nessa-chart-label-ink: var(--nessa-chart-label-ink);
 }
 
 :root {
@@ -198,6 +201,9 @@
     --nessa-chart-4: #eda100;
     --nessa-chart-5: #e87ba4;
     --nessa-chart-6: #4a3aa7;
+    --nessa-chart-label-ink: oklch(0.205 0 0);
+    --nessa-market-gain: oklch(0.5 0.135 148);
+    --nessa-market-loss: oklch(0.55 0.19 27);
 }
 
 .dark {
@@ -263,6 +269,9 @@
     --nessa-chart-4: #c98500;
     --nessa-chart-5: #d55181;
     --nessa-chart-6: #9085e9;
+    --nessa-chart-label-ink: oklch(0.205 0 0);
+    --nessa-market-gain: oklch(0.8 0.19 150);
+    --nessa-market-loss: oklch(0.7 0.19 25);
 }
 
 @media (prefers-reduced-motion: reduce) {

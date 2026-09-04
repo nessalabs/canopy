@@ -133,7 +133,9 @@ export class ClaudeAdapter implements AgentAdapter {
       return
     }
     let resolvedSession = sessionId ?? ''
-    // A fresh session's id is only known once the SDK's init message arrives (below).
+    // A fresh session's id is only known once the SDK's init message arrives (below); a resume
+    // already knows it. Either way the envelope is announced exactly once.
+    let announced = sessionId !== null
     if (sessionId) yield { type: 'session', provider: this.provider, sessionId }
 
     // Images ride along as content blocks, which needs the structured prompt form.
@@ -173,7 +175,10 @@ export class ClaudeAdapter implements AgentAdapter {
     for await (const message of response) {
       if (message.type === 'system' && 'session_id' in message) {
         resolvedSession = message.session_id
-        if (!sessionId) yield { type: 'session', provider: this.provider, sessionId: resolvedSession }
+        if (!announced) {
+          yield { type: 'session', provider: this.provider, sessionId: resolvedSession }
+          announced = true
+        }
       }
       if (message.type === 'stream_event') {
         const event = message.event as { type?: string; usage?: { output_tokens?: number } }

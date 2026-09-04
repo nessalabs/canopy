@@ -88,7 +88,7 @@ export const useTranscript = (ref: SessionRef | undefined, cwd: string, paused: 
     queryKey: ref ? keys.transcript(ref) : ['transcript', 'none'],
     queryFn: () => api.transcript(ref as SessionRef, cwd),
     enabled: ref !== undefined,
-    refetchInterval: (query) => (paused() ? false : query.state.data?.live ? 2_000 : 10_000),
+    refetchInterval: (query) => (paused() ? false : query.state.data?.openInTerminal ? 2_000 : 10_000),
     refetchIntervalInBackground: false
   })
 }

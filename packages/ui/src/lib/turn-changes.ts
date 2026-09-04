@@ -1,10 +1,13 @@
 /**
- * Which files each user turn made the agent write. Pure: the transcript already carries
- * `files` on tool items; this groups them under the user message that started the turn.
+ * Which files each turn made the agent write, from the folded transcript. Pure: a turn's tool calls
+ * name their write targets (`filesByCall`, computed daemon-side) and its `file_edits` carry paths;
+ * this groups them under the turn.
  */
-import type { AgentEdit, TranscriptItem } from '@canopy/shared'
+import type { AgentEdit } from '@canopy/shared'
+import type { AgentEvent, Turn } from '@canopy/shared/agent-stream'
+import { AgentEventType, isEvent, isToolGroup } from '@canopy/shared/agent-stream'
 
-/** `latest` follows the newest turn that wrote anything; an id pins one turn. */
+/** `latest` follows the newest turn that wrote anything; a key pins one turn. */
 export type TurnPick = 'latest' | string
 
 /** `abs` as a worktree-relative path, or undefined when it lies outside `root`. */
@@ -13,25 +16,42 @@ export function relativeTo(root: string, abs: string): string | undefined {
   return abs.startsWith(prefix) ? abs.slice(prefix.length) : undefined
 }
 
-/** Files written per turn, keyed by the user item's id; only turns that wrote something inside `root`. */
-export function filesByTurn(items: TranscriptItem[], root: string): ReadonlyMap<string, string[]> {
-  const turns = new Map<string, Set<string>>()
-  let current: Set<string> | undefined
-  for (const item of items) {
-    if (item.role === 'user') {
-      current = new Set()
-      turns.set(item.id, current)
-      continue
-    }
-    for (const file of item.files ?? []) {
-      const path = relativeTo(root, file)
-      if (path) current?.add(path)
-    }
-  }
-  return new Map([...turns].filter(([, files]) => files.size > 0).map(([id, files]) => [id, [...files].sort()]))
+/** The tool-call events in a turn, expanding collapsed same-tool groups back to their calls. */
+function callsOf(turn: Turn): AgentEvent[] {
+  return turn.work.flatMap((item) => (isToolGroup(item) ? [...item.calls] : [item]))
 }
 
-/** The turn a pick names: the last one with changes for `latest`, else the pinned id (undefined once it is gone). */
+/** A path relative to `root`: sliced when it is inside `root`, kept as-is when already relative. */
+function within(root: string, path: string): string | undefined {
+  if (path.startsWith('/')) return relativeTo(root, path)
+  return path
+}
+
+/** Files written per turn, keyed by the turn's key; only turns that wrote something inside `root`. */
+export function filesByTurn(turns: readonly Turn[], filesByCall: Record<string, string[]>, root: string): ReadonlyMap<string, string[]> {
+  const result = new Map<string, string[]>()
+  for (const turn of turns) {
+    const files = new Set<string>()
+    for (const event of callsOf(turn)) {
+      if (isEvent(event, AgentEventType.ToolCallStarted)) {
+        for (const abs of filesByCall[event.payload.callId] ?? []) {
+          const path = relativeTo(root, abs)
+          if (path) files.add(path)
+        }
+      }
+      if (isEvent(event, AgentEventType.FileEdits)) {
+        for (const edit of event.payload.edits) {
+          const path = within(root, edit.path)
+          if (path) files.add(path)
+        }
+      }
+    }
+    if (files.size > 0) result.set(turn.key, [...files].sort())
+  }
+  return result
+}
+
+/** The turn a pick names: the last one with changes for `latest`, else the pinned key (undefined once gone). */
 export function resolveTurn(pick: TurnPick | undefined, byTurn: ReadonlyMap<string, unknown>): string | undefined {
   if (pick === undefined) return undefined
   if (pick === 'latest') return [...byTurn.keys()].at(-1)
@@ -47,38 +67,38 @@ export interface TurnSnapshot {
   unattributed: string[]
 }
 
-/** Folds snapshot edits into turns by joining `toolUseId` to the tool item and that item to its user turn. */
-export function snapshotsByTurn(items: TranscriptItem[], edits: AgentEdit[]): ReadonlyMap<string, TurnSnapshot> {
-  const turnOfTool = new Map<string, string>()
-  let turn: string | undefined
-  for (const item of items) {
-    if (item.role === 'user') turn = item.id
-    else if (item.toolUseId && turn) turnOfTool.set(item.toolUseId, turn)
+/** Folds snapshot edits into turns by joining `toolUseId` (= `callId`) to the tool call and its turn. */
+export function snapshotsByTurn(turns: readonly Turn[], edits: AgentEdit[]): ReadonlyMap<string, TurnSnapshot> {
+  const turnOfCall = new Map<string, string>()
+  for (const turn of turns) {
+    for (const event of callsOf(turn)) {
+      if (isEvent(event, AgentEventType.ToolCallStarted)) turnOfCall.set(event.payload.callId, turn.key)
+    }
   }
   const result = new Map<string, TurnSnapshot>()
   for (const edit of edits) {
-    const id = turnOfTool.get(edit.toolUseId)
-    if (!id) continue
-    const current = result.get(id) ?? { before: edit.beforeTree, after: edit.afterTree, files: [], unattributed: [] }
+    const key = turnOfCall.get(edit.toolUseId)
+    if (!key) continue
+    const current = result.get(key) ?? { before: edit.beforeTree, after: edit.afterTree, files: [], unattributed: [] }
     current.after = edit.afterTree
     if (!current.files.includes(edit.path)) current.files.push(edit.path)
     if (!edit.attributed && !current.unattributed.includes(edit.path)) current.unattributed.push(edit.path)
-    result.set(id, current)
+    result.set(key, current)
   }
   for (const snapshot of result.values()) snapshot.files.sort()
   return result
 }
 
-/** What is known about a turn's changes: the exact snapshot when hooks recorded one, else the files the transcript named. */
+/** What is known about a turn's changes: the exact snapshot when hooks recorded one, else the named files. */
 export interface TurnEntry {
   files: string[]
   snapshot?: TurnSnapshot
 }
 
-/** Snapshots win; transcript-named files fill in for turns without one. Transcript order is kept. */
+/** Snapshots win; transcript-named files fill in for turns without one. Turn order is kept. */
 export function mergeTurns(named: ReadonlyMap<string, string[]>, snapshots: ReadonlyMap<string, TurnSnapshot>): ReadonlyMap<string, TurnEntry> {
   const merged = new Map<string, TurnEntry>()
-  for (const [id, files] of named) merged.set(id, { files })
-  for (const [id, snapshot] of snapshots) merged.set(id, { files: snapshot.files, snapshot })
+  for (const [key, files] of named) merged.set(key, { files })
+  for (const [key, snapshot] of snapshots) merged.set(key, { files: snapshot.files, snapshot })
   return merged
 }

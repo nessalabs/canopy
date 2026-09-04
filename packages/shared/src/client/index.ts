@@ -24,7 +24,7 @@ import type {
   SendMessageInput,
   SessionRef,
   SessionsResponse,
-  Transcript,
+  TranscriptResponse,
   TreeResponse,
   UpdateProjectInput,
   Worktree
@@ -141,7 +141,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     providers: () => get<{ providers: AgentProvider[] }>(routes.providers()).then((r) => r.providers),
     agentSessions: (worktreeId: string, limit = 25) => get<SessionsResponse>(routes.agentSessions(worktreeId), { limit }),
     pinSession: (worktreeId: string, ref: SessionRef) => request<void>('PUT', routes.agentPin(worktreeId), ref),
-    transcript: (ref: SessionRef, cwd?: string) => get<Transcript>(routes.transcript(ref.provider, ref.sessionId), { cwd }),
+    transcript: (ref: SessionRef, cwd?: string) => get<TranscriptResponse>(routes.transcript(ref.provider, ref.sessionId), { cwd }),
     /** Snapshot-backed edits recorded by hooks for a session. */
     agentEdits: (ref: SessionRef) => get<AgentEditsResponse>(routes.agentEdits(ref.provider, ref.sessionId)).then((r) => r.edits),
     streamMessage: (ref: SessionRef, input: SendMessageInput, signal?: AbortSignal) =>
