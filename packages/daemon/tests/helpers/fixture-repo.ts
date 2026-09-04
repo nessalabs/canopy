@@ -1,5 +1,5 @@
 import { execa } from 'execa'
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -14,7 +14,7 @@ export interface FixtureRepo {
 
 /** A throwaway git repo with deterministic identity; every test gets its own. */
 export async function createFixtureRepo(): Promise<FixtureRepo> {
-  const path = mkdtempSync(join(tmpdir(), 'canopy-fixture-'))
+  const path = realpathSync(mkdtempSync(join(tmpdir(), 'canopy-fixture-')))
   const git = async (...args: string[]): Promise<string> => (await execa('git', args, { cwd: path })).stdout
   const write = (files: Record<string, string>): void => {
     for (const [rel, content] of Object.entries(files)) {

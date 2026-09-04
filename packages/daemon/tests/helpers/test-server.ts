@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -21,7 +21,7 @@ export interface TestServer {
 }
 
 export async function createTestServer(): Promise<TestServer> {
-  const home = mkdtempSync(join(tmpdir(), 'canopy-home-'))
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'canopy-home-')))
   const agent = new FakeAgent()
   const app = await buildServer({
     config: { home, port: 0, host: '127.0.0.1', worktreeRoot: join(home, 'worktrees'), dbPath: ':memory:', tokenPath: join(home, 'token') },
