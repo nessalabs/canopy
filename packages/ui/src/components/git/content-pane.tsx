@@ -1,20 +1,32 @@
 import { useState } from 'react'
+import { ArrowLeft } from 'lucide-react'
 
 import type { ChangedFile, DiffSpec, ReviewComment } from '@canopy/shared'
 
 import { WorktreeDiff, type DiffMode } from '@/components/worktree-diff'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { DiffStat, FileDiffPath } from '@/components/ui/file-diff-list'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useFilePatch } from '@/lib/api-hooks'
 import { isMarkdownPath } from '@/lib/language'
 import { FILE_STATUS_LABEL } from '@/lib/status'
 
-import { FileViewer, MarkdownPreview } from './file-viewer'
+import { FileViewer, MarkdownPreview, type OpenPath } from './file-viewer'
 
 type View = 'diff' | 'file' | 'preview'
 
-interface Props {
+/** How a pane was reached, and where its own links lead: shared by the changed-file and loose panes. */
+interface Navigation {
+  /** A heading to scroll to, carried in from the link that opened this file. */
+  anchor?: string
+  /** Follow a link out of this file, to whatever path it resolves to in the worktree. */
+  onOpenPath?: OpenPath
+  /** Return to the file this one was opened from; absent at the start of a trail. */
+  onBack?: () => void
+}
+
+interface Props extends Navigation {
   worktreeId: string
   spec: DiffSpec
   file: ChangedFile
@@ -40,13 +52,30 @@ const revOf = (spec: DiffSpec): string | undefined => (spec.kind === 'commit' ? 
 const BODY: Record<View, (props: Props) => React.JSX.Element> = {
   diff: DiffBody,
   file: ({ worktreeId, spec, file }) => <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} />,
-  preview: ({ worktreeId, spec, file }) => <MarkdownPreview worktreeId={worktreeId} path={file.path} rev={revOf(spec)} />
+  preview: ({ worktreeId, spec, file, anchor, onOpenPath }) => (
+    <MarkdownPreview worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} onOpenPath={onOpenPath} />
+  )
+}
+
+/** The header every pane shares: where you came from, which file this is, and how to read it. */
+function PaneHeader({ path, onBack, children }: { path: string; onBack?: () => void; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-muted/30 px-3 py-2">
+      {onBack ? (
+        <Button variant="ghost" size="icon" className="size-6 shrink-0" aria-label="Back to the previous file" onClick={onBack}>
+          <ArrowLeft className="size-3.5" />
+        </Button>
+      ) : null}
+      <FileDiffPath path={path} className="min-w-0 flex-1 font-mono text-xs" />
+      {children}
+    </div>
+  )
 }
 
 /** The right-hand pane of the explorer: one file, as its diff, its full contents, or — for markdown — rendered. */
 export function ContentPane(props: Props): React.JSX.Element {
   const [picked, setPicked] = useState<View>()
-  const { file } = props
+  const { file, onBack } = props
   const canView = file.status !== 'D'
   const canPreview = canView && isMarkdownPath(file.path)
   // Markdown opens rendered — the diff of a doc is a click away, but prose is what it is for.
@@ -57,8 +86,7 @@ export function ContentPane(props: Props): React.JSX.Element {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-muted/30 px-3 py-2">
-        <FileDiffPath path={file.path} className="min-w-0 flex-1 font-mono text-xs" />
+      <PaneHeader path={file.path} onBack={onBack}>
         <Badge variant="outline" className="text-[10px]">
           {FILE_STATUS_LABEL[file.status]}
         </Badge>
@@ -70,9 +98,43 @@ export function ContentPane(props: Props): React.JSX.Element {
           </SegmentedControlOption>
           {canPreview ? <SegmentedControlOption value="preview">Preview</SegmentedControlOption> : null}
         </SegmentedControl>
-      </div>
+      </PaneHeader>
       <div className="min-h-0 flex-1 overflow-auto">
         <Body key={`${resolved}:${file.path}`} {...props} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A file the change set does not contain, reached by following a link out of a rendered doc —
+ * a spec pointing at the module it describes, a README pointing at a sibling doc. It has no
+ * diff to show, so it reads as prose or as source, and its own links keep the trail going.
+ */
+export function LooseFilePane({ worktreeId, spec, path, anchor, onOpenPath, onBack }: { worktreeId: string; spec: DiffSpec; path: string } & Navigation): React.JSX.Element {
+  const [picked, setPicked] = useState<View>()
+  const canPreview = isMarkdownPath(path)
+  const view: Exclude<View, 'diff'> = picked === 'file' || !canPreview ? 'file' : 'preview'
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <PaneHeader path={path} onBack={onBack}>
+        <Badge variant="outline" className="text-[10px]">
+          Unchanged
+        </Badge>
+        {canPreview ? (
+          <SegmentedControl value={view} onValueChange={(value) => setPicked(value as View)} aria-label="Content view">
+            <SegmentedControlOption value="file">File</SegmentedControlOption>
+            <SegmentedControlOption value="preview">Preview</SegmentedControlOption>
+          </SegmentedControl>
+        ) : null}
+      </PaneHeader>
+      <div className="min-h-0 flex-1 overflow-auto">
+        {view === 'preview' ? (
+          <MarkdownPreview key={path} worktreeId={worktreeId} path={path} rev={revOf(spec)} anchor={anchor} onOpenPath={onOpenPath} />
+        ) : (
+          <FileViewer key={path} worktreeId={worktreeId} path={path} rev={revOf(spec)} />
+        )}
       </div>
     </div>
   )

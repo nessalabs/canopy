@@ -82,6 +82,10 @@ item lands, delete it here.
 
 ## Git Diff / explorer
 
+- Markdown previews resolve links themselves (`doc-links.ts`): a relative link opens that file
+  in the pane, a `#fragment` scrolls to the heading whose slugged text matches. Relative *images*
+  are still broken — `<img src="./diagram.png">` needs a blob URL from `fileContents`, which only
+  returns text today.
 - `DiffExplorer` split sizes are not persisted; wire `SplitView.onLayoutCommit` → localStorage
   once layouts settle. Same for the right-hand side panel width in `app-layout.tsx`.
 - The Files side panel reads text only (`CodeBlock`). Images/PDF/CSV could go through nessa

@@ -13,13 +13,20 @@ import { groupBy } from '@/lib/group'
 import { useElementWidth } from '@/lib/use-element-width'
 import { useHighlighterWarmup } from '@/lib/use-highlighter-warmup'
 
-import { ContentPane } from './content-pane'
+import { ContentPane, LooseFilePane } from './content-pane'
+import type { OpenPath } from './file-viewer'
 import { ChangedFilesTree } from './file-tree'
 
 /** Where the explorer should land: a file, and optionally a comment inside it to scroll to. */
 export interface ExplorerFocus {
   path: string
   commentId?: string
+}
+
+/** One file the pane has shown, and the heading the link that opened it named. */
+interface Stop {
+  path: string
+  hash?: string
 }
 
 /** Tree beside the content, tree above it, or tree in a popover — chosen from the container width. */
@@ -86,14 +93,20 @@ export function DiffExplorer({
   const arrangement = arrangementFor(useElementWidth(container))
   // Start resolving the grammars this change set needs now, not when a file is first clicked.
   useHighlighterWarmup(useMemo(() => files.map((file) => file.path), [files]))
-  const [picked, setPicked] = useState<string>()
-  useEffect(() => setPicked(focus?.path), [focus])
-  const selectedPath = picked ?? files[0]?.path
+  // Where the pane is, and how it got there: following a link inside a rendered doc pushes a
+  // stop, Back pops one. An empty trail means the first changed file, whatever that is today.
+  const [trail, setTrail] = useState<Stop[]>([])
+  useEffect(() => setTrail(focus === undefined ? [] : [{ path: focus.path }]), [focus])
+  const stop = trail.at(-1)
+  const selectedPath = stop?.path ?? files[0]?.path
   const selected = files.find((f) => f.path === selectedPath)
+  const openPath: OpenPath = (path, hash) =>
+    setTrail((current) => [...(current.length > 0 || selectedPath === undefined ? current : [{ path: selectedPath }]), { path, hash }])
+  const onBack = trail.length > 1 ? () => setTrail((current) => current.slice(0, -1)) : undefined
   const byFile = useMemo(() => groupBy(comments, (c) => c.file), [comments])
   const counts = useMemo(() => new Map([...byFile].map(([file, list]) => [file, list.length])), [byFile])
 
-  const tree = <ChangedFilesTree files={files} commentCounts={counts} selected={selectedPath} onSelect={setPicked} className="h-full" />
+  const tree = <ChangedFilesTree files={files} commentCounts={counts} selected={selectedPath} onSelect={(path) => setTrail([{ path }])} className="h-full" />
   const content = selected ? (
     <ContentPane
       key={selected.path}
@@ -103,7 +116,13 @@ export function DiffExplorer({
       comments={byFile.get(selected.path) ?? []}
       mode={mode}
       focusCommentId={focus?.path === selected.path ? focus.commentId : undefined}
+      anchor={stop?.hash}
+      onOpenPath={openPath}
+      onBack={onBack}
     />
+  ) : stop ? (
+    // A doc linked somewhere the change set does not reach — read it anyway, outside the diff.
+    <LooseFilePane key={stop.path} worktreeId={worktreeId} spec={spec} path={stop.path} anchor={stop.hash} onOpenPath={openPath} onBack={onBack} />
   ) : null
 
   return (
