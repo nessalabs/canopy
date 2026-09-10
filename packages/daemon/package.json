@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "bin": { "canopyd": "./bin/canopyd.mjs" },
+  "bin": {
+    "canopyd": "./bin/canopyd.mjs",
+    "canopy": "./bin/canopy.mjs"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
