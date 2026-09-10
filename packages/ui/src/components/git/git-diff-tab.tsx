@@ -50,19 +50,19 @@ export function GitDiffTab({ worktree, agent, onSendForReview }: { worktree: Wor
 
   return (
     <>
-      <Tabs value={pane} onValueChange={(value) => setPane(value as Pane)}>
+      <Tabs value={pane} onValueChange={(value) => setPane(value as Pane)} className="flex-1">
         <TabsList>
           <TabsTrigger value="changes">Changes{worktree.status?.dirtyTotal ? ` · ${worktree.status.dirtyTotal}` : ''}</TabsTrigger>
           <TabsTrigger value="history">History</TabsTrigger>
           <TabsTrigger value="comments">Comments{comments.length ? ` · ${comments.length}` : ''}</TabsTrigger>
         </TabsList>
-        <TabsContent value="changes" className="mt-3">
+        <TabsContent value="changes" className="mt-3 flex min-h-0 flex-1 flex-col">
           <ChangesView worktree={worktree} focus={focusFor('changes')} {...shared} />
         </TabsContent>
-        <TabsContent value="history" className="mt-3">
+        <TabsContent value="history" className="mt-3 flex min-h-0 flex-1 flex-col">
           <HistoryView worktreeId={worktree.id} focusCommit={jump?.commitSha} focus={focusFor('history')} {...shared} />
         </TabsContent>
-        <TabsContent value="comments" className="mt-3">
+        <TabsContent value="comments" className="mt-3 overflow-y-auto">
           <CommentsPanel worktreeId={worktree.id} comments={comments} onJump={onJump} />
         </TabsContent>
       </Tabs>

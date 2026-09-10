@@ -46,7 +46,7 @@ export function HistoryView({
   if (commits.length === 0) return <div className="rounded-xl border border-border py-10 text-center text-sm text-muted-foreground">No commits yet.</div>
 
   return (
-    <div className="h-[calc(100vh-260px)] min-h-[420px] overflow-hidden rounded-xl border border-border">
+    <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
       <SplitView orientation={SplitViewOrientation.Horizontal} className="h-full">
         <SplitViewPanel id="commits" defaultSize={32} minSize={20} className="min-h-0 border-r border-border bg-card">
           <CommitList

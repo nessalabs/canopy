@@ -152,7 +152,7 @@ export function ChangesView({
   const panel = useCommitPanel(worktree.id, listed, against === 'head')
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       <ReviewToolbar files={files} comments={uncommitted} mode={mode} onModeChange={onModeChange} onSendForReview={onSendForReview} sending={sending}>
         <SegmentedControl value={against} onValueChange={(value) => setAgainst(value as Against)} aria-label="Compare against">
           <SegmentedControlOption value="head">vs HEAD</SegmentedControlOption>
@@ -209,7 +209,7 @@ export function ChangesView({
           focus={focus}
           commit={panel?.selection}
           treeFooter={panel ? <CommitBox worktreeId={worktree.id} branch={listed?.branch ?? worktree.branch} files={files} operation={listed?.operation ?? null} /> : undefined}
-          className="h-[calc(100vh-330px)] min-h-[420px] overflow-hidden rounded-xl border border-border"
+          className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border"
         />
       ) : null}
     </div>
