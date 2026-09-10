@@ -1,0 +1,58 @@
+# Canopy, run by Canopy: every worktree gets its own daemon and web client on their own ports,
+# with a private daemon home, so a branch can be tried in a separate window without touching
+# the daemon that manages the worktrees themselves.
+version: 1
+name: canopy
+
+# Allocated from the daemon's port range per worktree (a `preferred:` outside that range is ignored).
+ports:
+  api:
+    description: canopyd for this worktree
+  web:
+    description: web client (vite dev server)
+
+env:
+  # A daemon refuses to share a home with another (pid file), and sharing state.db would have
+  # two daemons supervising the same worktrees — so each checkout keeps its own.
+  CANOPY_HOME: ${worktree.path}/.canopy-home
+  CANOPY_PORT: ${ports.api}
+
+setup:
+  # node_modules is copied from the source checkout by the cache step; only a changed lockfile
+  # needs a real install.
+  - name: install
+    run: npm install
+    if_changed: [package-lock.json]
+
+services:
+  web:
+    description: the web client, pointed at this worktree's daemon and already signed in
+    depends_on: [daemon]
+    cwd: apps/web
+    # Only `web` is this service's own port; `${ports.api}` below is the daemon it talks to.
+    ports: [web]
+    # Bound to 127.0.0.1 explicitly: vite's default `localhost` resolves to ::1 first on macOS,
+    # which the health check (and the "Open" button) would then miss.
+    run: >-
+      VITE_CANOPY_DAEMON_URL=http://127.0.0.1:${ports.api}
+      VITE_CANOPY_TOKEN="$(cat "$CANOPY_HOME/token")"
+      npx vite --host 127.0.0.1 --port ${ports.web} --strictPort
+    health:
+      http: http://127.0.0.1:${ports.web}/
+      start_period: 10s
+  daemon:
+    description: this worktree's canopyd (tsx watch), with the main checkout registered as a project
+    run: |
+      npm -w @canopy/daemon run dev &
+      pid=$!
+      until curl -fs "http://127.0.0.1:${ports.api}/healthz" >/dev/null 2>&1; do sleep 0.5; done
+      repo="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+      curl -s -o /dev/null -w "register $repo: HTTP %{http_code}\n" \
+        -X POST "http://127.0.0.1:${ports.api}/api/v1/projects" \
+        -H "Authorization: Bearer $(cat "$CANOPY_HOME/token")" -H 'content-type: application/json' \
+        -d "{\"path\":\"$repo\"}"
+      echo "canopyd ready on http://127.0.0.1:${ports.api} · token $(cat "$CANOPY_HOME/token")"
+      wait $pid
+    health:
+      http: http://127.0.0.1:${ports.api}/healthz
+      start_period: 15s
