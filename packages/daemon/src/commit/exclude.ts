@@ -5,7 +5,8 @@
  * The pattern files are shared with the user, who has their own lines in them, so Canopy only
  * ever appends inside a marked block and only ever claims the lines in that block as its own.
  */
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { dirname } from 'node:path'
 
 /** Everything below this line in a pattern file is Canopy's to list and remove. */
 export const MANAGED_MARKER = '# canopy: hidden from the commit panel'
@@ -65,5 +66,8 @@ export const readIfPresent = async (file: string): Promise<string> => readFile(f
 export async function editPatternFile(file: string, edit: (contents: string) => string): Promise<void> {
   const before = await readIfPresent(file)
   const after = edit(before)
-  if (after !== before) await writeFile(file, after, 'utf8')
+  if (after === before) return
+  // `.git/info/` is not guaranteed to exist: some repos are cloned or initialised without it.
+  await mkdir(dirname(file), { recursive: true })
+  await writeFile(file, after, 'utf8')
 }

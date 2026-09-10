@@ -1,3 +1,6 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { hashPatch, routes, type ChangedFile, type ChangesResponse, type HunkStatesResponse } from '@canopy/shared'
@@ -15,7 +18,17 @@ describe('commit panel', () => {
   let server: TestServer
   let repo: FixtureRepo
   let worktreeId: string
+  let projectId: string
 
+  const settled = async (id: string) => {
+    for (let i = 0; i < 200; i++) {
+      const { body } = await server.call('GET', routes.worktree(id))
+      const state = body.worktree.environment.state
+      if (state !== 'creating' && state !== 'provisioning') return body.worktree
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+    throw new Error('worktree never left creating')
+  }
   const changes = async (): Promise<ChangesResponse> => (await server.call('GET', routes.changes(worktreeId))).body
   const fileNamed = async (path: string): Promise<ChangedFile | undefined> => (await changes()).files.find((file) => file.path === path)
   const hunks = async (path: string): Promise<HunkStatesResponse> =>
@@ -25,8 +38,8 @@ describe('commit panel', () => {
     server = await createTestServer()
     repo = await createFixtureRepo()
     await repo.commit({ 'big.txt': lines(), 'a.txt': 'a\n', 'b.txt': 'b\n' }, 'init')
-    const project = (await server.call('POST', routes.projects(), { path: repo.path, defaultBase: 'main' })).body.project
-    worktreeId = (await server.call('GET', routes.project(project.id))).body.worktrees[0].id
+    projectId = (await server.call('POST', routes.projects(), { path: repo.path, defaultBase: 'main' })).body.project.id
+    worktreeId = (await server.call('GET', routes.project(projectId))).body.worktrees[0].id
   })
   afterEach(async () => {
     await server.close()
@@ -158,6 +171,26 @@ describe('commit panel', () => {
 
     await server.call('POST', routes.unhide(worktreeId), { paths: ['secret.env'] })
     expect((await changes()).files.map((file) => file.path)).toContain('secret.env')
+  })
+
+  it('hides a path from a linked worktree in the exclude file git actually reads', async () => {
+    const created = await server.call('POST', routes.projectWorktrees(projectId), { name: 'linked', branch: { mode: 'new', name: 'linked', base: 'main' } })
+    const linked = await settled(created.body.worktree.id)
+    repo.write({ 'secret.env': 'token\n' })
+    writeFileSync(join(linked.path, 'secret.env'), 'token\n')
+
+    const hidden = (await server.call('POST', routes.exclude(linked.id), { paths: ['secret.env'], how: 'exclude' })).body.hidden
+    expect(hidden).toEqual([{ path: 'secret.env', how: 'exclude' }])
+    // A linked worktree's git dir is `.git/worktrees/<name>`, which has no `info/`; the pattern
+    // belongs in the repo's shared exclude file, where it hides the path in every worktree.
+    expect(existsSync(join(repo.path, '.git', 'worktrees', 'linked', 'info'))).toBe(false)
+    expect(readFileSync(join(repo.path, '.git', 'info', 'exclude'), 'utf8')).toContain('secret.env')
+    expect((await server.call('GET', routes.changes(linked.id))).body.files.map((file: ChangedFile) => file.path)).not.toContain('secret.env')
+    expect((await changes()).files.map((file) => file.path)).not.toContain('secret.env')
+    expect((await server.call('GET', routes.hidden(linked.id))).body.hidden).toEqual([{ path: 'secret.env', how: 'exclude' }])
+
+    await server.call('POST', routes.unhide(linked.id), { paths: ['secret.env'] })
+    expect((await server.call('GET', routes.changes(linked.id))).body.files.map((file: ChangedFile) => file.path)).toContain('secret.env')
   })
 
   it('hides local edits to a tracked file with skip-worktree, and lists it as hidden', async () => {

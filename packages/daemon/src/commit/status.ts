@@ -31,16 +31,27 @@ const OPERATIONS: ReadonlyArray<[GitOperation, string]> = [
  * files have to be resolved through git. It never changes for a given checkout, so it is resolved
  * once — the changes list is polled every few seconds and this must not cost a process each time.
  */
-const gitDirs = new Map<string, string>()
+const gitPaths = new Map<string, string>()
+
+/**
+ * Where git keeps `name` for this checkout, as an absolute path. Some files live in the linked
+ * worktree's own dir (`MERGE_HEAD`, `rebase-merge`) and some in the dir shared with every worktree
+ * of the repo (`info/exclude`, `config`); `git rev-parse --git-path` knows which, so the caller
+ * never has to. Resolved once per checkout and name — it never changes.
+ */
+export async function gitPathOf(repo: Repo, cwd: string, name: string): Promise<string> {
+  const key = `${cwd}\0${name}`
+  const cached = gitPaths.get(key)
+  if (cached !== undefined) return cached
+  const resolved = await repo.gitPath(cwd, name)
+  const absolute = resolved.startsWith('/') ? resolved : join(cwd, resolved)
+  gitPaths.set(key, absolute)
+  return absolute
+}
 
 export async function gitDirOf(repo: Repo, cwd: string): Promise<string> {
-  const cached = gitDirs.get(cwd)
-  if (cached !== undefined) return cached
   // `--git-path .` resolves to the git dir itself, with a trailing '/.' to strip.
-  const resolved = (await repo.gitPath(cwd, '.')).replace(/\/\.$/, '')
-  const absolute = resolved.startsWith('/') ? resolved : join(cwd, resolved)
-  gitDirs.set(cwd, absolute)
-  return absolute
+  return (await gitPathOf(repo, cwd, '.')).replace(/\/\.$/, '')
 }
 
 export async function operationIn(repo: Repo, cwd: string): Promise<GitOperation | null> {

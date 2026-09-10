@@ -38,7 +38,7 @@ import { badRequest, conflict } from '../lib/errors'
 import { EMPTY_TREE, repoPath, type HistoryService } from '../worktrees/history'
 import type { WorktreesService } from '../worktrees/service'
 import { editPatternFile, managedPatterns, readIfPresent, toPattern, withPatterns, withoutPatterns } from './exclude'
-import { gitDirOf, operationIn } from './status'
+import { gitPathOf, operationIn } from './status'
 
 /** Signing without a cached passphrase blocks on a pinentry prompt that will never come. */
 const COMMIT_TIMEOUT_MS = 120_000
@@ -225,7 +225,9 @@ export class CommitService {
   // ---- keeping paths out of commits ----
 
   private async patternFiles(cwd: string): Promise<{ exclude: string; gitignore: string }> {
-    return { exclude: join(await gitDirOf(this.deps.repo, cwd), 'info', 'exclude'), gitignore: join(cwd, '.gitignore') }
+    // Not `<git dir>/info/exclude`: a linked worktree's git dir is `.git/worktrees/<name>`, and git
+    // reads local excludes from the dir shared by every worktree of the repo. Git knows where that is.
+    return { exclude: await gitPathOf(this.deps.repo, cwd, 'info/exclude'), gitignore: join(cwd, '.gitignore') }
   }
 
   async hidden(worktreeId: string): Promise<HiddenPath[]> {
