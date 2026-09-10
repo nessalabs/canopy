@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { FileDiff, FileText, Globe, Pencil, Puzzle, Search, Terminal, Users, Wrench } from 'lucide-react'
 
 import type { TurnImage } from '@canopy/shared'
@@ -16,6 +16,7 @@ import { RandomAvatar } from '@/components/ui/random-avatar'
 import { ToolCall, ToolCallContent, ToolCallTrigger } from '@/components/ui/tool-call'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { plural } from '@/lib/format'
+import { rowsByTurn } from '@/lib/turn-rows'
 import { useTheme } from '@/lib/use-theme'
 import { cn } from '@/lib/utils'
 
@@ -236,11 +237,13 @@ export function TranscriptView({
   const turns = transcript.turns
   const railTurns = turns.filter((turn): turn is Turn & { prompt: AgentEvent } => turn.prompt !== null && isEvent(turn.prompt, AgentEventType.UserMessage) && !turn.prompt.payload.synthetic)
   const [activeTurn, setActiveTurn] = useState<string>()
-  const rows = useRef(new Map<string, HTMLElement>())
+  const rowRefs = useRef(new Map<string, HTMLElement>())
+  // Each turn's rows, with the closing text the fold lifted into `finalText` put back in place.
+  const rows = useMemo(() => rowsByTurn(transcript), [transcript])
   const empty = turns.length === 0 && !pending && !streamingText
   const jumpTo = (key: string): void => {
     setActiveTurn(key)
-    rows.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    rowRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   const promptText = (turn: Turn): string =>
@@ -271,8 +274,8 @@ export function TranscriptView({
                 <div
                   key={turn.key}
                   ref={(el) => {
-                    if (el) rows.current.set(turn.key, el)
-                    else rows.current.delete(turn.key)
+                    if (el) rowRefs.current.set(turn.key, el)
+                    else rowRefs.current.delete(turn.key)
                   }}
                   className="scroll-mt-2"
                 >
