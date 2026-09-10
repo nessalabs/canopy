@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { AtSign, Brain, FileDiff, Plus } from 'lucide-react'
+import { AtSign, Brain, FileDiff, Plus, Square } from 'lucide-react'
 
 import { ImageMediaType, type ChangedFile, type Effort } from '@canopy/shared'
 
@@ -222,6 +222,16 @@ export function AgentComposer({
             onValueChange={(value) => agent.setEffort(value as Effort)}
             triggerLabel="Reasoning effort"
           />
+          {busy ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ChatComposerAction aria-label="Stop the agent" onClick={agent.turn.stop} className="text-destructive">
+                  <Square aria-hidden="true" />
+                </ChatComposerAction>
+              </TooltipTrigger>
+              <TooltipContent>Stop this turn</TooltipContent>
+            </Tooltip>
+          ) : null}
           <ChatComposerSubmit aria-label="Send" disabled={!canSend} loading={busy} />
         </ChatComposerActions>
       </ChatComposerFooter>

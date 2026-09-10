@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
-import type { AgentProvider, AgentStreamEvent, ReviewRequest, SessionRef, TranscriptResponse, TurnAttachment, TurnImage, TurnOptions } from '@canopy/shared'
+import type { AgentProvider, AgentStreamEvent, PermissionDecisionInput, ReviewRequest, SessionRef, TranscriptResponse, TurnAttachment, TurnImage, TurnOptions } from '@canopy/shared'
 import type { AgentEvent, AgentEventPayload } from '@canopy/shared/agent-stream'
 
 import type { Activity } from '../components/agent/activity-orb'
@@ -193,7 +193,31 @@ export function useAgentTurn(worktreeId: string, ref: SessionRef | undefined, fr
     [api, options, run, worktreeId, nextSeqFor]
   )
 
-  return { ...state, sendMessage, sendReview }
+  /** Ends the running turn: closing the stream is what makes the daemon abort the agent. */
+  const stop = useCallback((): void => {
+    if (!abortRef.current || abortRef.current.signal.aborted) return
+    abortRef.current.abort()
+    dispatch({ type: 'finish' })
+    // Whatever the agent got done before the stop is in the session file now.
+    if (ref) void queryClient.invalidateQueries({ queryKey: keys.transcript(ref) })
+  }, [queryClient, ref])
+
+  /**
+   * Answers a `permission_requested` ask of the running turn. A new session has no `ref` yet, but
+   * its id arrived in the `session` frame before the agent could ask anything.
+   */
+  const answerPermission = useCallback(
+    (input: PermissionDecisionInput): Promise<void> => {
+      const target = ref ?? (fresh && state.sessionId ? { provider: fresh, sessionId: state.sessionId } : undefined)
+      if (!target) return Promise.resolve()
+      return api.answerPermission(target, input).catch((error: unknown) => {
+        dispatch({ type: 'finish', error: error instanceof Error ? error.message : String(error) })
+      })
+    },
+    [api, fresh, ref, state.sessionId]
+  )
+
+  return { ...state, sendMessage, sendReview, answerPermission, stop }
 }
 
 export type AgentTurn = ReturnType<typeof useAgentTurn>

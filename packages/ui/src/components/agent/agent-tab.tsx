@@ -121,6 +121,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             filesByTurn={filesOnly}
             openInTerminal={agent.history.data?.openInTerminal}
             onReviewTurn={show}
+            onAnswerPermission={agent.turn.answerPermission}
             className="min-h-0 flex-1"
           />
           <AgentComposer
