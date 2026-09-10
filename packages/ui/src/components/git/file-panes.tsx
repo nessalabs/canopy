@@ -4,21 +4,29 @@ import { Columns2, GripVertical, Maximize2, Minimize2, Rows2, X } from 'lucide-r
 import { AppShell, AppShellBody, AppShellMain, AppShellPaneDragHandle, AppShellWorkspace, useAppShell } from '@/components/composites/app-shell'
 import { IconAction } from '@/components/icon-action'
 import { PaneSplitDirection, collectPanes, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
+import type { FileStop } from '@/lib/use-file-trail'
 
 import { FilePane } from './content-pane'
 
-/** The heading a doc link named, and the pane and file it was meant for. */
-interface Anchor {
-  paneId: string
-  path: string
-  hash?: string
+/**
+ * Each pane's trail: the files links were followed through, in the order they were followed,
+ * with the heading each landed on. This is what Back walks, not the pane's list of open views —
+ * that list keeps the order files were first opened in, which stops matching the way back the
+ * moment a file is returned to and a second link followed out of it.
+ */
+type Trails = Record<string, FileStop[] | undefined>
+
+/**
+ * The trail as it stands for a pane showing `path`: the one recorded, so long as it still ends
+ * where it led. Picking a different file from the tree leaves the trail behind, and Back with it.
+ */
+export function liveTrail(trail: FileStop[] | undefined, path: string): FileStop[] | undefined {
+  return trail !== undefined && trail.at(-1)?.path === path ? trail : undefined
 }
 
-/** The file a pane is showing, and the one it would go back to — the previous file opened here. */
-function history(pane: PaneNode): { path?: string; previous?: string } {
-  const path = pane.activeViewId
-  const index = path === undefined ? -1 : pane.views.indexOf(path)
-  return { path, previous: index > 0 ? pane.views[index - 1] : undefined }
+/** The trail after following a link out of `path`, which starts a trail if none was live. */
+export function followLink(trail: FileStop[] | undefined, path: string, next: string, hash?: string): FileStop[] {
+  return [...(liveTrail(trail, path) ?? [{ path }]), { path: next, hash }]
 }
 
 /** Split this file off, blow it up to the whole browser, or close it. */
@@ -48,9 +56,9 @@ function PaneActions({ pane }: { pane: PaneNode }): React.JSX.Element {
 }
 
 /** One pane: the file it holds, or the invitation to pick one when it was just split off. */
-function Pane({ pane, worktreeId, anchor, onAnchor }: { pane: PaneNode; worktreeId: string; anchor?: Anchor; onAnchor: (anchor: Anchor) => void }): React.JSX.Element {
+function Pane({ pane, worktreeId, trail, onTrail }: { pane: PaneNode; worktreeId: string; trail?: FileStop[]; onTrail: (trail: FileStop[]) => void }): React.JSX.Element {
   const { openView } = useAppShell()
-  const { path, previous } = history(pane)
+  const path = pane.activeViewId
   const actions = <PaneActions pane={pane} />
 
   if (path === undefined) {
@@ -68,17 +76,27 @@ function Pane({ pane, worktreeId, anchor, onAnchor }: { pane: PaneNode; worktree
     )
   }
 
+  const live = liveTrail(trail, path)
+  const previous = live && live.length > 1 ? live.at(-2) : undefined
+
   return (
     <FilePane
       worktreeId={worktreeId}
       path={path}
       dragPaneId={pane.id}
-      anchor={anchor?.paneId === pane.id && anchor.path === path ? anchor.hash : undefined}
+      anchor={live?.at(-1)?.hash}
       onOpenPath={(next, hash) => {
-        onAnchor({ paneId: pane.id, path: next, hash })
+        onTrail(followLink(trail, path, next, hash))
         openView({ viewId: next, paneId: pane.id })
       }}
-      onBack={previous === undefined ? undefined : () => openView({ viewId: previous, paneId: pane.id })}
+      onBack={
+        live === undefined || previous === undefined
+          ? undefined
+          : () => {
+              onTrail(live.slice(0, -1))
+              openView({ viewId: previous.path, paneId: pane.id })
+            }
+      }
       actions={actions}
       className="bg-card"
     />
@@ -94,7 +112,7 @@ function Pane({ pane, worktreeId, anchor, onAnchor }: { pane: PaneNode; worktree
  * to the file it came from.
  */
 export function FilePanes({ worktreeId, layout, onLayoutChange }: { worktreeId: string; layout: AppShellLayout; onLayoutChange: (layout: AppShellLayout) => void }): React.JSX.Element {
-  const [anchor, setAnchor] = useState<Anchor>()
+  const [trails, setTrails] = useState<Trails>({})
   return (
     <AppShell layout={layout} onLayoutChange={onLayoutChange} className="h-full">
       <AppShellBody>
@@ -102,7 +120,9 @@ export function FilePanes({ worktreeId, layout, onLayoutChange }: { worktreeId: 
           <AppShellWorkspace
             minPaneSize="120px"
             separatorLabel="Resize the open files"
-            renderPane={(pane) => <Pane pane={pane} worktreeId={worktreeId} anchor={anchor} onAnchor={setAnchor} />}
+            renderPane={(pane) => (
+              <Pane pane={pane} worktreeId={worktreeId} trail={trails[pane.id]} onTrail={(trail) => setTrails((current) => ({ ...current, [pane.id]: trail }))} />
+            )}
           />
         </AppShellMain>
       </AppShellBody>
