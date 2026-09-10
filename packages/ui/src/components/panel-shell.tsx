@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Columns2, GripVertical, Maximize2, Minimize2, Rows2, X } from 'lucide-react'
+import { Columns2, GripVertical, Maximize2, Minimize2, RotateCcw, Rows2, X } from 'lucide-react'
 
 import {
   AppShell,
@@ -14,6 +14,7 @@ import { IconAction } from '@/components/icon-action'
 import { PaneSplitDirection, closePane as closePaneOp, collectPanes, splitPane, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
 import { placementOf, reinsertPane, type Placement } from '@/lib/panel-placement'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export interface PanelRequest {
@@ -98,14 +99,15 @@ function persist(storageKey: string, layout: AppShellLayout): void {
 /**
  * A user-arrangeable panel grid over nessa's AppShell workspace: panels
  * split, resize from separators, swap by dragging their grips, maximize,
- * and close — and the arrangement persists per `storageKey`. `resetToken`
- * increments discard the stored layout.
+ * and close — and the arrangement persists per `storageKey`.
+ *
+ * Its own toolbar row carries the reopen chips for closed panels and the
+ * reset, so a host never has to spend a second row on layout controls.
  */
 export function PanelShell({
   storageKey,
   buildDefaultLayout,
   panels,
-  resetToken = 0,
   onVisibleChange,
   request,
   className
@@ -113,7 +115,6 @@ export function PanelShell({
   storageKey: string
   buildDefaultLayout: () => AppShellLayout
   panels: PanelDef[]
-  resetToken?: number
   /** Called with the ids of the panels currently on screen whenever the arrangement changes. */
   onVisibleChange?: (panelIds: string[]) => void
   /** A host request about one panel; each new `nonce` applies it once. */
@@ -132,16 +133,17 @@ export function PanelShell({
   }, [storageKey])
   const [layout, setLayout] = useState<AppShellLayout>(initial)
 
-  useEffect(() => {
-    if (resetToken === 0) return
+  // Read through a ref so hosts can pass an inline builder without re-arming the reset.
+  const build = useRef(buildDefaultLayout)
+  build.current = buildDefaultLayout
+  const resetLayout = useCallback(() => {
     try {
       localStorage.removeItem(storageKey)
     } catch {
       // storage may be unavailable; the in-memory reset still applies
     }
-    setLayout(buildDefaultLayout())
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetToken])
+    setLayout(build.current())
+  }, [storageKey])
 
   const visible = useMemo(() => collectPanes(layout.workspace.root).flatMap((pane) => (pane.activeViewId ? [pane.activeViewId] : [])), [layout])
   useEffect(() => onVisibleChange?.(visible), [visible, onVisibleChange])
@@ -200,17 +202,28 @@ export function PanelShell({
 
   return (
     <div className={cn('flex flex-col overflow-hidden rounded-xl border border-border', className)}>
-      {hidden.length > 0 ? (
-        <div className="flex flex-wrap items-center gap-1 border-b border-border bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
-          <span className="me-1">Hidden:</span>
-          {hidden.map((panel) => (
-            <Button key={panel.id} variant="outline" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={() => openPanel(panel.id)}>
-              {panel.icon ? <panel.icon className="size-3" /> : null}
-              {panel.title}
+      <div className="flex items-center gap-1 border-b border-border bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
+        {hidden.length > 0 ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-1">
+            <span className="me-1">Hidden:</span>
+            {hidden.map((panel) => (
+              <Button key={panel.id} variant="outline" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={() => openPanel(panel.id)}>
+                {panel.icon ? <panel.icon className="size-3" /> : null}
+                {panel.title}
+              </Button>
+            ))}
+          </div>
+        ) : null}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="sm" className="ms-auto h-6 shrink-0 gap-1 px-2 text-xs text-muted-foreground" onClick={resetLayout}>
+              <RotateCcw className="size-3" />
+              Reset layout
             </Button>
-          ))}
-        </div>
-      ) : null}
+          </TooltipTrigger>
+          <TooltipContent>Panels resize from their separators and move by dragging their grips — this puts everything back.</TooltipContent>
+        </Tooltip>
+      </div>
       <AppShell layout={layout} onLayoutChange={handleChange} className="min-h-0 flex-1">
         <AppShellBody>
           <AppShellMain>

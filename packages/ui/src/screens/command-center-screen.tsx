@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Activity, FolderGit2, GitBranch, LayoutPanelLeft, ListTree, Play, Search, Square } from 'lucide-react'
+import { Activity, FolderGit2, GitBranch, ListTree, Play, Search, Square } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { environmentDot, formatMem, isLive, serviceResources, type Worktree } from '@canopy/shared'
@@ -309,7 +309,6 @@ const PANELS: PanelDef[] = [
 
 export function CommandCenterScreen(): React.JSX.Element {
   const projects = useProjects()
-  const [resetToken, setResetToken] = useState(0)
 
   if (projects.data?.length === 0) {
     return (
@@ -323,22 +322,11 @@ export function CommandCenterScreen(): React.JSX.Element {
 
   return (
     <div className="mx-auto flex h-full w-full max-w-7xl flex-col gap-3 px-6 py-5">
-      <div className="flex items-end justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Command Center</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">Every worktree on this daemon, what it's running, and what it costs.</p>
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => setResetToken((token) => token + 1)}>
-              <LayoutPanelLeft className="size-3.5" />
-              Reset layout
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Panels resize from their separators and move by dragging their grips — this puts everything back.</TooltipContent>
-        </Tooltip>
+      <div>
+        <h1 className="text-xl font-semibold tracking-tight">Command Center</h1>
+        <p className="mt-0.5 text-sm text-muted-foreground">Every worktree on this daemon, what it's running, and what it costs.</p>
       </div>
-      <PanelShell storageKey="canopy-cc-layout-v5" buildDefaultLayout={buildCommandCenterLayout} panels={PANELS} resetToken={resetToken} className="min-h-0 flex-1" />
+      <PanelShell storageKey="canopy-cc-layout-v5" buildDefaultLayout={buildCommandCenterLayout} panels={PANELS} className="min-h-0 flex-1" />
     </div>
   )
 }

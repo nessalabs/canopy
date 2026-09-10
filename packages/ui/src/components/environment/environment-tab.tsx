@@ -30,7 +30,7 @@ export function buildEnvironmentLayout(): AppShellLayout {
  * pipeline, services, database forks, live logs and the resolved env. The selected log
  * stream lives here so the Services panel's "Logs" buttons drive the Logs panel.
  */
-export function EnvironmentTab({ worktree, resetToken }: { worktree: Worktree; resetToken: number }): React.JSX.Element {
+export function EnvironmentTab({ worktree }: { worktree: Worktree }): React.JSX.Element {
   const [logService, setLogService] = useState('')
 
   const panels: PanelDef[] = [
@@ -46,7 +46,6 @@ export function EnvironmentTab({ worktree, resetToken }: { worktree: Worktree; r
       storageKey={`canopy-env-layout-v3:${worktree.id}`}
       buildDefaultLayout={buildEnvironmentLayout}
       panels={panels}
-      resetToken={resetToken}
       className="h-full min-h-[480px]"
     />
   )

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { FileDiff, MessageSquare, RotateCcw, Users } from 'lucide-react'
+import { FileDiff, MessageSquare, Users } from 'lucide-react'
 
 import type { Worktree } from '@canopy/shared'
 import type { Turn } from '@canopy/shared/agent-stream'
@@ -7,7 +7,6 @@ import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
 import { ErrorNote } from '@/components/error-note'
 import { PanelShell, type PanelDef, type PanelRequest } from '@/components/panel-shell'
-import { Button } from '@/components/ui/button'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useIsMobile } from '@/components/ui/sidebar/sidebar-provider'
 import { useAgentEdits, useDiffFiles, useProviders } from '@/lib/api-hooks'
@@ -70,7 +69,6 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   const latestCount = byTurn.get(resolveTurn('latest', byTurn) ?? '')?.files.length ?? 0
 
   // Picking a turn must show it: the changes panel reopens if closed (desktop) or becomes the shown panel (phone).
-  const [resetToken, setResetToken] = useState(0)
   const [request, setRequest] = useState<PanelRequest>()
   const [mobilePanel, setMobilePanel] = useState<PanelId>('conversation')
   const mobile = useIsMobile()
@@ -162,15 +160,5 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     )
   }
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-2">
-      <div className="flex justify-end">
-        <Button variant="ghost" size="sm" className="h-7 text-xs text-muted-foreground" onClick={() => setResetToken((n) => n + 1)}>
-          <RotateCcw className="size-3.5" />
-          Reset layout
-        </Button>
-      </div>
-      <PanelShell storageKey={LAYOUT_KEY} buildDefaultLayout={buildAgentLayout} panels={panels} resetToken={resetToken} request={request} onVisibleChange={setVisible} className="min-h-0 flex-1" />
-    </div>
-  )
+  return <PanelShell storageKey={LAYOUT_KEY} buildDefaultLayout={buildAgentLayout} panels={panels} request={request} onVisibleChange={setVisible} className="min-h-0 flex-1" />
 }

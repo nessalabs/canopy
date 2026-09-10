@@ -18,6 +18,10 @@ const label = (presets: Record<string, { label: string }>, id: string, fallback:
  * Start / Stop / Restart, the primary service's URL, and the overflow menu (open in the
  * configured editor or terminal, re-provision, regenerate the env file, destroy). Every
  * action reports its own pending state and surfaces the daemon's error inline.
+ *
+ * It shares one row with the worktree's identity and tab strip, so the labels drop to their
+ * icons on a narrow row. That collapse is a container query: render this inside an
+ * `@container` ancestor, or the labels simply stay on.
  */
 export function WorktreeActions({ worktree, onDestroy }: { worktree: Worktree; onDestroy: () => void }): React.JSX.Element {
   const env = worktree.environment
@@ -51,7 +55,7 @@ export function WorktreeActions({ worktree, onDestroy }: { worktree: Worktree; o
       {failure ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span role="alert" className="max-w-56 truncate text-xs text-destructive">
+            <span role="alert" className="hidden max-w-56 truncate text-xs text-destructive @3xl:inline">
               {errorMessage(failure)}
             </span>
           </TooltipTrigger>
@@ -61,28 +65,31 @@ export function WorktreeActions({ worktree, onDestroy }: { worktree: Worktree; o
       {primaryPort !== undefined ? (
         <Button variant="outline" size="sm" className="h-8" onClick={() => openExternal(`http://localhost:${primaryPort}`)} aria-label={`Open localhost:${primaryPort} in the browser`}>
           <ExternalLink />
-          <span className="font-mono">localhost:{primaryPort}</span>
+          <span className="hidden font-mono @6xl:inline">localhost:{primaryPort}</span>
         </Button>
       ) : null}
       {startable ? (
-        <Button size="sm" className="h-8" onClick={start}>
-          <Play /> Start
+        <Button size="sm" className="h-8" onClick={start} aria-label="Start the environment">
+          <Play />
+          <span className="hidden @3xl:inline">Start</span>
         </Button>
       ) : null}
       {live ? (
         <>
-          <Button variant="outline" size="sm" className="h-8" disabled={busy} onClick={() => lifecycle.mutate('stop')}>
-            <Square /> Stop
+          <Button variant="outline" size="sm" className="h-8" disabled={busy} onClick={() => lifecycle.mutate('stop')} aria-label="Stop the environment">
+            <Square />
+            <span className="hidden @3xl:inline">Stop</span>
           </Button>
-          <Button variant="ghost" size="sm" className="h-8" disabled={busy} onClick={() => lifecycle.mutate('restart')}>
-            <RotateCw /> Restart
+          <Button variant="ghost" size="sm" className="h-8" disabled={busy} onClick={() => lifecycle.mutate('restart')} aria-label="Restart the environment">
+            <RotateCw />
+            <span className="hidden @6xl:inline">Restart</span>
           </Button>
         </>
       ) : null}
       {busy ? (
         <span className="flex items-center gap-1.5 px-1 font-mono text-[11px] text-muted-foreground">
           <RotateCw className="size-3.5 animate-spin" />
-          {BUSY.includes(env.state) ? `${env.state}…` : 'working…'}
+          <span className="hidden @3xl:inline">{BUSY.includes(env.state) ? `${env.state}…` : 'working…'}</span>
         </span>
       ) : null}
       <DropdownMenu>
