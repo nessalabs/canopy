@@ -110,18 +110,45 @@ item lands, delete it here.
 - `GET /worktrees` runs ~4 git commands per worktree per poll; add a short in-memory memo in
   `worktrees/service.ts` if it gets noisy with many worktrees.
 
-## Not built yet (tabs show "Coming soon")
+## Environment & resources (landed 2026-09-09 — see docs/plans/environment-and-resources.md)
 
-- Environment tab: canopy.yaml services, ports, DB forks, logs, env vars (plan M3–M5).
-- Resources tab and the Command Center usage panel: per-service CPU/mem.
-- Project settings beyond General + Danger zone (worktrunk, provisioning, defaults, cleanup).
-- Worktree create: no `.env`, copied files, deps, or DB source options yet; branch deletion
-  on destroy is not offered.
+- Daemon restart is kill-and-respawn: recorded pids/containers are reaped by start time, then
+  worktrees desired `running` start again. PID adoption (keeping a dev server alive across a
+  daemon restart) is the planned hardening step.
+- `docker` runtime publishes the same port number on both sides and services must bind
+  `0.0.0.0` inside the container; host↔container service-to-service calls use `localhost:<port>`.
+  A per-runtime URL resolver (container DNS names on the `canopy` network) is not implemented.
+- Postgres forks need zero connections on the template: `ensureSource` terminates them before
+  `CREATE DATABASE … TEMPLATE`. A `dedicated: true` per-worktree container is the escape hatch.
+- MySQL has no TEMPLATE: forks load the seed SQL into a fresh container — slow for big seeds.
+- Resource sampling attributes by process group (`ps -o pgid`); double-forking dev servers that
+  leave the group are missed. `doctor --gc` for orphan processes/containers is not built.
+- Log files rotate at 50 MB per stream; reads across the rotation boundary serve the current
+  file only.
+- Events are SSE over fetch (bearer header); the daemon keeps a 2 000-event ring for resume.
+  Multiple browser tabs each hold one connection.
+- The `canopy` hook CLI needs to be on PATH for `.config/wt.toml` hooks (`npm link` in
+  `packages/daemon`, or point the hook at `node …/bin/canopy.mjs`); `HostInfo.canopyCommand`
+  says what to use.
+- Compose runtime: the whole stack is one supervised process (`docker compose up` in the
+  foreground); per-container health of compose services is not surfaced individually.
+- `sharedStores` only sets `UV_LINK_MODE=hardlink` and `npm_config_prefer_offline`; a
+  Canopy-managed cache root for other tools is not built.
+- Auto-fetch of the base branch (`autoFetch` / interval settings) is stored but not scheduled yet.
+- Stale-worktree notifications (`cleanup.staleGc`) are stored but not surfaced yet.
 
 ## Desktop
 
 - Electron does not start `canopyd` itself; `./dev.sh` runs both. Spawn/adopt the daemon from
-  the main process, keep tokens in `safeStorage`, add tray + notifications (plan M8).
+  the main process and keep tokens in `safeStorage` (plan M8). Until then the menu-bar panel
+  shows "canopyd is not running" and reconnects on its own once it comes up.
+- Notifications (plan M8) are not wired: a service that dies or an environment that goes
+  degraded only shows in the menu-bar icon's count, which gains a `!`. The tray already holds
+  the events an `on('failed')` notification would need — see `src/main/tray/state.ts`.
+- The menu bar is macOS-shaped: a template icon plus a vibrancy popover. `installTray` runs on
+  every platform, but the icon and the panel chrome have only been designed for macOS.
+- The panel never destroys anything (no destroy worktree, no database reset) — those need room
+  to confirm, which is the app window's job.
 - Packaged builds untested (`electron-builder` config moved intact to `apps/desktop`).
 
 ## Daemon

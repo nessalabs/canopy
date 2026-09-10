@@ -47,3 +47,43 @@ Closing the connection aborts the agent turn.
 
 `FilePatch.patch` is `null` for binary files and for patches over 512 KiB (`truncated: true`);
 `FileContents.content` likewise for binary files and files over 2 MiB. Paths that leave the worktree are `400 bad_path`.
+
+
+## Environment & resources (iteration 2)
+
+Schemas in `packages/shared/src/schemas/environment.ts`; design in `docs/plans/environment-and-resources.md`.
+Every `Worktree` now carries `environment: WorktreeEnvironment` (state, services, databases, ports, env,
+provisioning run). Mutations return `{ environment }`; the event stream carries the follow-up.
+
+| Method | Path | Body / query | Response |
+|---|---|---|---|
+| GET | `/host` | | `HostInfo` — cores, memory, docker/worktrunk availability, port range, `canopyCommand` |
+| GET | `/fs/dirs` | `?path=&hidden=1` | `DirListing` — folders then files of a path on the daemon's machine (git repos marked, capped at 2 000 entries with `truncated`), for the Add-project folder picker; 400 `path_not_found` / `not_a_directory`, 403 `path_forbidden` |
+| GET | `/events` | `?since=<seq>` | SSE of `CanopyEvent` (`hello`, `reset`, `environment`, `worktree-removed`, `worktrees-changed`, `project-changed`, `resources`, `host`); `: ping` heartbeat every 15 s |
+| GET/PATCH | `/settings` | `AppSettingsPatch` | `{ settings: AppSettings }` — editor/terminal commands, diff prefs, port range (this machine) |
+| GET/PATCH | `/projects/:id/settings` | `ProjectSettingsPatch` | `{ settings: ProjectSettings, project? }` — worktrunk, copy files, caches, defaults, cleanup |
+| GET/PUT | `/projects/:id/config` | `{ raw }` | `{ raw, path, report }` — the primary checkout's canopy.yaml; PUT validates first (400 `invalid_canopy_yaml`) |
+| POST | `/projects/:id/config/scaffold` | | `{ raw, report }` — starter canopy.yaml from repo detection |
+| GET | `/projects/:id/environment` | | `ProjectEnvironmentPreview` — services/ports/databases/setup, detected caches and copy candidates |
+| GET/POST | `/projects/:id/wt-toml` | | `{ toml, path, inSync, exists }` — rendered `.config/wt.toml`; POST writes it |
+| POST | `/projects/:id/databases/:name/refresh` | | 204 — re-seed the shared template |
+| POST | `/projects/:id/stop` | | 204 |
+| POST | `/projects/:id/destroy-worktrees` | `{ force?, deleteBranch? }` | 204 |
+| POST | `/projects/:id/worktrees` | `CreateWorktreeInput` + `provision?`, `autoStart?`, `options?` | 201 `{ worktree }` in state `creating`; the pipeline runs in the background |
+| POST | `/worktrees/adopt` | `{ path, autoStart? }` | 201 `{ worktree }` — provision a worktree created outside Canopy (used by `canopy provision`) |
+| DELETE | `/worktrees/:id` | `?force=true&deleteBranch=true|false` | 204 — tears down services/forks/ports, then `wt remove` / `git worktree remove` |
+| GET | `/worktrees/:id/environment` | | `{ environment }` |
+| POST | `/worktrees/:id/start` · `/stop` · `/restart` | | `{ environment }` |
+| POST | `/worktrees/:id/provision` | `ProvisionInput` (`from?`, `options?`, `autoStart?`) | `{ environment }` — resume/re-run the pipeline from a step |
+| POST | `/worktrees/:id/env-file` | | `{ environment }` — regenerate the dotenv |
+| POST | `/worktrees/:id/open` | `{ target: editor|terminal, file?, line? }` | `{ command }` |
+| GET | `/worktrees/:id/resources` | | `{ samples: ResourceSample[], host: HostSample[] }` |
+| POST | `/worktrees/:id/services/:name/start|stop|restart` | | `{ environment }` |
+| GET | `/worktrees/:id/services/:name/logs` | `?since=&limit=` or `&follow=1` | `LogsResponse`, or SSE of `LogEvent` (`line`, `reset`, `end`). Built-in streams: `provision`, `supervisor` |
+| POST | `/worktrees/:id/databases/:name/reset` | `{ from?: template | empty | { fromWorktree } }` | `{ environment }` |
+
+New error codes: `worktree_create_failed`, `already_provisioning`, `destroying`, `busy`, `no_canopy_yaml`,
+`invalid_canopy_yaml`, `unknown_worktree`, `no_free_port`, `db_<adapter>_failed`, `no_launch_command`, `bad_port_range`.
+
+The hook-facing CLI `packages/daemon/bin/canopy.mjs` (`canopy provision|teardown|forget|start|stop|status`) drives
+these routes from worktrunk hooks; it exits 0 when the daemon is down and no-ops when `CANOPY_DAEMON=1`.
