@@ -1,0 +1,10 @@
+/*
+ * The panel floats over the desktop: macOS paints the popover vibrancy behind the window, so
+ * the document itself must stay clear and TrayPanel draws the rounded, tinted surface.
+ */
+html,
+body,
+#root {
+  background: transparent;
+  overflow: hidden;
+}

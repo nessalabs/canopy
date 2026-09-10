@@ -29,6 +29,9 @@
       ],
       "@canopy/ui": [
         "./packages/ui/src/index.ts"
+      ],
+      "@canopy/ui/tray": [
+        "./packages/ui/src/components/tray/tray-panel.tsx"
       ]
     }
   }

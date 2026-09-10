@@ -3,7 +3,9 @@
   "include": [
     "src/renderer/src/**/*",
     "src/preload/global.d.ts",
-    "src/preload/index.ts"
+    "src/preload/index.ts",
+    "src/preload/tray.ts",
+    "src/shared/**/*"
   ],
   "compilerOptions": {
     "composite": true,
@@ -20,6 +22,9 @@
       ],
       "@canopy/ui": [
         "../../packages/ui/src/index.ts"
+      ],
+      "@canopy/ui/tray": [
+        "../../packages/ui/src/components/tray/tray-panel.tsx"
       ]
     },
     "noUnusedLocals": false,

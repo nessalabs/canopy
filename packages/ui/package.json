@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./tray": "./src/components/tray/tray-panel.tsx",
     "./styles/globals.css": "./src/styles/globals.css"
   },
   "scripts": {

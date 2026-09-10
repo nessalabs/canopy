@@ -1,0 +1,15 @@
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+
+import '@fontsource-variable/geist'
+import '@fontsource-variable/geist-mono'
+import '@canopy/ui/styles/globals.css'
+import './tray.css'
+
+import TrayApp from './TrayApp'
+
+ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  <React.StrictMode>
+    <TrayApp />
+  </React.StrictMode>
+)

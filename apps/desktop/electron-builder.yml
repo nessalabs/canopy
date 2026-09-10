@@ -5,6 +5,12 @@ directories:
 files:
   - "out/**"
   - "package.json"
+# The menu-bar template icons are read by path at runtime (nativeImage finds the @2x companion
+# only when both files sit side by side), so they ship as resources rather than bundled assets.
+extraResources:
+  - from: resources
+    to: assets
+    filter: ["*.png"]
 linux:
   target: [AppImage]
   category: Utility
