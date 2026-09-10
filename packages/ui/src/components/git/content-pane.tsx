@@ -7,11 +7,12 @@ import { Badge } from '@/components/ui/badge'
 import { DiffStat, FileDiffPath } from '@/components/ui/file-diff-list'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useFilePatch } from '@/lib/api-hooks'
+import { isMarkdownPath } from '@/lib/language'
 import { FILE_STATUS_LABEL } from '@/lib/status'
 
-import { FileViewer } from './file-viewer'
+import { FileViewer, MarkdownPreview } from './file-viewer'
 
-type View = 'diff' | 'file'
+type View = 'diff' | 'file' | 'preview'
 
 interface Props {
   worktreeId: string
@@ -32,18 +33,27 @@ function DiffBody({ worktreeId, spec, file, comments, mode, focusCommentId }: Pr
   return <WorktreeDiff worktreeId={worktreeId} spec={spec} path={file.path} patch={patch.data.patch} comments={comments} mode={mode} focusCommentId={focusCommentId} />
 }
 
+/** Which blob the non-diff views read: the commit's copy, or the working tree's. */
+const revOf = (spec: DiffSpec): string | undefined => (spec.kind === 'commit' ? spec.sha : undefined)
+
 /** Each view is one component; the toggle just picks the row of this table. */
 const BODY: Record<View, (props: Props) => React.JSX.Element> = {
   diff: DiffBody,
-  file: ({ worktreeId, spec, file }) => <FileViewer worktreeId={worktreeId} path={file.path} rev={spec.kind === 'commit' ? spec.sha : undefined} />
+  file: ({ worktreeId, spec, file }) => <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} />,
+  preview: ({ worktreeId, spec, file }) => <MarkdownPreview worktreeId={worktreeId} path={file.path} rev={revOf(spec)} />
 }
 
-/** The right-hand pane of the explorer: one file, as its diff or its full contents. */
+/** The right-hand pane of the explorer: one file, as its diff, its full contents, or — for markdown — rendered. */
 export function ContentPane(props: Props): React.JSX.Element {
-  const [view, setView] = useState<View>('diff')
+  const [picked, setPicked] = useState<View>()
   const { file } = props
-  const Body = BODY[view]
   const canView = file.status !== 'D'
+  const canPreview = canView && isMarkdownPath(file.path)
+  // Markdown opens rendered — the diff of a doc is a click away, but prose is what it is for.
+  // Everything else opens as its diff, and a deleted file has no blob to render either way.
+  const view = picked ?? (canPreview ? 'preview' : 'diff')
+  const resolved: View = view === 'preview' && !canPreview ? 'diff' : view
+  const Body = BODY[resolved]
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -53,15 +63,16 @@ export function ContentPane(props: Props): React.JSX.Element {
           {FILE_STATUS_LABEL[file.status]}
         </Badge>
         {file.binary ? <span className="font-mono text-[11px] text-muted-foreground">binary</span> : <DiffStat additions={file.additions} deletions={file.deletions} className="text-[11px]" />}
-        <SegmentedControl value={view} onValueChange={(value) => setView(value as View)} aria-label="Content view">
+        <SegmentedControl value={resolved} onValueChange={(value) => setPicked(value as View)} aria-label="Content view">
           <SegmentedControlOption value="diff">Diff</SegmentedControlOption>
           <SegmentedControlOption value="file" disabled={!canView}>
             File
           </SegmentedControlOption>
+          {canPreview ? <SegmentedControlOption value="preview">Preview</SegmentedControlOption> : null}
         </SegmentedControl>
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        <Body key={`${view}:${file.path}`} {...props} />
+        <Body key={`${resolved}:${file.path}`} {...props} />
       </div>
     </div>
   )

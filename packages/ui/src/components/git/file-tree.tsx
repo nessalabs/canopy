@@ -7,7 +7,7 @@ import { DiffStat } from '@/components/ui/file-diff-list'
 import { FileIcon } from '@/components/ui/file-icon'
 import { TreeView, type TreeViewNode } from '@/components/ui/tree-view'
 import { useTrees } from '@/lib/api-hooks'
-import { allDirs, emptyDir, flattenTree, toggled, treeFromPaths, withListing, type FlatRow, type TreeDir } from '@/lib/file-tree'
+import { defaultOpenDirs, dirTotals, emptyDir, flattenTree, toggled, treeFromPaths, withListing, type FlatRow, type TreeDir } from '@/lib/file-tree'
 import { plural } from '@/lib/format'
 
 interface TreeProps {
@@ -55,25 +55,69 @@ function Tree({ root, expanded, toggle, meta, label, selected, onSelect, classNa
   )
 }
 
-/** Changed files as a tree, fully open by default; rows carry status, comment count and stat. */
+/** The trailing columns of a changed-files row: comments, +/- and one narrow slot that keeps them aligned. */
+const RowMeta = ({ comments, additions, deletions, commentTitle, trailing, trailingTitle }: {
+  comments: number
+  additions: number
+  deletions: number
+  commentTitle: string
+  trailing: React.ReactNode
+  trailingTitle?: string
+}): React.JSX.Element => (
+  <span className="flex items-center gap-1.5 font-mono text-[10px]">
+    {comments > 0 ? <Badge variant="secondary" className="px-1 text-[9px]" title={commentTitle}>{comments}</Badge> : null}
+    <DiffStat additions={additions} deletions={deletions} className="text-[10px]" />
+    <span className="min-w-3 text-center text-muted-foreground" title={trailingTitle}>{trailing}</span>
+  </span>
+)
+
+/**
+ * Changed files as a tree, open by default except hidden folders; file rows carry status,
+ * comment count and stat, and a collapsed folder carries the same totals for everything
+ * hidden inside it. Open folders stay bare — their own rows already show the numbers.
+ */
 export function ChangedFilesTree({ files, commentCounts, ...props }: TreeProps & { files: ChangedFile[]; commentCounts: ReadonlyMap<string, number> }): React.JSX.Element {
   const root = useMemo(() => treeFromPaths(files.map((f) => f.path)), [files])
   const byPath = useMemo(() => new Map(files.map((f) => [f.path, f])), [files])
-  const { expanded, toggle } = useExpanded(() => allDirs(root))
+  const { expanded, toggle } = useExpanded(() => defaultOpenDirs(root))
+  const totals = useMemo(
+    () =>
+      dirTotals(root, (path) => {
+        const file = byPath.get(path)
+        return { additions: file?.additions ?? 0, deletions: file?.deletions ?? 0, comments: commentCounts.get(path) ?? 0 }
+      }),
+    [root, byPath, commentCounts]
+  )
   const meta = useMemo(
     () => (row: FlatRow) => {
+      if (row.kind === 'dir') {
+        const total = row.expanded ? undefined : totals.get(row.id)
+        if (!total) return null
+        return (
+          <RowMeta
+            comments={total.comments}
+            additions={total.additions}
+            deletions={total.deletions}
+            commentTitle={plural(total.comments, 'comment')}
+            trailing={total.files}
+            trailingTitle={plural(total.files, 'changed file')}
+          />
+        )
+      }
       const file = byPath.get(row.id)
       if (!file) return null
       const comments = commentCounts.get(row.id) ?? 0
       return (
-        <span className="flex items-center gap-1.5 font-mono text-[10px]">
-          {comments > 0 ? <Badge variant="secondary" className="px-1 text-[9px]" title={plural(comments, 'comment')}>{comments}</Badge> : null}
-          <DiffStat additions={file.additions} deletions={file.deletions} className="text-[10px]" />
-          <span className="w-3 text-center text-muted-foreground">{file.status}</span>
-        </span>
+        <RowMeta
+          comments={comments}
+          additions={file.additions}
+          deletions={file.deletions}
+          commentTitle={plural(comments, 'comment')}
+          trailing={file.status}
+        />
       )
     },
-    [byPath, commentCounts]
+    [byPath, commentCounts, totals]
   )
   return <Tree root={root} expanded={expanded} toggle={toggle} meta={meta} label="Changed files" {...props} />
 }

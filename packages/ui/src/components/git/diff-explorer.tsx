@@ -11,6 +11,7 @@ import { FileDiffPath } from '@/components/ui/file-diff-list'
 import { PopoverSurface } from '@/components/ui/popover-surface'
 import { groupBy } from '@/lib/group'
 import { useElementWidth } from '@/lib/use-element-width'
+import { useHighlighterWarmup } from '@/lib/use-highlighter-warmup'
 
 import { ContentPane } from './content-pane'
 import { ChangedFilesTree } from './file-tree'
@@ -83,6 +84,8 @@ export function DiffExplorer({
 }): React.JSX.Element {
   const container = useRef<HTMLDivElement>(null)
   const arrangement = arrangementFor(useElementWidth(container))
+  // Start resolving the grammars this change set needs now, not when a file is first clicked.
+  useHighlighterWarmup(useMemo(() => files.map((file) => file.path), [files]))
   const [picked, setPicked] = useState<string>()
   useEffect(() => setPicked(focus?.path), [focus])
   const selectedPath = picked ?? files[0]?.path

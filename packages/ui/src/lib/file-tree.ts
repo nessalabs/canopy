@@ -81,11 +81,16 @@ export function withListing(root: TreeDir, dir: string, entries: readonly TreeEn
   return next
 }
 
-/** Every directory path in the tree (used to start the changed-files tree fully open). */
-export function allDirs(root: TreeDir): string[] {
+/**
+ * The directories the changed-files tree starts open: everything except hidden
+ * folders (`.worktrees`, `.github`, ...) and anything inside them, which stay
+ * collapsed until asked for.
+ */
+export function defaultOpenDirs(root: TreeDir): string[] {
   const out: string[] = []
   const walk = (dir: TreeDir): void => {
-    for (const child of dir.dirs.values()) {
+    for (const [name, child] of dir.dirs) {
+      if (name.startsWith('.')) continue
       out.push(child.path)
       walk(child)
     }
@@ -129,4 +134,45 @@ export function toggled<T>(set: ReadonlySet<T>, id: T): Set<T> {
   if (next.has(id)) next.delete(id)
   else next.add(id)
   return next
+}
+
+/** What a directory row reports for everything beneath it. */
+export interface DirTotals {
+  files: number
+  additions: number
+  deletions: number
+  comments: number
+}
+
+/**
+ * Totals for every directory in the tree, summed over all files below it at any depth.
+ * `amountsFor` supplies one file's numbers; a file it does not know contributes only to
+ * the count. Keyed by directory path, with the root under `''`.
+ */
+export function dirTotals(
+  root: TreeDir,
+  amountsFor: (path: string) => { additions?: number; deletions?: number; comments?: number } | undefined
+): Map<string, DirTotals> {
+  const totals = new Map<string, DirTotals>()
+  const walk = (dir: TreeDir): DirTotals => {
+    const sum: DirTotals = { files: 0, additions: 0, deletions: 0, comments: 0 }
+    for (const child of dir.dirs.values()) {
+      const below = walk(child)
+      sum.files += below.files
+      sum.additions += below.additions
+      sum.deletions += below.deletions
+      sum.comments += below.comments
+    }
+    for (const path of dir.files.values()) {
+      const amounts = amountsFor(path)
+      sum.files += 1
+      sum.additions += amounts?.additions ?? 0
+      sum.deletions += amounts?.deletions ?? 0
+      sum.comments += amounts?.comments ?? 0
+    }
+    totals.set(dir.path, sum)
+    return sum
+  }
+  walk(root)
+  return totals
 }

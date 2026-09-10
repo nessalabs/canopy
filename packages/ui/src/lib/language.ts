@@ -1,8 +1,36 @@
-/** Extension → Shiki language for paths that show up in tool inputs and results. */
-const BY_EXTENSION: Record<string, string> = {
-  ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx', mjs: 'javascript', cjs: 'javascript',
-  json: 'json', md: 'markdown', mdx: 'mdx', css: 'css', html: 'html', yml: 'yaml', yaml: 'yaml', toml: 'toml',
-  py: 'python', rs: 'rust', go: 'go', sh: 'bash', bash: 'bash', zsh: 'bash', sql: 'sql', xml: 'xml'
+import type { SupportedLanguages } from '@pierre/diffs'
+
+/**
+ * Extension → Shiki grammar. One table for both jobs it serves: highlighting a tool call's
+ * text, and warming the grammars a change set will need before its first diff renders.
+ */
+const BY_EXTENSION: Record<string, SupportedLanguages> = {
+  ts: 'typescript', mts: 'typescript', cts: 'typescript', tsx: 'tsx',
+  js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'jsx',
+  json: 'json', jsonc: 'jsonc', md: 'markdown', mdx: 'mdx',
+  css: 'css', scss: 'scss', html: 'html', svelte: 'svelte', vue: 'vue',
+  yml: 'yaml', yaml: 'yaml', toml: 'toml', xml: 'xml', sql: 'sql', graphql: 'graphql',
+  py: 'python', rb: 'ruby', rs: 'rust', go: 'go', java: 'java', kt: 'kotlin', swift: 'swift',
+  c: 'c', h: 'c', cc: 'cpp', cpp: 'cpp', hpp: 'cpp', cs: 'csharp', php: 'php',
+  sh: 'bash', bash: 'bash', zsh: 'bash', fish: 'fish', lua: 'lua'
+}
+
+const extensionOfPath = (path: string): string => /\.([^./\\]+)$/.exec(path)?.[1]?.toLowerCase() ?? ''
+
+/** Extensions whose contents read as prose; `.mdx` renders its markdown and leaves JSX as text. */
+const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mdx'])
+
+/** Whether a path holds markdown, and so should open rendered rather than as source. */
+export const isMarkdownPath = (path: string): boolean => MARKDOWN_EXTENSIONS.has(extensionOfPath(path))
+
+/**
+ * The grammars a set of changed files needs, deduped and in a stable order. Shiki resolves a
+ * grammar the first time it highlights one, so knowing the whole set up front is what lets the
+ * downloads happen while the user is still picking a file instead of mid-render.
+ */
+export function grammarsFor(paths: readonly string[]): SupportedLanguages[] {
+  const langs = paths.map((path) => BY_EXTENSION[extensionOfPath(path)]).filter((lang) => lang !== undefined)
+  return [...new Set(langs)].sort()
 }
 
 /** Tools whose input is code in a fixed language. */

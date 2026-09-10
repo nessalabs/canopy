@@ -53,10 +53,14 @@ export const useDiffFiles = (worktreeId: string, spec: DiffSpec) => {
   })
 }
 
-/** Lazy: only fetched once a file is expanded. */
+/**
+ * Lazy: only fetched once a file is expanded. Held fresh for a poll interval because the
+ * explorer remounts the content pane on every file switch — without it, clicking back through
+ * files already read re-runs git for each one.
+ */
 export const useFilePatch = (worktreeId: string, spec: DiffSpec, path: string, enabled: boolean) => {
   const api = useApi()
-  return useQuery({ queryKey: keys.filePatch(worktreeId, spec, path), queryFn: () => api.filePatch(worktreeId, spec, path), enabled })
+  return useQuery({ queryKey: keys.filePatch(worktreeId, spec, path), queryFn: () => api.filePatch(worktreeId, spec, path), enabled, staleTime: POLL_MS })
 }
 
 /** Directory listings for every open directory of the worktree browser; each fetched once on expand. */
