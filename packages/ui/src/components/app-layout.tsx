@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronRight, FolderGit2, Gauge, Moon, PanelLeft, Plus, Settings2, Sun, TreePine } from 'lucide-react'
 import { Link, useLocation, useRoute } from 'wouter'
 
@@ -30,11 +30,20 @@ import { StatusDot } from '@/components/ui/status-dot'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProjects, useWorktrees } from '@/lib/api-hooks'
 import { useEventsConnection } from '@/lib/events-provider'
+import { readStored, writeStored } from '@/lib/local-store'
 import { WORKTREE_DOT } from '@/lib/status'
 import { useTheme } from '@/lib/use-theme'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/providers/api'
 import { usePlatform } from '@/providers/platform'
+
+/** Where a tool's last full-screen choice is kept, per tool, between toggles and reloads. */
+const fullKey = (id: SidePanelId): string => `canopy-side-panel-full:${id}`
+
+/** How this tool was last left: full screen, or docked beside the screen. */
+function storedFull(id: SidePanelId): boolean {
+  return readStored<boolean>(fullKey(id)) === true
+}
 
 function HoverAction({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }): React.JSX.Element {
   return (
@@ -126,6 +135,11 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
   // Full screen keeps the split mounted and only hides the main panel, so the screen behind it
   // — a transcript's scroll, a half-typed message — is exactly where it was on the way back.
   const [panelFull, setPanelFull] = useState(false)
+  // A tool reopens the way it was last left, so someone who reads files full screen isn't
+  // dragging the panel wide again every time.
+  useEffect(() => {
+    if (panel) writeStored(fullKey(panel), panelFull)
+  }, [panel, panelFull])
   const [, worktreeRoute] = useRoute('/worktrees/:id')
   const worktreeId = worktreeRoute?.id
   const open = panel && worktreeId ? { panel, worktreeId } : undefined
@@ -203,9 +217,12 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
                 open={panel}
                 disabled={!worktreeId}
                 onToggle={(id) => {
-                  // A panel opened from the header starts docked, whatever the last one did.
-                  setPanelFull(false)
-                  setPanel((current) => (current === id ? undefined : id))
+                  if (panel === id) {
+                    setPanel(undefined)
+                    return
+                  }
+                  setPanel(id)
+                  setPanelFull(storedFull(id))
                 }}
               />
               <Button variant="ghost" size="icon" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>
@@ -236,10 +253,7 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
                   worktreeId={open.worktreeId}
                   full={panelFull}
                   onToggleFull={() => setPanelFull((current) => !current)}
-                  onClose={() => {
-                    setPanel(undefined)
-                    setPanelFull(false)
-                  }}
+                  onClose={() => setPanel(undefined)}
                 />
               ) : null}
             </SplitViewPanel>
