@@ -5,7 +5,7 @@ import { routes } from '@canopy/shared'
 import type { Services } from './context'
 import { AgainstQuery, CommitParams, DestroyQuery, DirQuery, IdParams, PageQuery, PathQuery, RevQuery, TreesParams } from './params'
 
-export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, history }: Services): void {
+export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, history, watch }: Services): void {
   app.get(routes.worktrees(), async () => ({ worktrees: await worktrees.listAll() }))
 
   app.get(routes.worktree(':id'), async (request) => ({ worktree: await worktrees.get(IdParams.parse(request.params).id) }))
@@ -16,7 +16,10 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
     return reply.code(204).send()
   })
 
+  // Reading a worktree's files or changes is what starts its watcher: from then on the client
+  // hears about edits instead of asking on a timer.
   app.get(routes.changes(':id'), async (request) => {
+    watch.ensure(IdParams.parse(request.params).id)
     const { against } = AgainstQuery.parse(request.query)
     return history.changes(IdParams.parse(request.params).id, { kind: 'worktree', against })
   })
@@ -26,13 +29,24 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
     return history.filePatch(IdParams.parse(request.params).id, { kind: 'worktree', against }, path)
   })
 
-  app.get(routes.tree(':id'), async (request) => history.tree(IdParams.parse(request.params).id, DirQuery.parse(request.query).path))
+  app.get(routes.tree(':id'), async (request) => {
+    const { id } = IdParams.parse(request.params)
+    watch.ensure(id)
+    return history.tree(id, DirQuery.parse(request.query).path)
+  })
 
-  app.get(routes.files(':id'), async (request) => history.files(IdParams.parse(request.params).id))
+  app.get(routes.files(':id'), async (request) => {
+    const { id } = IdParams.parse(request.params)
+    watch.ensure(id)
+    return history.files(id)
+  })
 
   app.get(routes.file(':id'), async (request) => {
     const { path, rev } = PathQuery.merge(RevQuery).parse(request.query)
-    return history.file(IdParams.parse(request.params).id, path, rev)
+    const { id } = IdParams.parse(request.params)
+    // A blob at a commit never changes; only a working-tree read needs the watcher.
+    if (rev === undefined) watch.ensure(id)
+    return history.file(id, path, rev)
   })
 
   app.get(routes.log(':id'), async (request) => {

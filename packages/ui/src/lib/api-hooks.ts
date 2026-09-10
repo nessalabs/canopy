@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import { useInfiniteQuery, useIsMutating, useMutation, useQueries, useQuery, useQueryClient, type UseMutationOptions } from '@tanstack/react-query'
+import { type UseMutationOptions, useInfiniteQuery, useIsMutating, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type {
   AddCommentInput,
@@ -25,10 +25,15 @@ import type {
 } from '@canopy/shared'
 
 import { useApi } from '../providers/api'
+import { useDaemonCapabilities } from './daemon-capabilities'
 import { keys } from './query-keys'
 
 /** Status is derived from git on every read, so the list polls while the app is in front. */
 const POLL_MS = 5000
+/** How often the Changes tab asks again when the daemon is pushing file events: a safety net only. */
+const WATCHED_POLL_MS = 60_000
+/** A working-tree read stays fresh this long; the daemon's file events refresh it sooner. */
+const FILE_STALE_MS = 30_000
 const LOG_PAGE = 50
 
 export const useProjects = () => {
@@ -59,10 +64,12 @@ export const useDiffFiles = (worktreeId: string, spec: DiffSpec) => {
   // A poll that started before a checkbox was clicked can land after it and undo the optimistic
   // flip, so the interval pauses while a stage request is outstanding.
   const staging = useIsMutating({ mutationKey: stageKey(worktreeId) })
+  // A daemon that watches the files says so; then the interval is a safety net, not the signal.
+  const { watch } = useDaemonCapabilities()
   return useQuery({
     queryKey: keys.diffFiles(worktreeId, spec),
     queryFn: () => api.diffFiles(worktreeId, spec),
-    refetchInterval: spec.kind === 'worktree' && staging === 0 ? POLL_MS : false
+    refetchInterval: spec.kind === 'worktree' && staging === 0 ? (watch ? WATCHED_POLL_MS : POLL_MS) : false
   })
 }
 
@@ -90,9 +97,33 @@ export const useWorktreeFiles = (worktreeId: string, enabled: boolean) => {
   return useQuery({ queryKey: keys.worktreeFiles(worktreeId), queryFn: () => api.worktreeFiles(worktreeId), enabled, staleTime: 30_000 })
 }
 
+/**
+ * A blob at a commit never changes, so it is read once. A working-tree read is refreshed by the
+ * daemon's file events, with a timer as the fallback. Only a change in the data re-renders the
+ * reader: a refetch that comes back equal is invisible, so a rendered doc is never re-parsed for
+ * nothing.
+ */
 export const useFileContents = (worktreeId: string, path: string, rev: string | undefined, enabled: boolean) => {
   const api = useApi()
-  return useQuery({ queryKey: keys.fileContents(worktreeId, path, rev), queryFn: () => api.fileContents(worktreeId, path, rev), enabled, staleTime: 10_000 })
+  return useQuery({
+    queryKey: keys.fileContents(worktreeId, path, rev),
+    queryFn: () => api.fileContents(worktreeId, path, rev),
+    enabled,
+    staleTime: rev === undefined ? FILE_STALE_MS : Infinity,
+    notifyOnChangeProps: ['data', 'error', 'isPending']
+  })
+}
+
+/** Reads a working-tree file into the cache ahead of a click, so opening it finds it there. */
+export const usePrefetchFileContents = (worktreeId: string) => {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useCallback(
+    (path: string) => {
+      void queryClient.prefetchQuery({ queryKey: keys.fileContents(worktreeId, path), queryFn: () => api.fileContents(worktreeId, path), staleTime: FILE_STALE_MS })
+    },
+    [api, queryClient, worktreeId]
+  )
 }
 
 export const useLog = (worktreeId: string) => {

@@ -39,6 +39,7 @@ import { registerReviewRoutes } from './routes/review'
 import { registerStatic } from './routes/static'
 import { registerWorktreeRoutes } from './routes/worktrees'
 import { HistoryService } from './worktrees/history'
+import { WatchService } from './worktrees/watch'
 import { WorktreesService } from './worktrees/service'
 
 export interface ServerDeps {
@@ -95,6 +96,7 @@ export function buildServices(deps: ServerDeps): Services {
   worktrees.attachEnvironment(environment)
   const history = new HistoryService({ repo, diffs, worktrees })
   return {
+    watch: new WatchService({ worktrees, repo, events }),
     config: deps.config,
     version: deps.version ?? '0.1.0',
     projects,
@@ -140,6 +142,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   await registerStatic(app, deps.config.webDist)
 
   app.addHook('onClose', async () => {
+    services.watch.stopAll()
     await services.environment.shutdown()
   })
   app.decorate('services', services)

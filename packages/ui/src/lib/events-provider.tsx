@@ -10,6 +10,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyn
 import type { CanopyEvent, HostSample, ResourceSample, Worktree, WorktreeEnvironment } from '@canopy/shared'
 
 import { useApi } from '../providers/api'
+import { setDaemonCapabilities } from './daemon-capabilities'
 import { keys } from './query-keys'
 
 const HISTORY = 90
@@ -117,10 +118,30 @@ function applyEvent(queryClient: QueryClient, samples: SampleStore, event: Canop
     case 'host':
       samples.pushHost(event.sample)
       return
+    case 'files-changed': {
+      const id = event.worktreeId
+      // A burst too big to list: everything read from this worktree may be stale.
+      if (event.truncated) {
+        void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[1] === id && query.queryKey[0] !== 'worktree' })
+        return
+      }
+      // Any edit can change what git status says; the log only moves with the repository.
+      void queryClient.invalidateQueries({ queryKey: ['diff-files', id] })
+      if (event.git) void queryClient.invalidateQueries({ queryKey: keys.log(id) })
+      if (event.paths.length === 0) return
+      const paths = new Set(event.paths)
+      for (const path of paths) void queryClient.invalidateQueries({ queryKey: keys.fileContents(id, path) })
+      void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'file-patch' && query.queryKey[1] === id && paths.has(query.queryKey[3] as string) })
+      // A save may be a create or a delete; the listings are cheap to read again.
+      void queryClient.invalidateQueries({ queryKey: keys.worktreeFiles(id) })
+      void queryClient.invalidateQueries({ queryKey: ['tree', id] })
+      return
+    }
     case 'reset':
       void queryClient.invalidateQueries()
       return
     case 'hello':
+      setDaemonCapabilities({ watch: event.watch === true })
       return
   }
 }

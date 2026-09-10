@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { AdoptWorktreeInput, AppSettingsPatch, ConfigWriteInput, DbResetInput, DestroyAllInput, OpenInput, ProjectSettingsPatch, ProvisionInput, ServiceAction, routes } from '@canopy/shared'
 
 import { writeSse } from '../env/events/sse'
+import { WATCH_SUPPORTED } from '../worktrees/watch'
 import type { Services } from './context'
 import { IdParams } from './params'
 
@@ -23,7 +24,7 @@ export function registerEnvironmentRoutes(app: FastifyInstance, { environment, p
       const replay = since === undefined ? [] : events.replay(since)
       if (replay === null) send({ type: 'reset', seq: events.seq })
       else for (const event of replay) send(event)
-      send({ type: 'hello', seq: events.seq })
+      send({ type: 'hello', seq: events.seq, watch: WATCH_SUPPORTED })
       const off = environment.subscribe((event) => send(event))
       return new Promise<void>((resolve) => {
         signal.addEventListener('abort', () => {

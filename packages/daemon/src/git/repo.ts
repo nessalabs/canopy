@@ -2,6 +2,8 @@
  * Read/write operations on a git checkout. Thin: each function is one git command
  * plus a parser from parse.ts. `run` is injected so tests can observe or stub calls.
  */
+import { resolve } from 'node:path'
+
 import type { Branch, Commit } from '@canopy/shared'
 
 import type { GitRunner } from './exec'
@@ -47,6 +49,10 @@ export interface Repo {
   statusEntries(cwd: string): Promise<{ entries: StatusEntry[]; branch: string | null }>
   /** Resolves a path inside the worktree's git dir (`MERGE_HEAD`, …). Linked-worktree aware. */
   gitPath(cwd: string, name: string): Promise<string>
+  /** The worktree's own git dir (index, HEAD) and the repository's common dir (refs), absolute. */
+  gitDirs(cwd: string): Promise<{ gitDir: string; commonDir: string }>
+  /** Which of `paths` git ignores; tracked files never count as ignored. */
+  checkIgnore(cwd: string, paths: string[]): Promise<Set<string>>
   /** A blob's bytes as a latin1 string — a byte-exact round trip, unlike a utf8 decode. */
   catBlob(cwd: string, sha: string): Promise<string>
   /** Writes `content` (latin1) as a blob, applying the clean filters configured for `path`. */
@@ -167,6 +173,19 @@ export function createRepo(run: GitRunner): Repo {
 
     async gitPath(cwd, name) {
       return (await run(cwd, ['rev-parse', '--git-path', name])).trim()
+    },
+
+    async gitDirs(cwd) {
+      // Both come back relative to cwd for the main worktree and absolute for a linked one.
+      const [gitDir = '.git', commonDir = gitDir] = (await run(cwd, ['rev-parse', '--git-dir', '--git-common-dir'])).split('\n').map((line) => line.trim())
+      return { gitDir: resolve(cwd, gitDir), commonDir: resolve(cwd, commonDir) }
+    },
+
+    async checkIgnore(cwd, paths) {
+      if (paths.length === 0) return new Set()
+      // Exit 1 means "none of them", which is an answer, not a failure. check-ignore takes
+      // plain paths and refuses the literal-pathspec mode the runner sets, so that is undone here.
+      return new Set(splitNul(await run(cwd, ['check-ignore', '-z', '--stdin'], { input: paths.join('\0'), okCodes: [0, 1], env: { GIT_LITERAL_PATHSPECS: '0' } })))
     },
 
     async catBlob(cwd, sha) {

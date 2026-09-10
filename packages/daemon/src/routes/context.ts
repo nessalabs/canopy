@@ -7,6 +7,7 @@ import type { EventBus, LogStore } from '../env/types'
 import type { ProjectsService } from '../projects/service'
 import type { ReviewService } from '../review/service'
 import type { HistoryService } from '../worktrees/history'
+import type { WatchService } from '../worktrees/watch'
 import type { WorktreesService } from '../worktrees/service'
 
 /** Everything a route needs, built once in server.ts. */
@@ -16,6 +17,7 @@ export interface Services {
   projects: ProjectsService
   worktrees: WorktreesService
   history: HistoryService
+  watch: WatchService
   commits: CommitService
   review: ReviewService
   agents: AgentRegistry

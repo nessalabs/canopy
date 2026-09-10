@@ -8,15 +8,18 @@ import { ContextMenu, ContextMenuContent, ContextMenuTrigger } from '@/component
 import { DiffStat } from '@/components/ui/file-diff-list'
 import { FileIcon } from '@/components/ui/file-icon'
 import { TreeView, type TreeViewNode } from '@/components/ui/tree-view'
-import { useTrees } from '@/lib/api-hooks'
+import { usePrefetchFileContents, useTrees, useWorktreeFiles } from '@/lib/api-hooks'
 import type { CheckState } from '@/lib/commit-selection'
 import { defaultOpenDirs, dirTotals, emptyDir, flattenTree, toggled, treeFromPaths, withListing, type FlatRow, type TreeDir } from '@/lib/file-tree'
+import { useHoverPrefetch } from '@/lib/use-hover-prefetch'
 import { readStored, writeStored } from '@/lib/local-store'
 import { plural } from '@/lib/format'
 
 interface TreeProps {
   selected?: string
   onSelect: (path: string) => void
+  /** The file row under the pointer, as it moves — for reading a file before it is clicked. */
+  onHover?: (path: string) => void
   className?: string
 }
 
@@ -178,7 +181,7 @@ function useRowPointers(rows: readonly FlatRow[], commit: CommitSelection | unde
 }
 
 /** The one TreeView wiring; the two trees differ only in where rows and row metadata come from. */
-function Tree({ root, expanded, toggle, meta, label, selected, onSelect, className, commit }: TreeProps & {
+function Tree({ root, expanded, toggle, meta, label, selected, onSelect, onHover, className, commit }: TreeProps & {
   root: TreeDir
   expanded: ReadonlySet<string>
   toggle: (path: string) => void
@@ -189,6 +192,17 @@ function Tree({ root, expanded, toggle, meta, label, selected, onSelect, classNa
   const rows = useMemo(() => flattenTree(root, expanded), [root, expanded])
   const [contextRow, setContextRow] = useState<FlatRow>()
   const pointers = useRowPointers(rows, commit, setContextRow)
+  const handlers = onHover
+    ? {
+        ...pointers,
+        onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => {
+          pointers.onPointerMove?.(event)
+          const container = event.currentTarget
+          const row = rows[Math.floor((container.scrollTop + event.clientY - container.getBoundingClientRect().top) / ROW_HEIGHT)]
+          if (row?.kind === 'file') onHover(row.id)
+        }
+      }
+    : pointers
 
   const nodes = useMemo<TreeViewNode[]>(
     () =>
@@ -221,7 +235,7 @@ function Tree({ root, expanded, toggle, meta, label, selected, onSelect, classNa
       rowHeight={ROW_HEIGHT}
       className={className}
       emptyMessage="No files"
-      {...pointers}
+      {...handlers}
     />
   )
 
@@ -313,16 +327,23 @@ export function ChangedFilesTree({ files, commentCounts, commit, ...props }: Tre
   return <Tree root={root} expanded={expanded} toggle={toggle} meta={meta} label="Changed files" commit={commit} {...props} />
 }
 
-/** The whole worktree, one directory listing per open folder, fetched on demand. */
+/**
+ * The whole worktree. One flat listing — the same one ⌘O searches — folds into the tree, so
+ * opening a folder is instant and costs no git process. Only a worktree too large to list whole
+ * falls back to a listing per open folder, fetched on demand. Hovering a file reads it ahead.
+ */
 export function WorktreeTree({ worktreeId, ...props }: TreeProps & { worktreeId: string }): React.JSX.Element {
   const { expanded, toggle } = useExpanded(() => [], `canopy-worktree-tree:${worktreeId}`)
-  const dirs = useMemo(() => ['', ...expanded], [expanded])
+  const all = useWorktreeFiles(worktreeId, true)
+  const whole = all.data !== undefined && !all.data.truncated ? all.data.paths : undefined
+  const dirs = useMemo(() => (whole === undefined && all.data !== undefined ? ['', ...expanded] : []), [whole, all.data, expanded])
   const listings = useTrees(worktreeId, dirs)
   const root = useMemo(
-    () => listings.reduce((tree, query) => (query.data ? withListing(tree, query.data.path, query.data.entries) : tree), emptyDir()),
+    () => (whole !== undefined ? treeFromPaths(whole) : listings.reduce((tree, query) => (query.data ? withListing(tree, query.data.path, query.data.entries) : tree), emptyDir())),
     // Listings settle independently; re-fold when any of them changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [listings.map((q) => q.data)]
+    [whole, listings.map((q) => q.data)]
   )
-  return <Tree root={root} expanded={expanded} toggle={toggle} label="Worktree files" {...props} />
+  const onHover = useHoverPrefetch(usePrefetchFileContents(worktreeId))
+  return <Tree root={root} expanded={expanded} toggle={toggle} label="Worktree files" onHover={onHover} {...props} />
 }

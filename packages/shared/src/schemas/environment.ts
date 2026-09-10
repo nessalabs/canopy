@@ -533,7 +533,8 @@ export const HostInfo = z.object({
 export type HostInfo = z.infer<typeof HostInfo>
 
 export const CanopyEvent = z.discriminatedUnion('type', [
-  z.object({ type: z.literal('hello'), seq: z.number().int() }),
+  /** `watch`: this daemon pushes `files-changed` events; without it clients keep polling. */
+  z.object({ type: z.literal('hello'), seq: z.number().int(), watch: z.boolean().optional() }),
   /** Buffer miss on resume: refetch everything. */
   z.object({ type: z.literal('reset'), seq: z.number().int() }),
   z.object({ type: z.literal('environment'), seq: z.number().int(), worktreeId: Id, environment: WorktreeEnvironment }),
@@ -542,7 +543,13 @@ export const CanopyEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('worktrees-changed'), seq: z.number().int(), projectId: Id.optional() }),
   z.object({ type: z.literal('project-changed'), seq: z.number().int(), projectId: Id }),
   z.object({ type: z.literal('resources'), seq: z.number().int(), worktreeId: Id, sample: ResourceSample }),
-  z.object({ type: z.literal('host'), seq: z.number().int(), sample: HostSample })
+  z.object({ type: z.literal('host'), seq: z.number().int(), sample: HostSample }),
+  /**
+   * Files in a watched worktree changed on disk: `paths` are repo-relative and not ignored,
+   * `git` says the repository itself moved (index, HEAD, refs), and `truncated` that a burst
+   * was too large to list — treat everything about the worktree as stale then.
+   */
+  z.object({ type: z.literal('files-changed'), seq: z.number().int(), worktreeId: Id, paths: z.array(z.string()), git: z.boolean(), truncated: z.boolean() })
 ])
 export type CanopyEvent = z.infer<typeof CanopyEvent>
 
