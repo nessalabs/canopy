@@ -13,6 +13,10 @@ const canopy = {
   openExternal: (url: string): void => {
     void ipcRenderer.invoke('shell:open-external', url)
   },
+  /** Opens one of the app's own hash routes in a window of its own — a popped-out file or diagram. */
+  openWindow: (hash: string): void => {
+    void ipcRenderer.invoke('window:open', hash)
+  },
   /** Hash routes pushed by the main process — the menu-bar panel opening a worktree. */
   onNavigate: (listener: (hash: string) => void): (() => void) => {
     const handler = (_event: Electron.IpcRendererEvent, hash: string): void => listener(hash)

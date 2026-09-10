@@ -1,22 +1,26 @@
 import { useState } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Code2, Eye, GripVertical, SquareArrowOutUpRight } from 'lucide-react'
 
 import type { ChangedFile, DiffSpec, ReviewComment } from '@canopy/shared'
 
+import { AppShellPaneDragHandle } from '@/components/composites/app-shell'
 import { WorktreeDiff, type DiffMode } from '@/components/worktree-diff'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { IconAction } from '@/components/icon-action'
 import { Button } from '@/components/ui/button'
 import { DiffStat, FileDiffPath } from '@/components/ui/file-diff-list'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useFilePatch } from '@/lib/api-hooks'
 import { isMarkdownPath } from '@/lib/language'
+import { fileWindowHash } from '@/lib/pop-out'
+import { usePlatform } from '@/providers/platform'
 import { FILE_STATUS_LABEL } from '@/lib/status'
 
-import { FileViewer, MarkdownPreview, type OpenPath } from './file-viewer'
+import { FileViewer, MarkdownDiff, MarkdownPreview, type OpenPath } from './file-viewer'
 import { HunkCards } from './hunk-cards'
 
-type View = 'diff' | 'hunks' | 'file' | 'preview'
+type View = 'diff' | 'hunks' | 'file'
 
 /** How a pane was reached, and where its own links lead: shared by the changed-file and loose panes. */
 interface Navigation {
@@ -69,18 +73,57 @@ function HunksBody({ worktreeId, spec, file, comments, mode }: Props): React.JSX
 /** Which blob the non-diff views read: the commit's copy, or the working tree's. */
 const revOf = (spec: DiffSpec): string | undefined => (spec.kind === 'commit' ? spec.sha : undefined)
 
-/** Each view is one component; the toggle just picks the row of this table. */
-const BODY: Record<View, (props: Props) => React.JSX.Element> = {
-  diff: DiffBody,
-  hunks: HunksBody,
-  file: ({ worktreeId, spec, file }) => <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} />,
-  preview: ({ worktreeId, spec, file, anchor, onOpenPath }) => (
-    <MarkdownPreview worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} onOpenPath={onOpenPath} />
+/** The rendered diff: the doc as prose, with the change marked on it. Markdown only. */
+function RenderedDiffBody({ worktreeId, spec, file, onOpenPath }: Props): React.JSX.Element {
+  return (
+    <WithPatch worktreeId={worktreeId} spec={spec} file={file}>
+      {(patch) => <MarkdownDiff worktreeId={worktreeId} path={file.path} rev={revOf(spec)} patch={patch} onOpenPath={onOpenPath} />}
+    </WithPatch>
   )
 }
 
-/** The header every pane shares: where you came from, which file this is, and how to read it. */
-function PaneHeader({ path, onBack, children }: { path: string; onBack?: () => void; children: React.ReactNode }): React.JSX.Element {
+/** Each view is one component; the tabs pick the row of this table, the toggle picks the column. */
+const BODY: Record<View, (props: Props, rendered: boolean) => React.JSX.Element> = {
+  diff: (props, rendered) => (rendered ? <RenderedDiffBody {...props} /> : <DiffBody {...props} />),
+  hunks: (props) => <HunksBody {...props} />,
+  file: ({ worktreeId, spec, file, anchor, onOpenPath }, rendered) =>
+    rendered ? (
+      <MarkdownPreview worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} onOpenPath={onOpenPath} />
+    ) : (
+      <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} />
+    )
+}
+
+/**
+ * Markdown reads as prose everywhere it can — a rendered diff in the Diff tab, the rendered doc
+ * in File — and this drops to the source of whichever one is showing. Every other file type only
+ * ever has source, so the toggle is not offered.
+ */
+function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }): React.JSX.Element {
+  return (
+    <IconAction label={raw ? 'Show the rendered markdown' : 'Show the raw markdown'} pressed={raw} onClick={onToggle}>
+      {raw ? <Eye aria-hidden className="size-3.5" /> : <Code2 aria-hidden className="size-3.5" />}
+    </IconAction>
+  )
+}
+
+/** Pulls this file out into a window of its own, to read beside the one it was opened from. */
+function OpenInWindow({ worktreeId, path, rev }: { worktreeId: string; path: string; rev?: string }): React.JSX.Element {
+  const { openWindow } = usePlatform()
+  return (
+    <IconAction label="Open this file in a new window" onClick={() => openWindow(fileWindowHash(worktreeId, path, rev))}>
+      <SquareArrowOutUpRight aria-hidden className="size-3.5" />
+    </IconAction>
+  )
+}
+
+/**
+ * The header every pane shares: where you came from, which file this is, and how to read it.
+ * Inside a workspace, `dragPaneId` turns the path into the pane's grip — press it and drag onto
+ * another pane to trade places. It is only ever passed by a pane rendered in an AppShell.
+ */
+function PaneHeader({ path, dragPaneId, onBack, children }: { path: string; dragPaneId?: string; onBack?: () => void; children: React.ReactNode }): React.JSX.Element {
+  const label = <FileDiffPath path={path} className="min-w-0 flex-1 font-mono text-xs" />
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-muted/30 px-3 py-2">
       {onBack ? (
@@ -88,28 +131,37 @@ function PaneHeader({ path, onBack, children }: { path: string; onBack?: () => v
           <ArrowLeft className="size-3.5" />
         </Button>
       ) : null}
-      <FileDiffPath path={path} className="min-w-0 flex-1 font-mono text-xs" />
+      {dragPaneId === undefined ? (
+        label
+      ) : (
+        <AppShellPaneDragHandle paneId={dragPaneId} className="flex min-w-0 flex-1 items-center gap-1.5" title="Drag this file onto another pane to swap them">
+          <GripVertical aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+          {label}
+        </AppShellPaneDragHandle>
+      )}
       {children}
     </div>
   )
 }
 
-/** The right-hand pane of the explorer: one file, as its diff, its full contents, or — for markdown — rendered. */
+/** The right-hand pane of the explorer: one file, as its diff, its hunks, or its whole contents. */
 export function ContentPane(props: Props): React.JSX.Element {
   const [picked, setPicked] = useState<View>()
+  const [raw, setRaw] = useState(false)
   const { file, onBack, canPickHunks } = props
   const canView = file.status !== 'D'
-  const canPreview = canView && isMarkdownPath(file.path)
   // A binary file has no hunks, and a conflicted one must be resolved before any of it is staged.
   const canHunks = Boolean(canPickHunks) && !file.binary && !file.conflicted
-  // Markdown opens rendered — the diff of a doc is a click away, but prose is what it is for.
-  // Everything else opens as its diff, and a deleted file has no blob to render either way.
-  const view = picked ?? (canPreview ? 'preview' : 'diff')
-  const resolved: View = (view === 'preview' && !canPreview) || (view === 'hunks' && !canHunks) ? 'diff' : view
-  const Body = BODY[resolved]
+  const view = picked ?? 'diff'
+  const resolved: View = (view === 'hunks' && !canHunks) || (view === 'file' && !canView) ? 'diff' : view
+  // A deleted file has no blob left to render, and hunk picking is line work by definition.
+  const markdown = canView && !file.binary && isMarkdownPath(file.path)
+  const canRender = markdown && resolved !== 'hunks'
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
+    // A diagram in this file expands to fill the pane, not the window: the doc it belongs to
+    // stays beside it, which is the whole reason to open the diagram at all.
+    <div data-diagram-surface className="relative flex h-full min-h-0 flex-col">
       <PaneHeader path={file.path} onBack={onBack}>
         <Badge variant="outline" className="text-[10px]">
           {FILE_STATUS_LABEL[file.status]}
@@ -121,11 +173,11 @@ export function ContentPane(props: Props): React.JSX.Element {
           <SegmentedControlOption value="file" disabled={!canView}>
             File
           </SegmentedControlOption>
-          {canPreview ? <SegmentedControlOption value="preview">Preview</SegmentedControlOption> : null}
         </SegmentedControl>
+        {canRender ? <RawToggle raw={raw} onToggle={() => setRaw(!raw)} /> : null}
       </PaneHeader>
-      <div className="min-h-0 flex-1 overflow-auto">
-        <Body key={`${resolved}:${file.path}`} {...props} />
+      <div key={`${resolved}:${canRender && !raw}:${file.path}`} className="min-h-0 flex-1 overflow-auto">
+        {BODY[resolved](props, canRender && !raw)}
       </div>
     </div>
   )
@@ -135,7 +187,7 @@ export function ContentPane(props: Props): React.JSX.Element {
  * One file read outside a diff: rendered prose when it is markdown, otherwise its source, with
  * the same header nav the diff pane has. Links inside a rendered doc keep the trail going.
  */
-export function FilePane({ worktreeId, path, rev, badge, actions, className, anchor, onOpenPath, onBack }: {
+export function FilePane({ worktreeId, path, rev, badge, actions, className, dragPaneId, anchor, onOpenPath, onBack }: {
   worktreeId: string
   path: string
   rev?: string
@@ -143,30 +195,28 @@ export function FilePane({ worktreeId, path, rev, badge, actions, className, anc
   /** Chrome the host puts at the end of the header — the pane's own split, maximize and close. */
   actions?: React.ReactNode
   className?: string
+  /** The workspace pane this file sits in; given, its header doubles as the pane's drag grip. */
+  dragPaneId?: string
 } & Navigation): React.JSX.Element {
-  const [picked, setPicked] = useState<Exclude<View, 'diff'>>()
-  const canPreview = isMarkdownPath(path)
+  const [raw, setRaw] = useState(false)
   // Markdown opens rendered, the way it opens in the diff pane; anything else has only source.
-  const view: Exclude<View, 'diff'> = picked === 'file' || !canPreview ? 'file' : 'preview'
+  const markdown = isMarkdownPath(path)
+  const rendered = markdown && !raw
 
   return (
-    <div className={cn('flex h-full min-h-0 flex-col', className)}>
-      <PaneHeader path={path} onBack={onBack}>
+    <div data-diagram-surface className={cn('relative flex h-full min-h-0 flex-col', className)}>
+      <PaneHeader path={path} dragPaneId={dragPaneId} onBack={onBack}>
         {badge ? (
           <Badge variant="outline" className="text-[10px]">
             {badge}
           </Badge>
         ) : null}
-        {canPreview ? (
-          <SegmentedControl value={view} onValueChange={(value) => setPicked(value as Exclude<View, 'diff'>)} aria-label="Content view">
-            <SegmentedControlOption value="file">File</SegmentedControlOption>
-            <SegmentedControlOption value="preview">Preview</SegmentedControlOption>
-          </SegmentedControl>
-        ) : null}
+        {markdown ? <RawToggle raw={raw} onToggle={() => setRaw(!raw)} /> : null}
+        <OpenInWindow worktreeId={worktreeId} path={path} rev={rev} />
         {actions}
       </PaneHeader>
       <div className="min-h-0 flex-1 overflow-auto">
-        {view === 'preview' ? (
+        {rendered ? (
           <MarkdownPreview key={path} worktreeId={worktreeId} path={path} rev={rev} anchor={anchor} onOpenPath={onOpenPath} />
         ) : (
           <FileViewer key={path} worktreeId={worktreeId} path={path} rev={rev} />

@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react'
 import { CanopyApp, type DaemonConnection } from '@canopy/ui'
 
+/**
+ * Pop-out windows — one file, one diagram — are the same renderer on a `/window/…` route, but
+ * they wear a normal title bar rather than the main window's hidden-inset one, so nothing of
+ * theirs has to clear the traffic lights.
+ */
+const isPopOut = (): boolean => window.location.hash.startsWith('#/window/')
+
 export default function App(): React.JSX.Element {
   const [connection, setConnection] = useState<DaemonConnection | null>()
 
@@ -17,9 +24,10 @@ export default function App(): React.JSX.Element {
   return (
     <CanopyApp
       platform="desktop"
-      titleBarInset={window.canopy.platform === 'darwin'}
+      titleBarInset={window.canopy.platform === 'darwin' && !isPopOut()}
       initialConnection={connection ?? undefined}
       openExternal={window.canopy.openExternal}
+      openWindow={window.canopy.openWindow}
     />
   )
 }
