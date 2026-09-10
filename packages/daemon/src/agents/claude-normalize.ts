@@ -1,10 +1,31 @@
 import type { TurnImage } from '@canopy/shared'
+import { isHarnessText } from '@canopy/shared'
 
 import { imagesFromBlocks } from './images'
 
-/** Text Claude Code writes into the conversation for its own bookkeeping, not the user's words. */
+/**
+ * Text Claude Code writes into the conversation for its own bookkeeping, not the user's words.
+ * The tag list lives in @canopy/shared so the UI can apply the same test to logs recorded before
+ * the daemon knew a tag (a `<task-notification>` drawn as a user bubble was exactly that gap).
+ */
 export function isBookkeeping(text: string): boolean {
-  return text.startsWith('<local-command-') || text.startsWith('<command-name>') || text.startsWith('<system-reminder>')
+  return isHarnessText(text)
+}
+
+/**
+ * A `<system-reminder>` the harness appended *after* the user's own words, inside their block.
+ * Dropping the whole block would lose the prompt, so only the trailing segment goes; the
+ * lookahead keeps the match to the last reminder, and the loop peels a run of them.
+ */
+const TRAILING_REMINDER = /\s*<system-reminder>(?:(?!<system-reminder>)[\s\S])*<\/system-reminder>\s*$/
+
+function withoutTrailingReminders(text: string): string {
+  let kept = text
+  for (let previous = ''; previous !== kept; ) {
+    previous = kept
+    kept = kept.replace(TRAILING_REMINDER, '')
+  }
+  return kept
 }
 
 interface RawMessage {
@@ -52,8 +73,9 @@ export function normalizeUserMessage(message: WireMessage): { line: WireMessage;
   if (blocks.some((block) => block.type === 'tool_result')) return { line: message, images: [] }
 
   const kept = blocks
-    .filter((block) => block.type === 'text' && typeof block.text === 'string' && !isBookkeeping(block.text))
-    .map((block) => block.text ?? '')
+    .filter((block) => block.type === 'text' && typeof block.text === 'string')
+    .map((block) => withoutTrailingReminders(block.text ?? ''))
+    .filter((text) => text !== '' && !isBookkeeping(text))
     .join('\n')
     .trim()
   const images = imagesFromBlocks(blocks as Array<{ type: string }>, kept)

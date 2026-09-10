@@ -42,6 +42,8 @@ export const routes = {
   transcript: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/transcript`,
   messages: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/messages`,
   agentEdits: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/edits`,
+  /** Answers a `permission_requested` event of a turn running in this session. */
+  permissions: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/permissions`,
   /** Claude Code PreToolUse/PostToolUse hook receiver (see bin/canopy-hook.mjs). */
   hooksClaude: () => `${API_PREFIX}/hooks/claude`,
 

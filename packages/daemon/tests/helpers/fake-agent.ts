@@ -1,4 +1,4 @@
-import type { AgentStreamEvent } from '@canopy/shared'
+import type { AgentStreamEvent, PermissionDecisionInput } from '@canopy/shared'
 import type { AgentEvent } from '@canopy/shared/agent-stream'
 
 import type { AgentAdapter, AgentSessionSummary, SendOptions, TranscriptResponse } from '../../src/agents/types'
@@ -27,6 +27,10 @@ export class FakeAgent implements AgentAdapter {
     { type: 'done', sessionId: 's1' }
   ]
 
+  /** Permission answers the route handed us, and the one request id the fake claims to be parked on. */
+  readonly answers: PermissionDecisionInput[] = []
+  pendingRequestId = 'req-1'
+
   available = async (): Promise<boolean> => true
   listSessions = async (): Promise<AgentSessionSummary[]> => this.sessions
   transcript = async (): Promise<TranscriptResponse> => ({
@@ -37,6 +41,11 @@ export class FakeAgent implements AgentAdapter {
     effort: 'medium',
     nextSeq: 1
   })
+
+  answerPermission = (sessionId: string, input: PermissionDecisionInput): boolean => {
+    this.answers.push(input)
+    return sessionId !== '' && input.requestId === this.pendingRequestId
+  }
 
   async *send(sessionId: string | null, text: string, options?: SendOptions): AsyncIterable<AgentStreamEvent> {
     this.sent.push({ sessionId, text, options })

@@ -50,6 +50,20 @@ describe('normalizeUserMessage', () => {
     expect(images).toEqual([{ label: 'Image #1', mediaType: 'image/png', data: 'AAA' }])
   })
 
+  it('flags a task notification, string or block, so a finished background task opens no turn', () => {
+    expect(isBookkeeping('<task-notification>Task tk_1 finished</task-notification>')).toBe(true)
+    expect(normalizeUserMessage(userLine('<task-notification>Task tk_1 finished</task-notification>')).line.isSynthetic).toBe(true)
+    expect(normalizeUserMessage(userLine([{ type: 'text', text: '<task-notification>Task tk_1 finished</task-notification>' }])).line.isSynthetic).toBe(true)
+  })
+
+  it('keeps the words the user typed when a reminder was appended to their own block', () => {
+    const { line } = normalizeUserMessage(
+      userLine([{ type: 'text', text: 'ship it\n<system-reminder>be careful</system-reminder>\n<system-reminder>and terse</system-reminder>' }])
+    )
+    expect(line.isSynthetic).toBeUndefined()
+    expect(line.message?.content).toBe('ship it')
+  })
+
   it('leaves a tool_result line untouched — that is real array content, not a prompt', () => {
     const line = userLine([{ type: 'tool_result', tool_use_id: 'c1', content: 'ok' }])
     expect(normalizeUserMessage(line).line).toBe(line)
