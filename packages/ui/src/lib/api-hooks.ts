@@ -1,6 +1,21 @@
 import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type UseMutationOptions } from '@tanstack/react-query'
 
-import type { AddCommentInput, AddProjectInput, CreateWorktreeInput, DiffSpec, SessionRef, UpdateProjectInput } from '@canopy/shared'
+import type {
+  AddCommentInput,
+  AddProjectInput,
+  AdoptWorktreeInput,
+  AppSettingsPatch,
+  CreateWorktreeInput,
+  DbSource,
+  DestroyAllInput,
+  DiffSpec,
+  OpenInput,
+  ProjectSettingsPatch,
+  ProvisionInput,
+  ServiceAction,
+  SessionRef,
+  UpdateProjectInput
+} from '@canopy/shared'
 
 import { useApi } from '../providers/api'
 import { keys } from './query-keys'
@@ -172,4 +187,137 @@ export const useDeleteComment = (worktreeId: string) => {
 export const usePinSession = (worktreeId: string) => {
   const api = useApi()
   return useInvalidating((ref: SessionRef) => api.pinSession(worktreeId, ref), () => [keys.sessions(worktreeId)])
+}
+
+// =====================================================================================
+// Environment & resources
+// =====================================================================================
+
+export const useHost = () => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.host, queryFn: api.host, staleTime: 60_000 })
+}
+
+export const useAppSettings = () => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.appSettings, queryFn: api.appSettings, staleTime: 60_000 })
+}
+
+export const useUpdateAppSettings = () => {
+  const api = useApi()
+  return useInvalidating((patch: AppSettingsPatch) => api.updateAppSettings(patch), () => [keys.appSettings])
+}
+
+export const useProjectSettings = (projectId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.projectSettings(projectId), queryFn: () => api.projectSettings(projectId) })
+}
+
+export const useUpdateProjectSettings = (projectId: string) => {
+  const api = useApi()
+  return useInvalidating((patch: ProjectSettingsPatch) => api.updateProjectSettings(projectId, patch), () => [
+    keys.projectSettings(projectId),
+    keys.projectEnvironment(projectId),
+    keys.projectWtToml(projectId),
+    keys.projects
+  ])
+}
+
+export const useProjectConfig = (projectId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.projectConfig(projectId), queryFn: () => api.projectConfig(projectId) })
+}
+
+export const useWriteProjectConfig = (projectId: string) => {
+  const api = useApi()
+  return useInvalidating((raw: string) => api.writeProjectConfig(projectId, raw), () => [keys.projectConfig(projectId), keys.projectEnvironment(projectId), keys.projects, keys.worktrees])
+}
+
+export const useScaffoldProjectConfig = (projectId: string) => {
+  const api = useApi()
+  return useMutation({ mutationFn: () => api.scaffoldProjectConfig(projectId) })
+}
+
+export const useProjectEnvironment = (projectId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.projectEnvironment(projectId), queryFn: () => api.projectEnvironment(projectId) })
+}
+
+export const useProjectWtToml = (projectId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.projectWtToml(projectId), queryFn: () => api.projectWtToml(projectId) })
+}
+
+export const useWriteProjectWtToml = (projectId: string) => {
+  const api = useApi()
+  return useInvalidating((_: void) => api.writeProjectWtToml(projectId), () => [keys.projectWtToml(projectId)])
+}
+
+export const useStopAllWorktrees = (projectId: string) => {
+  const api = useApi()
+  return useInvalidating((_: void) => api.stopAllWorktrees(projectId), () => [keys.worktrees])
+}
+
+export const useDestroyAllWorktrees = (projectId: string) => {
+  const api = useApi()
+  return useInvalidating((input: DestroyAllInput) => api.destroyAllWorktrees(projectId, input), () => [keys.worktrees, keys.projects])
+}
+
+export const useAdoptWorktree = () => {
+  const api = useApi()
+  return useInvalidating((input: AdoptWorktreeInput) => api.adoptWorktree(input), () => [keys.worktrees])
+}
+
+/** Start / stop / restart every service of a worktree. The environment event stream carries the follow-up. */
+export const useWorktreeLifecycle = (worktreeId: string) => {
+  const api = useApi()
+  const actions = { start: api.startWorktree, stop: api.stopWorktree, restart: api.restartWorktree }
+  return useInvalidating((action: 'start' | 'stop' | 'restart') => actions[action](worktreeId), () => [keys.worktree(worktreeId), keys.worktrees])
+}
+
+export const useProvisionWorktree = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating((input: ProvisionInput) => api.provisionWorktree(worktreeId, input), () => [keys.worktree(worktreeId), keys.worktrees])
+}
+
+export const useRegenerateEnvFile = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating(() => api.regenerateEnvFile(worktreeId), () => [keys.worktree(worktreeId)])
+}
+
+export const useOpenWorktree = (worktreeId: string) => {
+  const api = useApi()
+  return useMutation({ mutationFn: (input: OpenInput) => api.openWorktree(worktreeId, input) })
+}
+
+export const useServiceAction = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating(({ service, action }: { service: string; action: ServiceAction }) => api.serviceAction(worktreeId, service, action), () => [keys.worktree(worktreeId), keys.worktrees])
+}
+
+export const useResetDatabase = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating(({ name, from }: { name: string; from?: DbSource }) => api.resetDatabase(worktreeId, name, { from }), () => [keys.worktree(worktreeId)])
+}
+
+export const useRefreshProjectDatabase = (projectId: string) => {
+  const api = useApi()
+  return useMutation({ mutationFn: (db: string) => api.refreshProjectDatabase(projectId, db) })
+}
+
+/** Backfill for the resources tab; live samples arrive through the event stream (see events-provider). */
+export const useResourcesBackfill = (worktreeId: string, enabled = true) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.resources(worktreeId), queryFn: () => api.worktreeResources(worktreeId), enabled, staleTime: Number.POSITIVE_INFINITY })
+}
+
+export const useDestroyWorktreeWith = () => {
+  const api = useApi()
+  return useInvalidating(({ id, force, deleteBranch }: { id: string; force?: boolean; deleteBranch?: boolean }) => api.destroyWorktreeWith(id, { force, deleteBranch }), () => [keys.worktrees])
+}
+
+/** Directory listing for the folder picker; cached briefly so stepping back up is instant. */
+export const useDirs = (path: string | undefined, hidden: boolean, enabled = true) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.dirs(path, hidden), queryFn: () => api.listDirs(path, hidden), enabled, staleTime: 15_000, placeholderData: (previous) => previous })
 }

@@ -7,6 +7,7 @@ import { AppLayout } from './components/app-layout'
 import { ExternalLinks } from './components/external-links'
 import { TooltipProvider } from './components/ui/tooltip'
 import { connectionStore } from './lib/connection-store'
+import { CanopyEventsProvider } from './lib/events-provider'
 import { ApiProvider } from './providers/api'
 import { PlatformProvider, type DaemonConnection, type Platform } from './providers/platform'
 import { CommandCenterScreen } from './screens/command-center-screen'
@@ -18,6 +19,8 @@ import { WorktreeDashboardScreen } from './screens/worktree-dashboard-screen'
 
 export interface CanopyAppProps {
   platform: Platform
+  /** Desktop on macOS: the traffic lights sit over the page, so the shell reserves a strip for them. */
+  titleBarInset?: boolean
   /** Desktop passes the daemon connection it read from ~/.canopy; web asks the user. */
   initialConnection?: DaemonConnection
   openExternal?: (url: string) => void
@@ -43,7 +46,7 @@ function Routes(): React.JSX.Element {
   )
 }
 
-export function CanopyApp({ platform, initialConnection, openExternal }: CanopyAppProps): React.JSX.Element {
+export function CanopyApp({ platform, titleBarInset = false, initialConnection, openExternal }: CanopyAppProps): React.JSX.Element {
   const [connection, setConnection] = useState<DaemonConnection | null>(() => initialConnection ?? connectionStore.load())
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 2000 } } }))
 
@@ -53,15 +56,17 @@ export function CanopyApp({ platform, initialConnection, openExternal }: CanopyA
   }
 
   return (
-    <PlatformProvider value={{ platform, openExternal: openExternal ?? ((url) => window.open(url, '_blank', 'noopener')) }}>
+    <PlatformProvider value={{ platform, titleBarInset, openExternal: openExternal ?? ((url) => window.open(url, '_blank', 'noopener')) }}>
       <ExternalLinks />
       <TooltipProvider>
         {connection ? (
           <ApiProvider connection={connection}>
             <QueryClientProvider client={queryClient}>
-              <Router hook={useHashLocation}>
-                <Routes />
-              </Router>
+              <CanopyEventsProvider>
+                <Router hook={useHashLocation}>
+                  <Routes />
+                </Router>
+              </CanopyEventsProvider>
             </QueryClientProvider>
           </ApiProvider>
         ) : (

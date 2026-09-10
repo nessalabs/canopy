@@ -9,6 +9,7 @@ import {
   AppShellWorkspace,
   useAppShell
 } from '@/components/composites/app-shell'
+import { ErrorBoundary } from '@/components/error-boundary'
 import { PaneSplitDirection, closePane as closePaneOp, collectPanes, splitPane, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
 import { placementOf, reinsertPane, type Placement } from '@/lib/panel-placement'
 import { Button } from '@/components/ui/button'
@@ -94,7 +95,9 @@ function Pane({ pane, panels }: { pane: PaneNode; panels: PanelDef[] }): React.J
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {panel ? (
-          panel.render()
+          <ErrorBoundary label={panel.title} resetKey={pane.activeViewId}>
+            {panel.render()}
+          </ErrorBoundary>
         ) : (
           <p className="p-4 text-xs text-muted-foreground">
             Empty panel — drag another panel's grip here, or close it.

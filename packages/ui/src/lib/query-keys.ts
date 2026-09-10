@@ -15,5 +15,15 @@ export const keys = {
   sessions: (worktreeId: string) => ['agent-sessions', worktreeId] as const,
   transcript: (ref: SessionRef) => ['transcript', ref.provider, ref.sessionId] as const,
   edits: (ref: SessionRef) => ['agent-edits', ref.provider, ref.sessionId] as const,
-  providers: ['providers'] as const
+  providers: ['providers'] as const,
+  // ---- environment & resources ----
+  host: ['host'] as const,
+  appSettings: ['app-settings'] as const,
+  projectSettings: (projectId: string) => ['project-settings', projectId] as const,
+  projectConfig: (projectId: string) => ['project-config', projectId] as const,
+  projectEnvironment: (projectId: string) => ['project-environment', projectId] as const,
+  projectWtToml: (projectId: string) => ['project-wt-toml', projectId] as const,
+  resources: (worktreeId: string) => ['resources', worktreeId] as const,
+  logs: (worktreeId: string, service: string) => ['logs', worktreeId, service] as const,
+  dirs: (path: string | undefined, hidden: boolean) => ['fs-dirs', path ?? '~', hidden] as const
 }

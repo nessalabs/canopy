@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { AlertTriangle, Check, ScanSearch } from 'lucide-react'
+import { AlertTriangle, Check, FolderOpen, ScanSearch } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { Badge } from '@/components/ui/badge'
@@ -9,12 +9,14 @@ import { Input } from '@/components/ui/input'
 import { useAddProject, useScanProject } from '@/lib/api-hooks'
 import { plural } from '@/lib/format'
 
+import { DirectoryPicker } from './directory-picker'
 import { ErrorNote } from './error-note'
 
 export function AddProjectDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }): React.JSX.Element {
   const [, navigate] = useLocation()
   const [path, setPath] = useState('')
   const [name, setName] = useState('')
+  const [browsing, setBrowsing] = useState(false)
   const scan = useScanProject()
   const add = useAddProject()
   const result = scan.data
@@ -29,8 +31,14 @@ export function AddProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
     }
   }
 
-  const runScan = (): void => {
-    scan.mutate(path.trim(), { onSuccess: (data) => setName(data.name) })
+  const runScan = (target = path): void => {
+    scan.mutate(target.trim(), { onSuccess: (data) => setName(data.name) })
+  }
+
+  /** A folder picked in the browser is scanned right away — one click less for the common case. */
+  const pick = (picked: string): void => {
+    setPath(picked)
+    runScan(picked)
   }
 
   const submit = (): void => {
@@ -68,11 +76,15 @@ export function AddProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
               aria-label="Repository path"
               autoFocus
             />
+            <Button type="button" variant="outline" size="icon" aria-label="Browse folders" onClick={() => setBrowsing(true)}>
+              <FolderOpen />
+            </Button>
             <Button type="submit" variant="outline" disabled={path.trim().length < 2 || scan.isPending}>
               <ScanSearch />
               Scan
             </Button>
           </form>
+          <DirectoryPicker open={browsing} onOpenChange={setBrowsing} initialPath={path} onPick={pick} />
           <ErrorNote error={scan.error} />
           {result ? (
             <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-muted/40 p-3">
@@ -84,9 +96,22 @@ export function AddProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
                     <span className="text-muted-foreground">{result.canopyYaml.valid ? 'found' : 'has errors'}</span>
                   </>
                 ) : (
-                  <span className="text-muted-foreground">No canopy.yaml yet — you can add one later.</span>
+                  <span className="text-muted-foreground">No canopy.yaml — you can scaffold one in project settings.</span>
                 )}
               </p>
+              {result.canopyYaml.present ? (
+                <div className="flex flex-wrap gap-1.5">
+                  <Badge variant="outline" className="text-[10px]">
+                    {result.canopyYaml.services} services
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px]">
+                    {result.canopyYaml.ports} ports
+                  </Badge>
+                  <Badge variant="outline" className="text-[10px]">
+                    {plural(result.canopyYaml.databases, 'database')}
+                  </Badge>
+                </div>
+              ) : null}
               {result.canopyYaml.errors.map((error) => (
                 <p key={error} className="font-mono text-[11px] text-destructive">
                   {error}

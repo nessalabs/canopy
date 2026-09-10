@@ -2,9 +2,11 @@ import { useState } from 'react'
 import { ChevronRight, FolderGit2, Gauge, Moon, PanelLeft, Plus, Settings2, Sun, TreePine } from 'lucide-react'
 import { Link, useLocation, useRoute } from 'wouter'
 
-import type { Project, Worktree } from '@canopy/shared'
+import { environmentDot, type Project, type Worktree } from '@canopy/shared'
 
 import { AddProjectDialog } from '@/components/add-project-dialog'
+import { ErrorBoundary } from '@/components/error-boundary'
+import { HeaderSlotProvider, HeaderSlotTarget } from '@/components/header-slot'
 import { SidePanel, SidePanelButtons, type SidePanelId } from '@/components/side-panel'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
 import { Badge } from '@/components/ui/badge'
@@ -27,9 +29,12 @@ import {
 import { StatusDot } from '@/components/ui/status-dot'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProjects, useWorktrees } from '@/lib/api-hooks'
+import { useEventsConnection } from '@/lib/events-provider'
 import { WORKTREE_DOT } from '@/lib/status'
 import { useTheme } from '@/lib/use-theme'
+import { cn } from '@/lib/utils'
 import { useApi } from '@/providers/api'
+import { usePlatform } from '@/providers/platform'
 
 function HoverAction({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }): React.JSX.Element {
   return (
@@ -81,7 +86,7 @@ function ProjectSection({ project, worktrees }: { project: Project; worktrees: W
               <SidebarMenuItem
                 key={wt.id}
                 size="sm"
-                icon={<StatusDot status={WORKTREE_DOT[wt.state]} />}
+                icon={<StatusDot status={wt.environment.state === 'none' ? WORKTREE_DOT[wt.state] : environmentDot(wt.environment)} />}
                 isActive={location === `/worktrees/${wt.id}`}
                 onClick={() => navigate(`/worktrees/${wt.id}`)}
               >
@@ -105,93 +110,113 @@ function ProjectSection({ project, worktrees }: { project: Project; worktrees: W
 
 export function AppLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   const { theme, toggleTheme } = useTheme()
+  const connection = useEventsConnection()
   const [location, navigate] = useLocation()
   const projects = useProjects().data ?? []
   const worktrees = useWorktrees().data ?? []
   const api = useApi()
+  const { titleBarInset } = usePlatform()
+  // Under the traffic lights the top strip belongs to the window: it moves the window and
+  // takes the title-bar double-click. Controls inside it opt back out.
+  const drag = titleBarInset ? '[-webkit-app-region:drag]' : undefined
+  const noDrag = titleBarInset ? '[-webkit-app-region:no-drag]' : undefined
   const [addOpen, setAddOpen] = useState(false)
   const host = new URL(api.baseUrl).host
   const [panel, setPanel] = useState<SidePanelId>()
   const [, worktreeRoute] = useRoute('/worktrees/:id')
   const worktreeId = worktreeRoute?.id
-  const main = <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">{children}</main>
+  // Keyed on the location so navigating away from a screen that threw clears the error.
+  const main = (
+    <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <ErrorBoundary label="This screen" resetKey={location}>
+        {children}
+      </ErrorBoundary>
+    </main>
+  )
 
   return (
-    <SidebarProvider className="h-svh max-h-svh overflow-hidden">
-      <Sidebar collapsible={SidebarCollapsible.Icon}>
-        <SidebarHeader>
-          <div className="flex items-center gap-2 px-2 py-1.5 group-data-[state=collapsed]/sidebar:justify-center group-data-[state=collapsed]/sidebar:px-0">
-            <TreePine className="size-5 shrink-0 text-primary group-data-[state=collapsed]/sidebar:hidden" />
-            <span className="text-sm font-semibold tracking-tight group-data-[state=collapsed]/sidebar:hidden">Canopy</span>
-            <Badge variant="outline" className="ml-auto max-w-28 truncate font-mono text-[10px] group-data-[state=collapsed]/sidebar:hidden" title={api.baseUrl}>
-              {host}
-            </Badge>
-            <SidebarTrigger className="group-data-[state=collapsed]/sidebar:ml-0">
-              <PanelLeft />
-            </SidebarTrigger>
-          </div>
-        </SidebarHeader>
-        <SidebarContent>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem icon={<Gauge className="size-4" />} isActive={location === '/'} onClick={() => navigate('/')}>
-                  Command Center
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-          <SidebarGroup>
-            <SidebarGroupContent>
-              <SidebarMenu>
-                {projects.map((project) => (
-                  <ProjectSection key={project.id} project={project} worktrees={worktrees.filter((wt) => wt.projectId === project.id)} />
-                ))}
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        </SidebarContent>
-        <SidebarFooter>
-          <Button variant="outline" size="sm" className="w-full group-data-[state=collapsed]/sidebar:hidden" onClick={() => setAddOpen(true)}>
-            <Plus />
-            Add project
-          </Button>
-          <Button variant="ghost" size="icon" aria-label="Add project" className="mx-auto hidden size-8 group-data-[state=collapsed]/sidebar:inline-flex" onClick={() => setAddOpen(true)}>
-            <Plus />
-          </Button>
-          <p className="flex items-center justify-between gap-2 truncate px-2 py-1 font-mono text-[10px] text-muted-foreground group-data-[state=collapsed]/sidebar:hidden">
-            <span className="truncate">canopyd · connected</span>
-            <Link href="/docs" className="shrink-0 underline-offset-2 hover:text-foreground hover:underline">
-              api
-            </Link>
-          </p>
-        </SidebarFooter>
-        <SidebarRail />
-      </Sidebar>
-      <SidebarInset className="min-h-0">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
-          <div className="ml-auto flex items-center gap-2">
-            <SidePanelButtons open={panel} disabled={!worktreeId} onToggle={(id) => setPanel((current) => (current === id ? undefined : id))} />
-            <Button variant="ghost" size="icon" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>
-              {theme === 'dark' ? <Sun /> : <Moon />}
+    <HeaderSlotProvider>
+      <SidebarProvider className="h-svh max-h-svh overflow-hidden">
+        <Sidebar collapsible={SidebarCollapsible.Icon}>
+          <SidebarHeader className={cn(titleBarInset && 'pt-8', drag)}>
+            <div className="flex items-center gap-2 px-2 py-1.5 group-data-[state=collapsed]/sidebar:justify-center group-data-[state=collapsed]/sidebar:px-0">
+              <TreePine className="size-5 shrink-0 text-primary group-data-[state=collapsed]/sidebar:hidden" />
+              <span className="text-sm font-semibold tracking-tight group-data-[state=collapsed]/sidebar:hidden">Canopy</span>
+              <Badge variant="outline" className={cn('ml-auto max-w-28 truncate font-mono text-[10px] group-data-[state=collapsed]/sidebar:hidden', noDrag)} title={api.baseUrl}>
+                {host}
+              </Badge>
+              <SidebarTrigger className={cn('group-data-[state=collapsed]/sidebar:ml-0', noDrag)}>
+                <PanelLeft />
+              </SidebarTrigger>
+            </div>
+          </SidebarHeader>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  <SidebarMenuItem icon={<Gauge className="size-4" />} isActive={location === '/'} onClick={() => navigate('/')}>
+                    Command Center
+                  </SidebarMenuItem>
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {projects.map((project) => (
+                    <ProjectSection key={project.id} project={project} worktrees={worktrees.filter((wt) => wt.projectId === project.id)} />
+                  ))}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+          <SidebarFooter>
+            <Button variant="outline" size="sm" className="w-full group-data-[state=collapsed]/sidebar:hidden" onClick={() => setAddOpen(true)}>
+              <Plus />
+              Add project
             </Button>
-          </div>
-        </header>
-        {panel && worktreeId ? (
-          <SplitView orientation={SplitViewOrientation.Horizontal} className="min-h-0 flex-1">
-            <SplitViewPanel id="main" minSize={40} className="flex min-h-0 flex-col">
-              {main}
-            </SplitViewPanel>
-            <SplitViewSeparator />
-            <SplitViewPanel id="side" defaultSize={36} minSize={20} className="min-h-0 border-l border-border">
-              <SidePanel id={panel} worktreeId={worktreeId} onClose={() => setPanel(undefined)} />
-            </SplitViewPanel>
-          </SplitView>
-        ) : (
-          main
-        )}
-      </SidebarInset>
-      <AddProjectDialog open={addOpen} onOpenChange={setAddOpen} />
-    </SidebarProvider>
+            <Button variant="ghost" size="icon" aria-label="Add project" className="mx-auto hidden size-8 group-data-[state=collapsed]/sidebar:inline-flex" onClick={() => setAddOpen(true)}>
+              <Plus />
+            </Button>
+            <p className="flex items-center justify-between gap-2 truncate px-2 py-1 font-mono text-[10px] text-muted-foreground group-data-[state=collapsed]/sidebar:hidden">
+              <span className="flex min-w-0 items-center gap-1.5 truncate">
+                <StatusDot status={connection === 'live' ? 'success' : 'running'} />
+                <span className="truncate">canopyd · {connection === 'live' ? 'live' : 'reconnecting…'}</span>
+              </span>
+              <Link href="/docs" className="shrink-0 underline-offset-2 hover:text-foreground hover:underline">
+                api
+              </Link>
+            </p>
+          </SidebarFooter>
+          <SidebarRail />
+        </Sidebar>
+        <SidebarInset className="min-h-0">
+          <header className={cn('flex h-14 shrink-0 items-center gap-3 border-b border-border px-4', titleBarInset && 'h-19 pt-5', drag)}>
+            {/* The active screen's title row. Empty, it stays a drag handle for the window. */}
+            <HeaderSlotTarget className={cn('flex min-w-0 flex-1 items-center', titleBarInset && '[-webkit-app-region:no-drag] empty:[-webkit-app-region:drag]')} />
+            <div className={cn('ml-auto flex shrink-0 items-center gap-2', noDrag)}>
+              <SidePanelButtons open={panel} disabled={!worktreeId} onToggle={(id) => setPanel((current) => (current === id ? undefined : id))} />
+              <Button variant="ghost" size="icon" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>
+                {theme === 'dark' ? <Sun /> : <Moon />}
+              </Button>
+            </div>
+          </header>
+          {panel && worktreeId ? (
+            <SplitView orientation={SplitViewOrientation.Horizontal} className="min-h-0 flex-1">
+              <SplitViewPanel id="main" minSize={40} className="flex min-h-0 flex-col">
+                {main}
+              </SplitViewPanel>
+              <SplitViewSeparator />
+              <SplitViewPanel id="side" defaultSize={36} minSize={20} className="min-h-0 border-l border-border">
+                <SidePanel id={panel} worktreeId={worktreeId} onClose={() => setPanel(undefined)} />
+              </SplitViewPanel>
+            </SplitView>
+          ) : (
+            main
+          )}
+        </SidebarInset>
+        <AddProjectDialog open={addOpen} onOpenChange={setAddOpen} />
+      </SidebarProvider>
+    </HeaderSlotProvider>
   )
 }
