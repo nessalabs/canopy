@@ -8,6 +8,97 @@ import { installTray, type TrayController } from './tray'
 /** The app window. Tracked by hand: on macOS the tray panel is also a BrowserWindow. */
 let mainWindow: BrowserWindow | null = null
 
+/** The preload every app window loads — the pop-out windows need the same bridge. */
+const appPreload = (): string => join(__dirname, '../preload/index.mjs')
+
+/** Whether a URL is this app again: the same document, on one of its own hash routes. */
+function isAppUrl(from: BrowserWindow, url: string): boolean {
+  try {
+    const target = new URL(url)
+    const current = new URL(from.webContents.getURL())
+    // file:// URLs all share the origin "null", so the document itself is what separates the
+    // app's own routes from anything else that might be opened with one.
+    return target.origin === current.origin && target.pathname === current.pathname
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Where links and `window.open` go. The app opening one of its own routes is a pop-out — a
+ * file or a diagram pulled out to sit beside the window it came from — and gets a real window
+ * with the same bridge; every other URL is a link, and belongs to the system browser.
+ */
+function routeWindowLinks(window: BrowserWindow): void {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (!isAppUrl(window, url)) {
+      shell.openExternal(url)
+      return { action: 'deny' }
+    }
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        width: 1100,
+        height: 850,
+        minWidth: 420,
+        minHeight: 320,
+        backgroundColor: '#ffffff',
+        autoHideMenuBar: true,
+        // A normal frame, unlike the main window: a pop-out has no in-app header to read as a
+        // title bar, and its native one names the file it is showing.
+        webPreferences: { preload: appPreload(), sandbox: false }
+      }
+    }
+  })
+
+  // The window only ever shows the app; navigation anywhere else belongs to the system browser.
+  window.webContents.on('will-navigate', (event, url) => {
+    if (new URL(url).origin === new URL(window.webContents.getURL()).origin) return
+    event.preventDefault()
+    shell.openExternal(url)
+  })
+
+  // Pop-outs can pop out in turn — a diagram opened from a file that is itself in a window.
+  window.webContents.on('did-create-window', (child) => routeWindowLinks(child))
+}
+
+/** Where the renderer's pop-out windows load from: this same app, on the hash route it asked for. */
+function loadAppRoute(window: BrowserWindow, hash: string): void {
+  const route = hash.startsWith('#') ? hash.slice(1) : hash
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    const url = new URL(process.env['ELECTRON_RENDERER_URL'])
+    url.hash = route
+    void window.loadURL(url.href)
+    return
+  }
+  void window.loadFile(join(__dirname, '../renderer/index.html'), { hash: route })
+}
+
+/**
+ * A window holding one file or one diagram, opened from the app so it can be read beside the
+ * window it came from. It wears a normal frame — a pop-out has no in-app header to read as a
+ * title bar, and the native one names what it is showing.
+ */
+function openPopOutWindow(hash: string): void {
+  const window = new BrowserWindow({
+    width: 1100,
+    height: 850,
+    minWidth: 420,
+    minHeight: 320,
+    show: false,
+    autoHideMenuBar: true,
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      preload: appPreload(),
+      sandbox: false
+    }
+  })
+
+  window.on('ready-to-show', () => window.show())
+  routeWindowLinks(window)
+  loadAppRoute(window, hash)
+}
+
 function createWindow(): BrowserWindow {
   mainWindow = new BrowserWindow({
     width: 1180,
@@ -23,7 +114,7 @@ function createWindow(): BrowserWindow {
     trafficLightPosition: { x: 12, y: 10 },
     backgroundColor: '#ffffff',
     webPreferences: {
-      preload: join(__dirname, '../preload/index.mjs'),
+      preload: appPreload(),
       sandbox: false
     }
   })
@@ -35,17 +126,7 @@ function createWindow(): BrowserWindow {
     if (mainWindow === window) mainWindow = null
   })
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
-
-  // The window only ever shows the app; navigation anywhere else belongs to the system browser.
-  window.webContents.on('will-navigate', (event, url) => {
-    if (new URL(url).origin === new URL(window.webContents.getURL()).origin) return
-    event.preventDefault()
-    shell.openExternal(url)
-  })
+  routeWindowLinks(window)
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     window.loadURL(process.env['ELECTRON_RENDERER_URL'])
@@ -80,6 +161,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('daemon:connection', () => readDaemonConnection())
   ipcMain.handle('shell:open-external', (_event, url: string) => shell.openExternal(url))
+  ipcMain.handle('window:open', (_event, hash: string) => openPopOutWindow(hash))
 
   createWindow()
   tray = installTray({ showMainWindow, preload: join(__dirname, '../preload/tray.mjs') })

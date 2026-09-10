@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { Columns2, Maximize2, Minimize2, Rows2, X } from 'lucide-react'
+import { Columns2, GripVertical, Maximize2, Minimize2, Rows2, X } from 'lucide-react'
 
-import { AppShell, AppShellBody, AppShellMain, AppShellWorkspace, useAppShell } from '@/components/composites/app-shell'
+import { AppShell, AppShellBody, AppShellMain, AppShellPaneDragHandle, AppShellWorkspace, useAppShell } from '@/components/composites/app-shell'
 import { IconAction } from '@/components/icon-action'
 import { PaneSplitDirection, collectPanes, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
 
@@ -57,10 +57,13 @@ function Pane({ pane, worktreeId, anchor, onAnchor }: { pane: PaneNode; worktree
     return (
       <div className="flex h-full min-h-0 flex-col bg-card">
         <div className="flex shrink-0 items-center gap-3 border-b border-border bg-muted/30 px-3 py-2">
-          <span className="min-w-0 flex-1 font-mono text-xs text-muted-foreground">Empty</span>
+          <AppShellPaneDragHandle paneId={pane.id} className="flex min-w-0 flex-1 items-center gap-1.5" title="Drag this pane onto another to swap them">
+            <GripVertical aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
+            <span className="min-w-0 flex-1 font-mono text-xs text-muted-foreground">Empty</span>
+          </AppShellPaneDragHandle>
           {actions}
         </div>
-        <p className="p-3 font-mono text-[11px] text-muted-foreground">Pick a file in the tree to read it here.</p>
+        <p className="p-3 font-mono text-[11px] text-muted-foreground">Pick a file in the tree to read it here, or drag another pane's grip onto this one.</p>
       </div>
     )
   }
@@ -69,6 +72,7 @@ function Pane({ pane, worktreeId, anchor, onAnchor }: { pane: PaneNode; worktree
     <FilePane
       worktreeId={worktreeId}
       path={path}
+      dragPaneId={pane.id}
       anchor={anchor?.paneId === pane.id && anchor.path === path ? anchor.hash : undefined}
       onOpenPath={(next, hash) => {
         onAnchor({ paneId: pane.id, path: next, hash })
@@ -83,10 +87,11 @@ function Pane({ pane, worktreeId, anchor, onAnchor }: { pane: PaneNode; worktree
 
 /**
  * Every file the browser has open, one nessa AppShell pane each: split a pane to read two files
- * at once, maximize one to give it the whole browser (the others stay mounted at zero width, so
- * their scroll comes back untouched), or close it. The tree opens files into the focused pane —
- * whichever one was clicked last — and a link followed inside a doc opens in that pane too, with
- * Back returning to the file it came from.
+ * at once, drag a pane by the grip on its path onto another to trade their places, maximize one
+ * to give it the whole browser (the others stay mounted at zero width, so their scroll comes
+ * back untouched), or close it. The tree opens files into the focused pane — whichever one was
+ * clicked last — and a link followed inside a doc opens in that pane too, with Back returning
+ * to the file it came from.
  */
 export function FilePanes({ worktreeId, layout, onLayoutChange }: { worktreeId: string; layout: AppShellLayout; onLayoutChange: (layout: AppShellLayout) => void }): React.JSX.Element {
   const [anchor, setAnchor] = useState<Anchor>()

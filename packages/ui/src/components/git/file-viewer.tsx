@@ -1,10 +1,12 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { CodeBlock, CodeBlockProvider } from '@/components/ui/code-block'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { useFileContents } from '@/lib/api-hooks'
 import { resolveDocLink, slugify } from '@/lib/doc-links'
+import { diffSegments, type SegmentKind } from '@/lib/markdown-diff'
 import { useTheme } from '@/lib/use-theme'
+import { cn } from '@/lib/utils'
 
 interface FileProps {
   worktreeId: string
@@ -38,20 +40,13 @@ function scrollToAnchor(root: HTMLElement, id: string): void {
 }
 
 /**
- * The rendered doc, with its links wired to the viewer instead of the address bar: a relative
- * link opens that file in the pane, a `#fragment` scrolls to its heading, and a link with a
- * scheme falls through to the app's external-link handler. One delegated listener covers every
- * anchor, including those inside html embedded in the markdown.
+ * Links inside a rendered doc, wired to the viewer instead of the address bar: a relative link
+ * opens that file in the pane, a `#fragment` scrolls to its heading, and a link with a scheme
+ * falls through to the app's external-link handler. One delegated listener covers every anchor,
+ * including those inside html embedded in the markdown.
  */
-function MarkdownDoc({ text, path, anchor, onOpenPath }: { text: string; path: string; anchor?: string; onOpenPath?: OpenPath }): React.JSX.Element {
-  const root = useRef<HTMLDivElement>(null)
-
-  // The fragment carried in from another doc's link, applied once this doc's prose is on screen.
-  useEffect(() => {
-    if (root.current && anchor !== undefined) scrollToAnchor(root.current, anchor)
-  }, [anchor, text])
-
-  const onClick = (event: React.MouseEvent<HTMLDivElement>): void => {
+function useDocLinks(path: string, root: React.RefObject<HTMLDivElement | null>, onOpenPath?: OpenPath): (event: React.MouseEvent<HTMLDivElement>) => void {
+  return (event) => {
     if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
     const anchorEl = (event.target as Element | null)?.closest?.('a[href]')
     if (!(anchorEl instanceof HTMLAnchorElement)) return
@@ -66,10 +61,53 @@ function MarkdownDoc({ text, path, anchor, onOpenPath }: { text: string; path: s
     }
     onOpenPath?.(link.path, link.hash)
   }
+}
+
+/** The whole doc, rendered, with the fragment a link carried in applied once it is on screen. */
+function MarkdownDoc({ text, path, anchor, onOpenPath }: { text: string; path: string; anchor?: string; onOpenPath?: OpenPath }): React.JSX.Element {
+  const root = useRef<HTMLDivElement>(null)
+  const onClick = useDocLinks(path, root, onOpenPath)
+
+  useEffect(() => {
+    if (root.current && anchor !== undefined) scrollToAnchor(root.current, anchor)
+  }, [anchor, text])
 
   return (
     <div ref={root} onClick={onClick}>
       <MessageMarkdown className="mx-auto max-w-3xl px-4 py-3 text-sm">{text}</MessageMarkdown>
+    </div>
+  )
+}
+
+/** How each run of the document is painted: untouched prose, prose the change added, prose it cut. */
+const SEGMENT: Record<SegmentKind, string> = {
+  context: 'px-3',
+  added: 'rounded-sm border-l-2 border-nessa-diff-addition bg-nessa-diff-addition/10 px-3 py-1',
+  removed: 'rounded-sm border-l-2 border-nessa-diff-deletion bg-nessa-diff-deletion/10 px-3 py-1'
+}
+
+/** The tint carries the change to the eye; this carries it to a screen reader. */
+const SEGMENT_LABEL: Record<SegmentKind, string | undefined> = { context: undefined, added: 'Added:', removed: 'Removed:' }
+
+/**
+ * The change to a doc as the doc: the new version rendered as prose, with the blocks the change
+ * touched tinted green and the blocks it deleted rendered in red where they stood. A block is
+ * the smallest thing that can be rendered on its own, so a paragraph one word changed in is
+ * marked whole — the raw diff, one click away, is what line-level reading is for.
+ */
+function MarkdownDiffDoc({ text, patch, path, onOpenPath }: { text: string; patch: string; path: string; onOpenPath?: OpenPath }): React.JSX.Element {
+  const root = useRef<HTMLDivElement>(null)
+  const onClick = useDocLinks(path, root, onOpenPath)
+  const segments = useMemo(() => diffSegments(text, patch), [text, patch])
+
+  return (
+    <div ref={root} onClick={onClick} className="mx-auto flex max-w-3xl flex-col gap-1 px-4 py-3">
+      {segments.map((segment, index) => (
+        <div key={`${segment.kind}:${segment.line}:${index}`} className={cn('min-w-0', SEGMENT[segment.kind])}>
+          {SEGMENT_LABEL[segment.kind] ? <span className="sr-only">{SEGMENT_LABEL[segment.kind]}</span> : null}
+          <MessageMarkdown className="text-sm">{segment.text}</MessageMarkdown>
+        </div>
+      ))}
     </div>
   )
 }
@@ -87,6 +125,20 @@ export function MarkdownPreview({ worktreeId, path, rev, anchor, onOpenPath }: F
       {(text) => (
         <CodeBlockProvider mode={theme}>
           <MarkdownDoc text={text} path={path} anchor={anchor} onOpenPath={onOpenPath} />
+        </CodeBlockProvider>
+      )}
+    </FileText>
+  )
+}
+
+/** The same rendering, over the file's patch: prose with the change marked on it. */
+export function MarkdownDiff({ worktreeId, path, rev, patch, onOpenPath }: FileProps & { patch: string; onOpenPath?: OpenPath }): React.JSX.Element {
+  const { theme } = useTheme()
+  return (
+    <FileText worktreeId={worktreeId} path={path} rev={rev}>
+      {(text) => (
+        <CodeBlockProvider mode={theme}>
+          <MarkdownDiffDoc text={text} patch={patch} path={path} onOpenPath={onOpenPath} />
         </CodeBlockProvider>
       )}
     </FileText>

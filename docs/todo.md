@@ -19,6 +19,13 @@ item lands, delete it here.
   - vendored code is not written for `noUncheckedIndexedAccess` / `noUnusedLocals` /
     `noImplicitReturns` (electron-toolkit's base turns the last one on), so those flags are off in
     `packages/ui/tsconfig.json` and the app tsconfigs that include it.
+- `components/ui/mermaid-diagram.tsx` carries local edits that are **not upstream** and will be
+  lost by the next `ui:add -- mermaid-diagram`: the toolbar clears `--nessa-title-bar-inset`, the
+  viewer takes an `inline` shape that fills the nearest `[data-diagram-surface]` ancestor instead
+  of the window (Canopy marks its file panes, so a diagram expands inside its pane and the doc
+  stays readable beside it), `defaultExpanded` opens the viewer on mount for the diagram window,
+  and `DiagramWindowProvider` supplies the "open in a new window" control. Upstream all four to
+  nessa_ui and re-vendor.
 - `message-markdown` pulls `mermaid` (static import, ~700 kB) and Shiki grammars through
   `code-block`; the web bundle is ~2.3 MB minified. Code-split or lazy-load once the
   package import exists (or ask nessa_ui for a dynamic `import('mermaid')`).
