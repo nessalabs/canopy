@@ -33,12 +33,14 @@ export class HistoryService {
   constructor(private readonly deps: Deps) {}
 
   private async resolve(worktreeId: string, spec: DiffSpec): Promise<{ cwd: string; resolved: ResolvedDiffSpec; baseBranch: string }> {
-    const worktree = await this.deps.worktrees.get(worktreeId)
-    if (spec.kind !== 'worktree') return { cwd: worktree.path, resolved: spec, baseBranch: worktree.baseBranch }
-    const wanted = spec.against === 'head' ? 'HEAD' : (await this.deps.repo.mergeBase(worktree.path, worktree.baseBranch)) ?? 'HEAD'
+    // `location`, not `get`: the diff only needs the checkout and its base, and deriving the
+    // worktree's status here would spawn three git processes before any diffing starts.
+    const { path, baseBranch } = this.deps.worktrees.location(worktreeId)
+    if (spec.kind !== 'worktree') return { cwd: path, resolved: spec, baseBranch }
+    const wanted = spec.against === 'head' ? 'HEAD' : (await this.deps.repo.mergeBase(path, baseBranch)) ?? 'HEAD'
     // A repo with no commits has no HEAD to diff against; the empty tree makes every file "added".
-    const rev = (await this.deps.repo.resolveCommit(worktree.path, wanted)) ?? EMPTY_TREE
-    return { cwd: worktree.path, resolved: { kind: 'worktree', rev }, baseBranch: worktree.baseBranch }
+    const rev = (await this.deps.repo.resolveCommit(path, wanted)) ?? EMPTY_TREE
+    return { cwd: path, resolved: { kind: 'worktree', rev }, baseBranch }
   }
 
   async changes(worktreeId: string, spec: Extract<DiffSpec, { kind: 'worktree' }>): Promise<ChangesResponse> {
@@ -66,21 +68,20 @@ export class HistoryService {
 
   async tree(worktreeId: string, dir: string): Promise<TreeResponse> {
     const path = repoPath(dir)
-    const worktree = await this.deps.worktrees.get(worktreeId)
-    return { path, entries: childrenOf(path, await this.deps.repo.lsFiles(worktree.path, path)) }
+    const cwd = this.deps.worktrees.location(worktreeId).path
+    return { path, entries: childrenOf(path, await this.deps.repo.lsFiles(cwd, path)) }
   }
 
   /** Working-tree contents, or the blob at `rev` when given. */
   async file(worktreeId: string, file: string, rev?: string): Promise<FileContents> {
     const path = repoPath(file)
-    const worktree = await this.deps.worktrees.get(worktreeId)
-    const raw = rev ? await this.deps.repo.showFile(worktree.path, rev, path) : await readFile(join(worktree.path, path), 'utf8').catch(() => null)
+    const cwd = this.deps.worktrees.location(worktreeId).path
+    const raw = rev ? await this.deps.repo.showFile(cwd, rev, path) : await readFile(join(cwd, path), 'utf8').catch(() => null)
     if (raw === null) throw notFound('file', path)
     return toFileContents(path, raw)
   }
 
   async log(worktreeId: string, limit: number, skip: number): Promise<LogResponse> {
-    const worktree = await this.deps.worktrees.get(worktreeId)
-    return this.deps.repo.log(worktree.path, limit, skip)
+    return this.deps.repo.log(this.deps.worktrees.location(worktreeId).path, limit, skip)
   }
 }

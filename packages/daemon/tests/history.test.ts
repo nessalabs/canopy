@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { routes } from '@canopy/shared'
+import { routes, type ChangedFile } from '@canopy/shared'
 
 import { FILE_CAP_BYTES, PATCH_CAP_BYTES } from '../src/git/diff'
 import { repoPath } from '../src/worktrees/history'
@@ -68,6 +68,15 @@ describe('changes and history', () => {
     const base = (await server.call('GET', `${routes.changes(worktreeId)}?against=base`)).body
     expect(base.files.map((f: { path: string }) => f.path)).toEqual(['a.txt', 'c.txt', 'new.txt'])
     expect(base.baseBranch).toBe('main')
+  })
+
+  it('counts untracked files the way git numstat does, binaries and all', async () => {
+    repo.write({ 'no-newline.txt': 'a\nb\nc', 'empty.txt': '', 'blob.bin': 'a\0b\n' })
+    const files = (await server.call('GET', routes.changes(worktreeId))).body.files as ChangedFile[]
+    const byPath = new Map(files.map((file) => [file.path, file]))
+    expect(byPath.get('no-newline.txt')).toEqual({ path: 'no-newline.txt', status: 'U', additions: 3, deletions: 0, binary: false })
+    expect(byPath.get('empty.txt')).toEqual({ path: 'empty.txt', status: 'U', additions: 0, deletions: 0, binary: false })
+    expect(byPath.get('blob.bin')).toEqual({ path: 'blob.bin', status: 'U', additions: 0, deletions: 0, binary: true })
   })
 
   it('returns unified patches for tracked and untracked files', async () => {

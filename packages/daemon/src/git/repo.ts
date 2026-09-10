@@ -30,7 +30,8 @@ export interface Repo {
   resolveCommit(cwd: string, rev: string): Promise<string | null>
   log(cwd: string, limit: number, skip: number): Promise<{ commits: Commit[]; hasMore: boolean }>
   commit(cwd: string, sha: string): Promise<Commit | null>
-  untracked(cwd: string): Promise<string[]>
+  /** Untracked, non-ignored files; scoped to `path` when given, which answers "is this one new?". */
+  untracked(cwd: string, path?: string): Promise<string[]>
   /** Every tracked or untracked (not ignored) file under `dir`; '' for the whole tree. */
   lsFiles(cwd: string, dir: string): Promise<string[]>
   /** A file's blob at `rev`, or null when it does not exist there. */
@@ -115,8 +116,8 @@ export function createRepo(run: GitRunner): Repo {
       return out ? parseLogZ(out)[0] ?? null : null
     },
 
-    async untracked(cwd) {
-      return splitNul(await run(cwd, ['ls-files', '--others', '--exclude-standard', '-z']))
+    async untracked(cwd, path) {
+      return splitNul(await run(cwd, ['ls-files', '--others', '--exclude-standard', '-z', ...(path === undefined ? [] : ['--', path])]))
     },
 
     async lsFiles(cwd, dir) {

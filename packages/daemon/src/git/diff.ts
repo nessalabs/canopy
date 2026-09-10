@@ -3,6 +3,9 @@
  * the base git arguments (tables below); listing, numstat joining, untracked handling
  * and patch capping are shared.
  */
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
 import type { ChangedFile, FileContents, FilePatch } from '@canopy/shared'
 
 import type { GitRunner } from './exec'
@@ -51,13 +54,33 @@ export function toFileContents(path: string, raw: string): FileContents {
   return { path, content: binary || truncated ? null : raw, truncated, binary, size }
 }
 
+/** Lines the way git counts them: a file whose last line has no newline still ends a line. */
+function countLines(raw: Buffer): number {
+  if (raw.length === 0) return 0
+  let lines = 0
+  for (let at = raw.indexOf(10); at !== -1; at = raw.indexOf(10, at + 1)) lines += 1
+  return raw[raw.length - 1] === 10 ? lines : lines + 1
+}
+
+/**
+ * An untracked file's numstat, read straight off disk: every line is an addition, and a NUL
+ * early in the blob is binary — the same answers `git diff --no-index` against /dev/null gives.
+ * Doing it here matters because `files()` needs one per untracked path, and a checkout with a
+ * few dozen new files was spawning a git process for each.
+ */
+async function untrackedStat(cwd: string, path: string): Promise<ChangedFile> {
+  const raw = await readFile(join(cwd, path)).catch(() => null)
+  const binary = raw !== null && raw.subarray(0, BINARY_SNIFF_BYTES).includes(0)
+  return { path, status: 'U', additions: raw === null || binary ? 0 : countLines(raw), deletions: 0, binary }
+}
+
 export function toFilePatch(path: string, raw: string): FilePatch {
   const binary = /^Binary files .* differ$/m.test(raw)
   const truncated = Buffer.byteLength(raw) > PATCH_CAP_BYTES
   return { path, patch: binary || truncated ? null : raw, truncated, binary }
 }
 
-export function createDiffReader(run: GitRunner, untracked: (cwd: string) => Promise<string[]>): DiffReader {
+export function createDiffReader(run: GitRunner, untracked: (cwd: string, path?: string) => Promise<string[]>): DiffReader {
   async function tracked(cwd: string, spec: ResolvedDiffSpec): Promise<ChangedFile[]> {
     const base = LIST_BASE[spec.kind](spec)
     const [numstat, names] = await Promise.all([
@@ -67,32 +90,30 @@ export function createDiffReader(run: GitRunner, untracked: (cwd: string) => Pro
     return joinChangedFiles(parseNumstat(numstat), parseNameStatus(names))
   }
 
-  async function untrackedFile(cwd: string, path: string): Promise<ChangedFile> {
-    // `--no-index` against /dev/null prints rename-style numstat; only the counts matter here.
-    const out = await run(cwd, [...NO_INDEX, '--numstat', '--', '/dev/null', path], { okCodes: [0, 1] })
-    const [add = '0', del = '0'] = out.split('\t')
-    const binary = add === '-'
-    return { path, status: 'U', additions: binary ? 0 : Number(add), deletions: binary ? 0 : Number(del), binary }
-  }
-
+  // Scoped to the one path, so a checkout carrying a large untracked tree does not make
+  // every patch request walk it.
   async function isUntracked(cwd: string, spec: ResolvedDiffSpec, path: string): Promise<boolean> {
-    return spec.kind === 'worktree' && (await untracked(cwd)).includes(path)
+    return spec.kind === 'worktree' && (await untracked(cwd, path)).length > 0
   }
 
   return {
     async files(cwd, spec) {
       const changed = await tracked(cwd, spec)
       if (spec.kind !== 'worktree') return changed
-      const extra = await Promise.all((await untracked(cwd)).map((path) => untrackedFile(cwd, path)))
+      const extra = await Promise.all((await untracked(cwd)).map((path) => untrackedStat(cwd, path)))
       return [...changed, ...extra].sort((a, b) => a.path.localeCompare(b.path))
     },
 
     async patch(cwd, spec, path) {
-      const args = (await isUntracked(cwd, spec, path))
-        ? [...NO_INDEX, '--', '/dev/null', path]
-        : [...PATCH_BASE[spec.kind](spec), ...PATCH_FLAGS, '--', path]
-      const raw = await run(cwd, args, { okCodes: [0, 1] })
-      return toFilePatch(path, raw)
+      // Both questions at once: git has to be asked whether the path is untracked, and the
+      // tracked diff is what the answer usually turns out to be. Serializing them made every
+      // file in a review wait out two git processes back to back.
+      const [trackedPatch, isNew] = await Promise.all([
+        run(cwd, [...PATCH_BASE[spec.kind](spec), ...PATCH_FLAGS, '--', path], { okCodes: [0, 1] }),
+        isUntracked(cwd, spec, path)
+      ])
+      if (!isNew) return toFilePatch(path, trackedPatch)
+      return toFilePatch(path, await run(cwd, [...NO_INDEX, '--', '/dev/null', path], { okCodes: [0, 1] }))
     }
   }
 }
