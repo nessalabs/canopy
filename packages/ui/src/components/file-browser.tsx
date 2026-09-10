@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { ExplorerShell } from '@/components/git/explorer-shell'
 import { FileOpenDialog, isOpenFileShortcut } from '@/components/git/file-open-dialog'
 import { FilePanes } from '@/components/git/file-panes'
+import { preloadCodeEditor } from '@/components/git/file-viewer'
 import { WorktreeTree } from '@/components/git/file-tree'
 import { FileDiffPath } from '@/components/ui/file-diff-list'
 import { APP_SHELL_LAYOUT_VERSION, collectPanes, createAppShellLayout, normalizeAppShellLayout, openView, type AppShellLayout } from '@/lib/app-shell-layout'
@@ -47,6 +48,9 @@ export function FileBrowser({ worktreeId }: { worktreeId: string }): React.JSX.E
   const open = (path: string): void => setLayout((current) => openView(current, { viewId: path }))
 
   useEffect(() => writeStored(layoutKey(worktreeId), layout), [worktreeId, layout])
+
+  // The panel being open is as good a sign as any that a file is about to be: fetch the editor now.
+  useEffect(preloadCodeEditor, [])
 
   // The shortcut belongs to the browser, so it works from anywhere in the panel — and only
   // while the panel is open, which is when "open a file" means anything.

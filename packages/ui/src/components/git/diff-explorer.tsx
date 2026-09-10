@@ -7,8 +7,10 @@ import { FileDiffPath } from '@/components/ui/file-diff-list'
 import { groupBy } from '@/lib/group'
 import { useFileTrail } from '@/lib/use-file-trail'
 import { useHighlighterWarmup } from '@/lib/use-highlighter-warmup'
+import { useIdlePreload } from '@/lib/use-idle-preload'
 
 import { ContentPane, LooseFilePane } from './content-pane'
+import { preloadCodeEditor } from './file-viewer'
 import { ExplorerShell } from './explorer-shell'
 import { ChangedFilesTree, type CommitSelection } from './file-tree'
 
@@ -49,6 +51,8 @@ export function DiffExplorer({
 }): React.JSX.Element {
   // Start resolving the grammars this change set needs now, not when a file is first clicked.
   useHighlighterWarmup(useMemo(() => files.map((file) => file.path), [files]))
+  // The File tab and any doc link out of a change set open the editor; fetch it once the screen is idle.
+  useIdlePreload(preloadCodeEditor)
   // Where the pane is, and how it got there. An empty trail means the first changed file,
   // whatever that is today; a focus handed in from outside starts the trail over there.
   const trail = useFileTrail(files[0]?.path)

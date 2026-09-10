@@ -90,7 +90,7 @@ const BODY: Record<View, (props: Props, rendered: boolean) => React.JSX.Element>
     rendered ? (
       <MarkdownPreview worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} onOpenPath={onOpenPath} />
     ) : (
-      <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} />
+      <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} onOpenPath={onOpenPath} />
     )
 }
 
@@ -219,7 +219,7 @@ export function FilePane({ worktreeId, path, rev, badge, actions, className, dra
         {rendered ? (
           <MarkdownPreview key={path} worktreeId={worktreeId} path={path} rev={rev} anchor={anchor} onOpenPath={onOpenPath} />
         ) : (
-          <FileViewer key={path} worktreeId={worktreeId} path={path} rev={rev} />
+          <FileViewer key={path} worktreeId={worktreeId} path={path} rev={rev} anchor={anchor} onOpenPath={onOpenPath} />
         )}
       </div>
     </div>

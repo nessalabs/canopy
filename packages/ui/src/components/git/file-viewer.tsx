@@ -1,12 +1,39 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 
-import { CodeBlock, CodeBlockProvider } from '@/components/ui/code-block'
+import { CodeBlockProvider } from '@/components/ui/code-block'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { useFileContents } from '@/lib/api-hooks'
 import { resolveDocLink, slugify } from '@/lib/doc-links'
 import { diffSegments, type SegmentKind } from '@/lib/markdown-diff'
+import { whenIdle } from '@/lib/use-idle-preload'
 import { useTheme } from '@/lib/use-theme'
 import { cn } from '@/lib/utils'
+
+// The editor is a large chunk of its own. It is fetched ahead of the first source file by the
+// surfaces that can show one — see `preloadCodeEditor` — and the lazy boundary is what waits
+// for it if a file is opened before that fetch is through.
+const loadCodeEditor = () => import('./code-editor')
+const CodeEditor = lazy(loadCodeEditor)
+
+let warmed = false
+
+/**
+ * Starts fetching the editor now, so that the first click on a source file finds it cached —
+ * and once it is here, stands one up and tears it down at an idle moment, so the first real
+ * instance is not also the one that pays for the editor's setup and its language worker.
+ * Idempotent: the browser holds one copy of the chunk however many times this is called.
+ */
+export function preloadCodeEditor(): void {
+  void loadCodeEditor()
+    .then((module) => {
+      if (warmed) return
+      warmed = true
+      whenIdle(module.warmCodeEditor)
+    })
+    .catch(() => {
+      // Offline or a stale deploy: the lazy boundary reports it when a file is actually opened.
+    })
+}
 
 interface FileProps {
   worktreeId: string
@@ -26,10 +53,22 @@ function FileText({ worktreeId, path, rev, children }: FileProps & { children: (
   return children(file.data.content)
 }
 
-/** One file's full text with line numbers. */
-export function FileViewer({ worktreeId, path, rev }: FileProps): React.JSX.Element {
+/**
+ * One file's source in VS Code's editor, read-only: find, folding, go to definition and the
+ * rest come with it. `anchor` is a line (`L42`) to land on; a definition in another file opens
+ * it through `onOpenPath`, the same way a link out of a rendered doc does.
+ */
+export function FileViewer({ worktreeId, path, rev, anchor, onOpenPath }: FileProps & { anchor?: string; onOpenPath?: OpenPath }): React.JSX.Element {
   const { theme } = useTheme()
-  return <FileText worktreeId={worktreeId} path={path} rev={rev}>{(text) => <CodeBlock code={text} filename={path} lineNumbers mode={theme} className="rounded-none" />}</FileText>
+  return (
+    <FileText worktreeId={worktreeId} path={path} rev={rev}>
+      {(text) => (
+        <Suspense fallback={<Note>Loading editor…</Note>}>
+          <CodeEditor worktreeId={worktreeId} path={path} text={text} mode={theme} anchor={anchor} onOpenPath={onOpenPath} />
+        </Suspense>
+      )}
+    </FileText>
+  )
 }
 
 /** Scrolls to the heading a fragment names: an explicit id if the doc has one, else by slugged text. */
@@ -72,9 +111,14 @@ function MarkdownDoc({ text, path, anchor, onOpenPath }: { text: string; path: s
     if (root.current && anchor !== undefined) scrollToAnchor(root.current, anchor)
   }, [anchor, text])
 
+  // Parsing is the expensive part, and it only depends on the text: the same element is handed
+  // back until the text changes, so a re-render here — a pane resized, an anchor followed — does
+  // not run remark over the whole doc again.
+  const doc = useMemo(() => <MessageMarkdown className="mx-auto max-w-3xl px-4 py-3 text-sm">{text}</MessageMarkdown>, [text])
+
   return (
     <div ref={root} onClick={onClick}>
-      <MessageMarkdown className="mx-auto max-w-3xl px-4 py-3 text-sm">{text}</MessageMarkdown>
+      {doc}
     </div>
   )
 }
