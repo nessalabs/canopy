@@ -36,6 +36,11 @@ fallback; `packages/daemon/bin/canopy.mjs` is the `canopy provision|teardown|for
 command that worktrunk hooks call so a `wt switch --create` from a terminal is provisioned too
 (`npm link` in `packages/daemon` puts it on PATH).
 
+Canopy runs itself the same way: the repo's own `canopy.yaml` gives every worktree a private
+daemon (`CANOPY_HOME` inside the checkout, the main repo registered as a project) and a web
+client on their own ports, so a branch can be started from the worktree's Environment tab and
+opened in a separate window, already signed in, without touching the daemon that manages it.
+
 ## Committing
 
 The Changes tab commits: a checkbox per changed file, per-hunk checkboxes under a file's **Hunks**

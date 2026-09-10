@@ -1,9 +1,10 @@
 import type { FastifyInstance } from 'fastify'
 
-import { AgentProvider, NewSessionInput, SendMessageInput, SessionRef, routes } from '@canopy/shared'
+import { AgentProvider, NewSessionInput, PermissionDecisionInput, SendMessageInput, SessionRef, routes } from '@canopy/shared'
 
 import { ClaudeHookPayload } from '../agents/edit-diffs/hook'
 
+import { ApiError } from '../lib/errors'
 import { streamSse } from '../lib/sse'
 import { now } from '../lib/ids'
 import type { Services } from './context'
@@ -51,5 +52,16 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, r
     const { text, ...options } = SendMessageInput.parse(request.body)
     const adapter = agents.adapterFor(provider)
     await streamSse(request, reply, (signal) => adapter.send(sid, text, { ...options, signal }))
+  })
+
+  // The answer to a `permission_requested` event arrives on its own request, not on the turn's
+  // stream: the turn is parked inside the adapter waiting for exactly this. Nothing pending under
+  // the id means the turn already ended (or answered) — the client's view is stale, not malformed.
+  app.post(routes.permissions(':provider', ':sid'), async (request, reply) => {
+    const { provider, sid } = SessionParams.parse(request.params)
+    const input = PermissionDecisionInput.parse(request.body)
+    const answered = agents.adapterFor(provider).answerPermission?.(sid, input) === true
+    if (!answered) throw new ApiError(404, 'unknown_permission_request', `no permission request ${input.requestId} is pending on ${provider} session ${sid}`)
+    return reply.code(204).send()
   })
 }

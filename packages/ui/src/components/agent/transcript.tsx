@@ -1,23 +1,38 @@
-import { useMemo, useRef, useState } from 'react'
-import { FileDiff, FileText, Globe, Pencil, Puzzle, Search, Terminal, Users, Wrench } from 'lucide-react'
+import { useId, useMemo, useRef, useState } from 'react'
+import { FileDiff, FileText, Globe, Info, Pencil, Puzzle, Search, Terminal, Users, Wrench } from 'lucide-react'
 
-import type { TurnImage } from '@canopy/shared'
-import type { AgentEvent, DeltaBuffers, ToolKind, Transcript as FoldedTranscript, Turn, WorkItem } from '@canopy/shared/agent-stream'
-import { AgentEventType, isEvent, isToolGroup, previewOf, toolTitle, toolVerb } from '@canopy/shared/agent-stream'
+import type { PermissionDecisionInput, TurnImage } from '@canopy/shared'
+import { isHarnessText } from '@canopy/shared'
+import type { AgentEvent, DeltaBuffers, SessionInfo, ToolKind, Transcript as FoldedTranscript, Turn } from '@canopy/shared/agent-stream'
+import { AgentEventType, isEvent, previewOf, toolKind, toolTitle, toolVerb } from '@canopy/shared/agent-stream'
 
-import { AgentActivity, AgentActivityContent, AgentActivityTrigger, formatAgentActivitySummary, type AgentActivityCounts } from '@/components/ui/agent-activity'
+import { AgentActivity, AgentActivityCard, AgentActivityContent, AgentActivityCue, AgentActivityTrigger } from '@/components/ui/agent-activity'
 import { AgentDetails, AgentDetailsField, AgentDetailsProject, AgentDetailsSection } from '@/components/ui/agent-details'
-import { CodeBlock } from '@/components/ui/code-block'
+import { Button } from '@/components/ui/button'
 import { ConversationRail, ConversationRailItem, ConversationRailPreview, ConversationRailTrigger } from '@/components/ui/conversation-rail'
-import { Message, MessageAction, MessageActions, MessageBubble, MessageContent, MessageFooter } from '@/components/ui/message'
+import { Message, MessageAction, MessageActions, MessageBubble, MessageContent } from '@/components/ui/message'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { MessageScroller, MessageScrollerContent, MessageScrollerViewport } from '@/components/ui/message-scroller'
 import { RandomAvatar } from '@/components/ui/random-avatar'
-import { ToolCall, ToolCallContent, ToolCallTrigger } from '@/components/ui/tool-call'
+import { Sheet, SheetAction, SheetBody, SheetExpand, SheetHandle, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import {
+  ToolApproval,
+  ToolApprovalAction,
+  ToolApprovalActions,
+  ToolApprovalCommand,
+  ToolApprovalDescription,
+  ToolApprovalHeader,
+  ToolApprovalHeading,
+  ToolApprovalIcon,
+  ToolApprovalTitle,
+  type ToolApprovalResolution
+} from '@/components/ui/tool-approval'
+import { ToolCall, ToolCallContent, ToolCallTabs, ToolCallTrigger } from '@/components/ui/tool-call'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { TranscriptDivider } from '@/components/ui/transcript-divider'
 import { plural } from '@/lib/format'
+import { beatLabel, beatsOf, type ActivityBeat, type Beat, type BeatCall } from '@/lib/turn-beats'
 import { rowsByTurn } from '@/lib/turn-rows'
-import { useTheme } from '@/lib/use-theme'
 import { cn } from '@/lib/utils'
 
 import type { Activity } from './activity-orb'
@@ -38,6 +53,9 @@ const TOOL_ICON: Record<ToolKind, React.ReactNode> = {
   other: <Wrench />
 }
 
+/** How much of a tool's output the details sheet shows; the rest is scrollback nobody reads here. */
+const OUTPUT_CAP = 8000
+
 const prettyInput = (input: unknown): string => {
   try {
     return typeof input === 'string' ? input : JSON.stringify(input, null, 2)
@@ -46,28 +64,8 @@ const prettyInput = (input: unknown): string => {
   }
 }
 
-/** A collapsible row whose body is highlighted text — reused for reasoning and tool detail. */
-function Disclosure({ icon, label, meta, body, status, language = 'text', className = 'ml-10' }: {
-  icon: React.ReactNode
-  label: string
-  meta?: string
-  body: string
-  status?: 'running' | 'complete' | 'error'
-  language?: string
-  className?: string
-}): React.JSX.Element {
-  const { theme } = useTheme()
-  return (
-    <ToolCall status={status} className={className}>
-      <ToolCallTrigger icon={icon} meta={(meta ?? body.split('\n')[0] ?? '').slice(0, 100)}>
-        {label}
-      </ToolCallTrigger>
-      <ToolCallContent>
-        <CodeBlock code={body} language={language} mode={theme} wrap className="max-h-80 w-full overflow-auto text-xs" />
-      </ToolCallContent>
-    </ToolCall>
-  )
-}
+/** Which details the sheet is showing. Keys, not objects: the transcript is rebuilt per event and the sheet must follow. */
+type SheetTarget = { kind: 'beat'; key: string } | { kind: 'run'; callId: string } | { kind: 'session' }
 
 /** A user turn: image previews, the typed text (image refs clickable), and on hover the files it changed. */
 function UserTurn({ text, images, files, turnKey, onReviewTurn }: {
@@ -106,8 +104,8 @@ function UserTurn({ text, images, files, turnKey, onReviewTurn }: {
   )
 }
 
-/** An agent bubble; `caption` marks summarized thinking, `streaming` marks text still arriving. */
-function AssistantTurn({ text, avatarSeed, caption, streaming }: { text: string; avatarSeed: string; caption?: string; streaming?: boolean }): React.JSX.Element {
+/** An agent bubble; `streaming` marks text still arriving. */
+function AssistantTurn({ text, avatarSeed, streaming }: { text: string; avatarSeed: string; streaming?: boolean }): React.JSX.Element {
   return (
     <Message from="assistant">
       <RandomAvatar seed={avatarSeed} name="Agent" className="size-8 shrink-0 self-end rounded-full" />
@@ -115,89 +113,278 @@ function AssistantTurn({ text, avatarSeed, caption, streaming }: { text: string;
         <MessageBubble variant="muted" className="min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto">
           <MessageMarkdown className="text-sm" streaming={streaming}>{text}</MessageMarkdown>
         </MessageBubble>
-        {caption ? <MessageFooter>{caption}</MessageFooter> : null}
       </MessageContent>
     </Message>
   )
 }
 
-/** A collapsed run of same-tool calls, as one quiet activity cue that lists what it did. */
-function ToolGroupRow({ group }: { group: Extract<WorkItem, { kind: 'tool_group' }> }): React.JSX.Element {
-  const counts: AgentActivityCounts = { files: 0, searches: 0, other: 0 }
-  for (const call of group.calls) {
-    if (!isEvent(call, AgentEventType.ToolCallStarted)) continue
-    if (call.payload.kind === 'file_read' || call.payload.kind === 'file_edit') counts.files = (counts.files ?? 0) + 1
-    else if (call.payload.kind === 'search') counts.searches = (counts.searches ?? 0) + 1
-    else counts.other = (counts.other ?? 0) + 1
+/** What a delegated run is up to, in one line. */
+function runMeta(call: BeatCall): string {
+  const run = call.run
+  if (!run) return call.status === 'running' ? 'Starting…' : 'Done'
+  if (run.done) {
+    const steps = run.events.filter((event) => isEvent(event, AgentEventType.ToolCallStarted)).length
+    return steps > 0 ? `Done · ${plural(steps, 'step')}` : 'Done'
   }
+  return run.status ?? (run.lastTool ? `Working · ${run.lastTool}` : 'Working…')
+}
+
+/**
+ * One beat of agent work as the transcript shows it: a quiet cue for the tools it ran itself and a
+ * card per run it delegated. Nothing expands in place — each opens the details sheet.
+ */
+function ActivityRow({ beat, avatarSeed, open, sheetId, onOpen }: {
+  beat: ActivityBeat
+  avatarSeed: string
+  open: SheetTarget | null
+  sheetId: string
+  onOpen: (target: SheetTarget) => void
+}): React.JSX.Element {
+  const cueOpen = open?.kind === 'beat' && open.key === beat.key
+  const hasCue = beat.calls.length > 0 || beat.thoughts.length > 0
   return (
-    <AgentActivity status="complete" className="ml-10">
-      <AgentActivityTrigger icon={TOOL_ICON[group.calls[0] && isEvent(group.calls[0], AgentEventType.ToolCallStarted) ? group.calls[0].payload.kind : 'other']}>
-        {group.target ?? formatAgentActivitySummary(counts)}
-      </AgentActivityTrigger>
-      <AgentActivityContent>
-        <ul className="m-0 list-none space-y-1 p-0 text-xs text-muted-foreground">
-          {group.calls.map((call) =>
-            isEvent(call, AgentEventType.ToolCallStarted) ? <li key={call.id} className="truncate">{call.payload.title}</li> : null
-          )}
-        </ul>
-      </AgentActivityContent>
-    </AgentActivity>
+    <div className="ml-10 flex max-w-[92%] flex-col items-start gap-1.5">
+      {hasCue ? (
+        <AgentActivity status={beat.status}>
+          <AgentActivityTrigger
+            icon={<RandomAvatar seed={avatarSeed} name="Agent" busy={beat.status === 'running'} className="size-4" />}
+            aria-expanded={cueOpen}
+            aria-controls={cueOpen ? sheetId : undefined}
+            onClick={() => onOpen({ kind: 'beat', key: beat.key })}
+          >
+            {beatLabel(beat)}
+          </AgentActivityTrigger>
+        </AgentActivity>
+      ) : null}
+      {beat.runs.map((call) => {
+        const cardOpen = open?.kind === 'run' && open.callId === call.callId
+        const busy = call.run ? !call.run.done : call.status === 'running'
+        return (
+          <AgentActivityCard
+            key={call.callId}
+            icon={<RandomAvatar seed={call.callId} name={call.run?.label ?? call.title} busy={busy} className="size-7" />}
+            title={call.run?.label ?? call.run?.description ?? call.title}
+            meta={runMeta(call)}
+            aria-haspopup="dialog"
+            aria-expanded={cardOpen}
+            aria-controls={cardOpen ? sheetId : undefined}
+            onClick={() => onOpen({ kind: 'run', callId: call.callId })}
+          />
+        )
+      })}
+    </div>
   )
 }
 
-/** One tool call: status from its result, body = its input and what it returned. */
-function ToolRow({ call, transcript }: { call: AgentEvent; transcript: FoldedTranscript }): React.JSX.Element | null {
-  if (!isEvent(call, AgentEventType.ToolCallStarted)) return null
-  const { callId, name, kind, input, title } = call.payload
-  const result = transcript.resultByCallId.get(callId)
-  const abandoned = transcript.abandonedCallIds.has(callId)
-  const status = result === undefined ? (abandoned ? 'error' : 'running') : result.isError ? 'error' : 'complete'
-  const running = result === undefined && !abandoned
-  const body = [prettyInput(input), result ? `\n${result.text.slice(0, 4000)}` : abandoned ? '\nNo result — the turn ended first.' : '']
-    .filter(Boolean)
-    .join('\n')
-  return <Disclosure icon={TOOL_ICON[kind]} label={`${toolVerb(name, running)} ${title}`.trim()} meta={title} body={body} status={status} />
-}
-
-/** One work item of a turn → a row (or nothing, for the things drawn elsewhere). */
-function WorkRow({ item, transcript, previews, avatarSeed }: { item: WorkItem; transcript: FoldedTranscript; previews: DeltaBuffers; avatarSeed: string }): React.JSX.Element | null {
-  if (isToolGroup(item)) return item.calls.length >= 2 ? <ToolGroupRow group={item} /> : <ToolRow call={item.calls[0] as AgentEvent} transcript={transcript} />
-  if (isEvent(item, AgentEventType.ToolCallStarted)) return <ToolRow call={item} transcript={transcript} />
-  if (isEvent(item, AgentEventType.Reasoning)) return item.payload.text ? <AssistantTurn text={item.payload.text} avatarSeed={avatarSeed} caption="summarized" /> : null
-  if (isEvent(item, AgentEventType.AssistantText)) {
-    const text = previewOf(previews, item.payload.block) ?? item.payload.text
-    return text ? <AssistantTurn text={text} avatarSeed={avatarSeed} /> : null
-  }
-  if (isEvent(item, AgentEventType.UserMessage)) return item.payload.synthetic ? null : <UserTurn text={item.payload.text} images={[]} turnKey={item.id} onReviewTurn={() => {}} />
-  if (isEvent(item, AgentEventType.Error)) return <p className="ml-10 text-xs text-destructive">{item.payload.message}</p>
-  if (isEvent(item, AgentEventType.ContextCompacted)) return <div className="my-2 text-center text-[11px] uppercase tracking-wide text-muted-foreground">Context compacted</div>
-  return null
-}
-
-/** The session's identity: model, working directory, permission mode, CLI version. */
-function SessionHeader({ transcript, openInTerminal }: { transcript: FoldedTranscript; openInTerminal?: boolean }): React.JSX.Element | null {
-  const session = transcript.session
-  if (!session && !openInTerminal) return null
+/** One tool call in the details sheet: what it was asked and what it answered. */
+function CallRow({ call }: { call: BeatCall }): React.JSX.Element {
+  const running = call.status === 'running'
+  const output = call.result ? call.result.text.slice(0, OUTPUT_CAP) : call.abandoned ? 'No result: the turn ended first.' : undefined
   return (
-    <div className="mb-1">
-      {session ? (
-        <AgentDetails title={session.model ?? 'Agent session'}>
-          {session.cwd ? <AgentDetailsProject path={session.cwd} branch={undefined} /> : null}
-          <AgentDetailsSection title="Session">
-            {session.model ? <AgentDetailsField label="Model" value={session.model} /> : null}
-            {session.permissionMode ? <AgentDetailsField label="Mode" value={session.permissionMode} /> : null}
-            {session.version ? <AgentDetailsField label="Version" value={session.version} /> : null}
-          </AgentDetailsSection>
-        </AgentDetails>
+    <ToolCall status={call.status} className="w-full">
+      <ToolCallTrigger icon={TOOL_ICON[call.kind]} meta={call.title}>
+        {toolVerb(call.name, running)}
+      </ToolCallTrigger>
+      <ToolCallContent>
+        <ToolCallTabs input={prettyInput(call.input)} output={output} defaultTab={output === undefined ? 'input' : 'output'} />
+      </ToolCallContent>
+    </ToolCall>
+  )
+}
+
+/** The thinking and tool calls behind one cue. */
+function BeatSheetBody({ beat }: { beat: ActivityBeat }): React.JSX.Element {
+  return (
+    <>
+      {beat.thoughts.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          <AgentActivityCue>Thought</AgentActivityCue>
+          {beat.thoughts.map((thought) =>
+            isEvent(thought, AgentEventType.Reasoning) ? (
+              <p key={thought.id} className="m-0 whitespace-pre-wrap font-sans nessa-text-4 text-foreground">
+                {thought.payload.text}
+              </p>
+            ) : null
+          )}
+        </div>
       ) : null}
+      {beat.calls.length > 0 ? (
+        <AgentActivityContent className="w-full">
+          {beat.calls.map((call) => (
+            <CallRow key={call.callId} call={call} />
+          ))}
+        </AgentActivityContent>
+      ) : null}
+    </>
+  )
+}
+
+/** A delegated run: what it was told, what it did, and what it reported back. */
+function RunSheetBody({ call, transcript }: { call: BeatCall; transcript: FoldedTranscript }): React.JSX.Element {
+  const run = call.run
+  const brief = run?.description ?? call.title
+  const report = transcript.resultByCallId.get(call.callId)?.text
+  const steps = (run?.events ?? []).filter((event) => isEvent(event, AgentEventType.ToolCallStarted))
+  const said = (run?.events ?? []).filter((event) => isEvent(event, AgentEventType.AssistantText))
+  return (
+    <>
+      <p className="m-0 font-sans nessa-text-4 text-foreground">{brief}</p>
+      {steps.length > 0 ? (
+        <AgentActivityContent className="w-full">
+          {steps.map((event) => {
+            if (!isEvent(event, AgentEventType.ToolCallStarted)) return null
+            const answered = transcript.resultByCallId.has(event.payload.callId)
+            const running = !answered && !run?.done
+            return (
+              <ToolCall key={event.id} status={answered ? 'complete' : running ? 'running' : 'error'} className="w-full">
+                <ToolCallTrigger icon={TOOL_ICON[event.payload.kind]} meta={event.payload.title}>
+                  {toolVerb(event.payload.name, running)}
+                </ToolCallTrigger>
+                <ToolCallContent>
+                  <ToolCallTabs input={prettyInput(event.payload.input)} output={transcript.resultByCallId.get(event.payload.callId)?.text.slice(0, OUTPUT_CAP)} />
+                </ToolCallContent>
+              </ToolCall>
+            )
+          })}
+        </AgentActivityContent>
+      ) : run && !run.done ? (
+        <p className="m-0 nessa-text-2 text-muted-foreground">This run has reported nothing yet.</p>
+      ) : null}
+      {said.map((event) =>
+        isEvent(event, AgentEventType.AssistantText) && event.payload.text.trim() ? (
+          <MessageMarkdown key={event.id} className="text-xs">
+            {event.payload.text}
+          </MessageMarkdown>
+        ) : null
+      )}
+      {report?.trim() ? (
+        <div className="w-full border-t border-border pt-3">
+          <p className="mb-1 nessa-text-1 uppercase text-muted-foreground">Reported back</p>
+          <MessageMarkdown className="text-xs">{report}</MessageMarkdown>
+        </div>
+      ) : null}
+    </>
+  )
+}
+
+/** The session's identity, for the details sheet. */
+function SessionSheetBody({ session, openInTerminal }: { session: SessionInfo | null; openInTerminal?: boolean }): React.JSX.Element {
+  return (
+    <>
+      <AgentDetails title={session?.model ?? 'Agent session'}>
+        {session?.cwd ? <AgentDetailsProject path={session.cwd} branch={undefined} /> : null}
+        <AgentDetailsSection title="Session">
+          {session?.model ? <AgentDetailsField label="Model" value={session.model} /> : null}
+          {session?.permissionMode ? <AgentDetailsField label="Mode" value={session.permissionMode} /> : null}
+          {session?.version ? <AgentDetailsField label="Version" value={session.version} /> : null}
+          {session ? <AgentDetailsField label="Tools" value={String(session.tools.length)} /> : null}
+        </AgentDetailsSection>
+      </AgentDetails>
       {openInTerminal ? (
-        <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+        <p className="m-0 rounded-lg border border-border bg-muted/40 px-3 py-2 nessa-text-2 text-muted-foreground">
           A terminal has this session open. Turns sent from here run against it, but that terminal will not show them until it resumes.
         </p>
       ) : null}
+    </>
+  )
+}
+
+/** One line naming the session, with the way into its details. */
+function SessionLine({ session, openInTerminal, open, sheetId, onOpen }: {
+  session: SessionInfo | null
+  openInTerminal?: boolean
+  open: SheetTarget | null
+  sheetId: string
+  onOpen: (target: SheetTarget) => void
+}): React.JSX.Element | null {
+  if (!session && !openInTerminal) return null
+  const isOpen = open?.kind === 'session'
+  const where = session?.cwd ? session.cwd.split('/').filter(Boolean).at(-1) : null
+  return (
+    <div className="mb-1 flex items-center gap-1 nessa-text-2 text-muted-foreground">
+      <span className="min-w-0 truncate">
+        {[session?.model, where].filter(Boolean).join(' · ') || 'Agent session'}
+        {openInTerminal ? ' · open in a terminal' : ''}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-6 shrink-0 text-muted-foreground"
+        aria-label="Session details"
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
+        aria-controls={isOpen ? sheetId : undefined}
+        onClick={() => onOpen({ kind: 'session' })}
+      >
+        <Info className="size-3.5" />
+      </Button>
     </div>
   )
+}
+
+/** A tool the agent wants to run and may not without the user. Answered once; the card then goes inert until its event lands. */
+function AskCard({ ask, onAnswer }: { ask: AgentEvent; onAnswer: (input: PermissionDecisionInput) => void }): React.JSX.Element | null {
+  const [resolution, setResolution] = useState<ToolApprovalResolution | null>(null)
+  if (!isEvent(ask, AgentEventType.PermissionRequested)) return null
+  const { requestId, toolName, input, displayName, description, reason } = ask.payload
+  const kind = toolKind(toolName)
+  const name = displayName ?? toolName
+  const what = toolTitle(toolName, input)
+  const why = description ?? (reason === 'rule' ? 'A permission rule asks first.' : reason === 'mode' ? 'The access mode asks first.' : `${name} needs your approval.`)
+  const decide = (behavior: 'allow' | 'deny'): void => {
+    setResolution(behavior === 'allow' ? 'allowed' : 'denied')
+    onAnswer(behavior === 'allow' ? { requestId, behavior } : { requestId, behavior, message: `The user declined this ${toolName} call.` })
+  }
+  return (
+    <ToolApproval variant="docked" resolution={resolution} aria-label={`Allow ${name}?`} className="ml-10 max-w-[92%]">
+      <ToolApprovalHeader>
+        <ToolApprovalIcon>{TOOL_ICON[kind]}</ToolApprovalIcon>
+        <ToolApprovalHeading>
+          <ToolApprovalTitle>{what && what !== name ? `${name} · ${what}` : name}</ToolApprovalTitle>
+          <ToolApprovalDescription>{why}</ToolApprovalDescription>
+        </ToolApprovalHeading>
+      </ToolApprovalHeader>
+      <ToolApprovalCommand json={input} label={`${toolName} input`} />
+      <ToolApprovalActions>
+        <ToolApprovalAction variant="default" onClick={() => decide('allow')} disabled={resolution !== null}>
+          Allow
+        </ToolApprovalAction>
+        <ToolApprovalAction variant="ghost" onClick={() => decide('deny')} disabled={resolution !== null}>
+          Deny
+        </ToolApprovalAction>
+      </ToolApprovalActions>
+    </ToolApproval>
+  )
+}
+
+function BeatRow({ beat, avatarSeed, previews, open, sheetId, onOpen }: {
+  beat: Beat
+  avatarSeed: string
+  previews: DeltaBuffers
+  open: SheetTarget | null
+  sheetId: string
+  onOpen: (target: SheetTarget) => void
+}): React.JSX.Element | null {
+  switch (beat.kind) {
+    case 'activity':
+      return <ActivityRow beat={beat} avatarSeed={avatarSeed} open={open} sheetId={sheetId} onOpen={onOpen} />
+    case 'text': {
+      if (!isEvent(beat.event, AgentEventType.AssistantText)) return null
+      // The committed text wins; the delta buffer only stands in while a block is still arriving.
+      const text = beat.event.payload.text || previewOf(previews, beat.event.payload.block) || ''
+      return text ? <AssistantTurn text={text} avatarSeed={avatarSeed} /> : null
+    }
+    case 'user':
+      if (!isEvent(beat.event, AgentEventType.UserMessage) || isHarnessText(beat.event.payload.text)) return null
+      return <UserTurn text={beat.event.payload.text} images={[]} turnKey={beat.key} onReviewTurn={() => {}} />
+    case 'note':
+      return <p className={cn('m-0 ml-10 nessa-text-2', beat.tone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>{beat.text}</p>
+    case 'compacted': {
+      const payload = isEvent(beat.event, AgentEventType.ContextCompacted) ? beat.event.payload : null
+      const size = payload && payload.preTokens !== null && payload.postTokens !== null ? `${Math.round(payload.preTokens / 1000)}k → ${Math.round(payload.postTokens / 1000)}k tokens` : undefined
+      return <TranscriptDivider meta={size}>{payload?.trigger === 'manual' ? 'Context compacted on request' : 'Context compacted'}</TranscriptDivider>
+    }
+  }
 }
 
 export function TranscriptView({
@@ -214,6 +401,7 @@ export function TranscriptView({
   filesByTurn,
   openInTerminal,
   onReviewTurn,
+  onAnswerPermission,
   className
 }: {
   transcript: FoldedTranscript
@@ -232,15 +420,38 @@ export function TranscriptView({
   filesByTurn: ReadonlyMap<string, string[]>
   openInTerminal?: boolean
   onReviewTurn: (turnKey: string) => void
+  /** Answers a tool-permission ask of the running turn. */
+  onAnswerPermission?: (input: PermissionDecisionInput) => void
   className?: string
 }): React.JSX.Element {
   const turns = transcript.turns
-  const railTurns = turns.filter((turn): turn is Turn & { prompt: AgentEvent } => turn.prompt !== null && isEvent(turn.prompt, AgentEventType.UserMessage) && !turn.prompt.payload.synthetic)
+  const railTurns = turns.filter(
+    (turn): turn is Turn & { prompt: AgentEvent } => turn.prompt !== null && isEvent(turn.prompt, AgentEventType.UserMessage) && !turn.prompt.payload.synthetic && !isHarnessText(turn.prompt.payload.text)
+  )
   const [activeTurn, setActiveTurn] = useState<string>()
+  const [sheet, setSheet] = useState<SheetTarget | null>(null)
+  const sheetId = useId()
   const rowRefs = useRef(new Map<string, HTMLElement>())
-  // Each turn's rows, with the closing text the fold lifted into `finalText` put back in place.
-  const rows = useMemo(() => rowsByTurn(transcript), [transcript])
+  // Each turn's beats, with the closing text the fold lifted into `finalText` put back in place.
+  const beatsByTurn = useMemo(() => {
+    const rows = rowsByTurn(transcript)
+    return new Map(turns.map((turn) => [turn.key, beatsOf(rows.get(turn.key) ?? turn.work, transcript)] as const))
+  }, [transcript, turns])
+  const beatIndex = useMemo(() => {
+    const beats = new Map<string, ActivityBeat>()
+    const runs = new Map<string, BeatCall>()
+    for (const list of beatsByTurn.values()) {
+      for (const beat of list) {
+        if (beat.kind !== 'activity') continue
+        beats.set(beat.key, beat)
+        for (const call of beat.runs) runs.set(call.callId, call)
+      }
+    }
+    return { beats, runs }
+  }, [beatsByTurn])
   const empty = turns.length === 0 && !pending && !streamingText
+  // Asks only matter while a turn is running here; a replayed one nobody answered is just history.
+  const asks = startedAt !== null && onAnswerPermission ? transcript.pendingAsks.filter((ask) => ask.agentPath.length === 0) : []
   const jumpTo = (key: string): void => {
     setActiveTurn(key)
     rowRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -248,6 +459,10 @@ export function TranscriptView({
 
   const promptText = (turn: Turn): string =>
     turn.prompt && isEvent(turn.prompt, AgentEventType.UserMessage) ? turn.prompt.payload.text : ''
+
+  const shown = sheet?.kind === 'beat' ? beatIndex.beats.get(sheet.key) : undefined
+  const shownRun = sheet?.kind === 'run' ? beatIndex.runs.get(sheet.callId) : undefined
+  const sheetTitle = sheet?.kind === 'session' ? 'Session' : shown ? beatLabel(shown) : shownRun ? (shownRun.run?.label ?? shownRun.title) : null
 
   return (
     <div className={cn('flex min-h-0 gap-1', className)}>
@@ -263,43 +478,62 @@ export function TranscriptView({
           ))}
         </ConversationRail>
       ) : null}
-      <MessageScroller className="min-h-0 min-w-0 flex-1">
-        <MessageScrollerViewport>
-          <MessageScrollerContent aria-label="Agent conversation" className="max-w-full overflow-x-hidden">
-            <SessionHeader transcript={transcript} openInTerminal={openInTerminal} />
-            {empty ? <div className="rounded-xl border border-border py-10 text-center text-sm text-muted-foreground">{emptyMessage}</div> : null}
-            {turns.map((turn) => {
-              const prompt = turn.prompt && isEvent(turn.prompt, AgentEventType.UserMessage) && !turn.prompt.payload.synthetic ? turn.prompt : null
-              return (
-                <div
-                  key={turn.key}
-                  ref={(el) => {
-                    if (el) rowRefs.current.set(turn.key, el)
-                    else rowRefs.current.delete(turn.key)
-                  }}
-                  className="scroll-mt-2"
-                >
-                  {prompt ? (
-                    <UserTurn
-                      text={prompt.payload.text}
-                      images={extras[prompt.id]?.images ?? []}
-                      files={filesByTurn.get(turn.key)}
-                      turnKey={turn.key}
-                      onReviewTurn={onReviewTurn}
-                    />
-                  ) : null}
-                  {turn.work.map((item, index) => (
-                    <WorkRow key={isToolGroup(item) ? item.key : item.id} item={item} transcript={transcript} previews={previews} avatarSeed={avatarSeed} />
-                  ))}
-                </div>
-              )
-            })}
-            {pending ? <UserTurn text={pending.display.trim()} images={pending.images} turnKey="pending" onReviewTurn={() => {}} /> : null}
-            {activity && startedAt !== null && !streamingText ? <TurnStatus activity={activity} startedAt={startedAt} tokens={tokens} /> : null}
-            {streamingText ? <AssistantTurn text={streamingText} avatarSeed={avatarSeed} streaming /> : null}
-          </MessageScrollerContent>
-        </MessageScrollerViewport>
-      </MessageScroller>
+      {/* The details sheet rises over this frame, so the composer beside it stays reachable. */}
+      <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        <MessageScroller className="min-h-0 min-w-0 flex-1">
+          <MessageScrollerViewport>
+            <MessageScrollerContent aria-label="Agent conversation" className="max-w-full overflow-x-hidden">
+              <SessionLine session={transcript.session} openInTerminal={openInTerminal} open={sheet} sheetId={sheetId} onOpen={setSheet} />
+              {empty ? <div className="rounded-xl border border-border py-10 text-center text-sm text-muted-foreground">{emptyMessage}</div> : null}
+              {turns.map((turn) => {
+                const prompt = turn.prompt && isEvent(turn.prompt, AgentEventType.UserMessage) && !turn.prompt.payload.synthetic && !isHarnessText(turn.prompt.payload.text) ? turn.prompt : null
+                return (
+                  <div
+                    key={turn.key}
+                    ref={(el) => {
+                      if (el) rowRefs.current.set(turn.key, el)
+                      else rowRefs.current.delete(turn.key)
+                    }}
+                    className="flex scroll-mt-2 flex-col gap-2"
+                  >
+                    {prompt ? (
+                      <UserTurn
+                        text={prompt.payload.text}
+                        images={extras[prompt.id]?.images ?? []}
+                        files={filesByTurn.get(turn.key)}
+                        turnKey={turn.key}
+                        onReviewTurn={onReviewTurn}
+                      />
+                    ) : null}
+                    {(beatsByTurn.get(turn.key) ?? []).map((beat) => (
+                      <BeatRow key={beat.key} beat={beat} avatarSeed={avatarSeed} previews={previews} open={sheet} sheetId={sheetId} onOpen={setSheet} />
+                    ))}
+                  </div>
+                )
+              })}
+              {pending ? <UserTurn text={pending.display.trim()} images={pending.images} turnKey="pending" onReviewTurn={() => {}} /> : null}
+              {onAnswerPermission ? asks.map((ask) => <AskCard key={ask.id} ask={ask} onAnswer={onAnswerPermission} />) : null}
+              {activity && startedAt !== null && !streamingText && asks.length === 0 ? <TurnStatus activity={activity} startedAt={startedAt} tokens={tokens} /> : null}
+              {streamingText ? <AssistantTurn text={streamingText} avatarSeed={avatarSeed} streaming /> : null}
+            </MessageScrollerContent>
+          </MessageScrollerViewport>
+        </MessageScroller>
+        {sheet && sheetTitle !== null ? (
+          <Sheet id={sheetId} label={sheetTitle} modal={false} onClose={() => setSheet(null)}>
+            <SheetHandle />
+            <SheetHeader>
+              <SheetExpand />
+              <SheetTitle>{sheetTitle}</SheetTitle>
+              <SheetAction>Done</SheetAction>
+            </SheetHeader>
+            <SheetBody>
+              {sheet.kind === 'session' ? <SessionSheetBody session={transcript.session} openInTerminal={openInTerminal} /> : null}
+              {shown ? <BeatSheetBody beat={shown} /> : null}
+              {shownRun ? <RunSheetBody call={shownRun} transcript={transcript} /> : null}
+            </SheetBody>
+          </Sheet>
+        ) : null}
+      </div>
     </div>
   )
 }

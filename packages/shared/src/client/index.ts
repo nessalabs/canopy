@@ -44,6 +44,7 @@ import type {
   FilePatch,
   LogResponse,
   NewSessionInput,
+  PermissionDecisionInput,
   Project,
   ReviewComment,
   ReviewRequest,
@@ -203,6 +204,8 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
       stream(routes.agentSessions(worktreeId), input, signal),
     streamReview: (worktreeId: string, input: ReviewRequest, signal?: AbortSignal) =>
       stream(routes.review(worktreeId), input, signal),
+    /** Answers a tool-permission ask (`permission_requested`) of the turn running in `ref`. */
+    answerPermission: (ref: SessionRef, input: PermissionDecisionInput) => post<void>(routes.permissions(ref.provider, ref.sessionId), input),
 
     // ---- environment & resources ----
     host: () => get<HostInfo>(routes.host()),

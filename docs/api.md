@@ -48,8 +48,9 @@ Schemas are zod in `packages/shared/src/schemas`; route paths in `packages/share
 | POST | `/hooks/claude` | Claude Code PreToolUse/PostToolUse payload | `204`; snapshots the worktree containing `cwd` around the call |
 | GET | `/agent/sessions/:provider/:sid/transcript` | `?cwd=` | `TranscriptResponse` — `{ events: AgentEvent[], files: Record<callId, string[]>, extras, model?, effort?, openInTerminal?, nextSeq }`; the normalized agent-stream event log plus the paths each tool call wrote (absolute; edit-tool inputs or Bash write targets) |
 | POST | `/agent/sessions/:provider/:sid/messages` | `{ text, cwd?, autonomy? }` | SSE `AgentStreamEvent` |
+| POST | `/agent/sessions/:provider/:sid/permissions` | `{ requestId, behavior: 'allow' \| 'deny', message?, updatedInput? }` — answers a `permission_requested` event of a turn in flight | `204`; `404 unknown_permission_request` when nothing is waiting on that id |
 
-SSE streams carry one `data: <json>` frame per event: `session` → (`event` | `files` | `progress`)* → `done` | `error`. An `event` frame wraps one agent-stream `AgentEvent`; a `files` frame names the paths a tool call wrote.
+SSE streams carry one `data: <json>` frame per event: `session` → (`event` | `files` | `progress`)* → `done` | `error`. An `event` frame wraps one agent-stream `AgentEvent`; a `files` frame names the paths a tool call wrote. A `permission_requested` event parks the turn: nothing further arrives on the stream until `POST /agent/sessions/:provider/:sid/permissions` answers it (aborting the stream denies it).
 Closing the connection aborts the agent turn.
 
 ### Staging is the index

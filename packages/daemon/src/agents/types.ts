@@ -6,7 +6,7 @@
  *   send       — resume it (or start a fresh one when sessionId is null) and append a user turn
  * Wire types live in @canopy/shared so the UI renders exactly what the daemon emits.
  */
-import type { AgentProvider, AgentSessionSummary, AgentStreamEvent, TranscriptResponse, TurnImage, TurnOptions } from '@canopy/shared'
+import type { AgentProvider, AgentSessionSummary, AgentStreamEvent, PermissionDecisionInput, TranscriptResponse, TurnImage, TurnOptions } from '@canopy/shared'
 
 export type { AgentProvider, AgentSessionSummary, AgentStreamEvent, TranscriptResponse }
 
@@ -25,4 +25,10 @@ export interface AgentAdapter {
   listSessions(cwd: string, limit?: number): Promise<AgentSessionSummary[]>
   transcript(sessionId: string, cwd?: string): Promise<TranscriptResponse>
   send(sessionId: string | null, text: string, options?: SendOptions): AsyncIterable<AgentStreamEvent>
+  /**
+   * Answers a `permission_requested` event a live turn is parked on. The answer arrives on its own
+   * HTTP request, not on the turn's stream, so it is routed back by session id. False means nothing
+   * was waiting under that request id. Providers that never park on a prompt leave this undefined.
+   */
+  answerPermission?(sessionId: string, input: PermissionDecisionInput): boolean
 }

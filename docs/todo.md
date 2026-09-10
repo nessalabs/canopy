@@ -16,8 +16,9 @@ item lands, delete it here.
   - shadcn rewrites `@/components/split-view` (a directory index) to
     `@/components/split-view/split-view`, which lacks the panel/separator exports —
     `IMPORT_FIXUPS` undoes it after every install.
-  - vendored code is not written for `noUncheckedIndexedAccess` / `noUnusedLocals`, so those
-    flags are off in `packages/ui/tsconfig.json` and the app tsconfigs that include it.
+  - vendored code is not written for `noUncheckedIndexedAccess` / `noUnusedLocals` /
+    `noImplicitReturns` (electron-toolkit's base turns the last one on), so those flags are off in
+    `packages/ui/tsconfig.json` and the app tsconfigs that include it.
 - `message-markdown` pulls `mermaid` (static import, ~700 kB) and Shiki grammars through
   `code-block`; the web bundle is ~2.3 MB minified. Code-split or lazy-load once the
   package import exists (or ask nessa_ui for a dynamic `import('mermaid')`).
@@ -37,6 +38,17 @@ item lands, delete it here.
 
 ## Agent tab
 
+- The transcript is a conversation: the agent's work between two messages collapses into one
+  nessa `AgentActivity` cue ("Explored 3 files, 2 searches") and a `Sheet` opens that beat's
+  thinking and `ToolCall` rows; delegated runs are `AgentActivityCard`s. The grouping is
+  `lib/turn-beats.ts` over `lib/turn-rows.ts`. Cue labels are Canopy's own wording (nessa's
+  `formatAgentActivitySummary` has no running tense) — upstream a `running` flag and re-use it.
+- Tool permissions: for `edit`/`read-only` autonomy the daemon routes the SDK's `canUseTool` ask to
+  the UI as a `permission_requested` event and a nessa `ToolApproval` card answers it through
+  `POST …/permissions`. Codex approvals are still auto-answered by autonomy (see Codex below).
+  There is no "always allow" yet (the SDK's `updatedPermissions` rules are not surfaced).
+- Newly vendored for this: `sheet`, `tool-approval` (+ `json-tree`), `transcript-divider`
+  (`lib/overlay-panel.ts` came with the sheet).
 - Images ride inline as base64 in transcript JSON (simple, works with bearer auth). A session
   with many screenshots makes that payload heavy; move to a per-image route once needed.
 

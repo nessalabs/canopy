@@ -124,6 +124,19 @@ export const SendMessageInput = TurnOptions.extend({
 })
 export type SendMessageInput = z.infer<typeof SendMessageInput>
 
+/**
+ * The user's answer to a `permission_requested` event. `allow` may rewrite the tool's input (the
+ * SDK applies `updatedInput` in place of what the agent proposed); `deny` carries the reason the
+ * agent is told, so it can try something else rather than guess why it was refused.
+ */
+export const PermissionDecisionInput = z.object({
+  requestId: z.string().min(1),
+  behavior: z.enum(['allow', 'deny']),
+  message: z.string().optional(),
+  updatedInput: z.record(z.string(), z.unknown()).optional()
+})
+export type PermissionDecisionInput = z.infer<typeof PermissionDecisionInput>
+
 /** First turn of a brand-new session; it runs in the worktree's checkout. */
 export const NewSessionInput = SendMessageInput.omit({ cwd: true }).extend({ provider: AgentProvider })
 export type NewSessionInput = z.infer<typeof NewSessionInput>

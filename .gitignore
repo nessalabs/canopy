@@ -5,3 +5,5 @@ dist
 *.log
 *.tsbuildinfo
 .playwright-mcp
+.canopy-home
+.env.canopy

@@ -108,6 +108,16 @@
     --color-nessa-market-loss: var(--nessa-market-loss);
     --color-nessa-market-gain: var(--nessa-market-gain);
     --color-nessa-chart-label-ink: var(--nessa-chart-label-ink);
+    --nessa-motion-easing-arrival: cubic-bezier(0.4, 0, 0.15, 1);
+    --color-nessa-activity-ring-cap-shadow: var(--nessa-activity-ring-cap-shadow);
+    --color-nessa-activity-ring-3-ink: var(--nessa-activity-ring-3-ink);
+    --color-nessa-activity-ring-3: var(--nessa-activity-ring-3);
+    --color-nessa-activity-ring-2-ink: var(--nessa-activity-ring-2-ink);
+    --color-nessa-activity-ring-2: var(--nessa-activity-ring-2);
+    --color-nessa-activity-ring-1-ink: var(--nessa-activity-ring-1-ink);
+    --color-nessa-activity-ring-1: var(--nessa-activity-ring-1);
+    --color-nessa-notification-success: var(--nessa-notification-success);
+    --color-nessa-notification-error: var(--nessa-notification-error);
 }
 
 :root {
@@ -204,6 +214,16 @@
     --nessa-chart-label-ink: oklch(0.205 0 0);
     --nessa-market-gain: oklch(0.5 0.135 148);
     --nessa-market-loss: oklch(0.55 0.19 27);
+    --nessa-motion-easing-arrival: cubic-bezier(0.4, 0, 0.15, 1);
+    --nessa-notification-error: oklch(0.65 0.13 20);
+    --nessa-notification-success: oklch(0.62 0.10 155);
+    --nessa-activity-ring-1: oklch(0.62 0.235 17);
+    --nessa-activity-ring-1-ink: oklch(0.55 0.205 17);
+    --nessa-activity-ring-2: oklch(0.84 0.215 131);
+    --nessa-activity-ring-2-ink: oklch(0.51 0.125 131);
+    --nessa-activity-ring-3: oklch(0.78 0.13 205);
+    --nessa-activity-ring-3-ink: oklch(0.51 0.085 205);
+    --nessa-activity-ring-cap-shadow: oklch(0 0 0 / 0.38);
 }
 
 .dark {
@@ -272,6 +292,15 @@
     --nessa-chart-label-ink: oklch(0.205 0 0);
     --nessa-market-gain: oklch(0.8 0.19 150);
     --nessa-market-loss: oklch(0.7 0.19 25);
+    --nessa-notification-error: oklch(0.76 0.12 20);
+    --nessa-notification-success: oklch(0.76 0.11 155);
+    --nessa-activity-ring-1: oklch(0.66 0.225 17);
+    --nessa-activity-ring-1-ink: oklch(0.72 0.17 17);
+    --nessa-activity-ring-2: oklch(0.87 0.225 131);
+    --nessa-activity-ring-2-ink: oklch(0.84 0.21 131);
+    --nessa-activity-ring-3: oklch(0.81 0.13 205);
+    --nessa-activity-ring-3-ink: oklch(0.8 0.125 205);
+    --nessa-activity-ring-cap-shadow: oklch(0 0 0 / 0.55);
 }
 
 @media (prefers-reduced-motion: reduce) {
