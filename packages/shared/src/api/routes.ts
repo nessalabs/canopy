@@ -15,12 +15,24 @@ export const routes = {
   changes: (id: string) => `${API_PREFIX}/worktrees/${id}/changes`,
   changesFile: (id: string) => `${API_PREFIX}/worktrees/${id}/changes/file`,
   tree: (id: string) => `${API_PREFIX}/worktrees/${id}/tree`,
+  /** Every file in the worktree, flat — what the open-anything picker searches. */
+  files: (id: string) => `${API_PREFIX}/worktrees/${id}/files`,
   file: (id: string) => `${API_PREFIX}/worktrees/${id}/file`,
   log: (id: string) => `${API_PREFIX}/worktrees/${id}/log`,
   commit: (id: string, sha: string) => `${API_PREFIX}/worktrees/${id}/commits/${sha}`,
   commitFile: (id: string, sha: string) => `${API_PREFIX}/worktrees/${id}/commits/${sha}/file`,
   trees: (id: string, before: string, after: string) => `${API_PREFIX}/worktrees/${id}/trees/${before}/${after}`,
   treesFile: (id: string, before: string, after: string) => `${API_PREFIX}/worktrees/${id}/trees/${before}/${after}/file`,
+  /** Batched checkbox toggles: stage/unstage paths. Answers with the fresh changes list. */
+  stage: (id: string) => `${API_PREFIX}/worktrees/${id}/stage`,
+  /** Replace what is staged for one file with a chosen set of its hunks; GET reports the set. */
+  stageHunks: (id: string) => `${API_PREFIX}/worktrees/${id}/stage/hunks`,
+  commitChanges: (id: string) => `${API_PREFIX}/worktrees/${id}/commit`,
+  /** Keep a path out of commits: .git/info/exclude, .gitignore, skip-worktree or rm --cached. */
+  exclude: (id: string) => `${API_PREFIX}/worktrees/${id}/exclude`,
+  unhide: (id: string) => `${API_PREFIX}/worktrees/${id}/unhide`,
+  /** Locally hidden paths; read on its own because the changes poll must not pay for it. */
+  hidden: (id: string) => `${API_PREFIX}/worktrees/${id}/hidden`,
   comments: (id: string) => `${API_PREFIX}/worktrees/${id}/comments`,
   comment: (id: string, cid: string) => `${API_PREFIX}/worktrees/${id}/comments/${cid}`,
   review: (id: string) => `${API_PREFIX}/worktrees/${id}/review`,

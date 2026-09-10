@@ -36,6 +36,22 @@ fallback; `packages/daemon/bin/canopy.mjs` is the `canopy provision|teardown|for
 command that worktrunk hooks call so a `wt switch --create` from a terminal is provisioned too
 (`npm link` in `packages/daemon` puts it on PATH).
 
+## Committing
+
+The Changes tab commits: a checkbox per changed file, per-hunk checkboxes under a file's **Hunks**
+view, a summary and description, and `Commit to <branch>`. The checkbox *is* git's index — ticking
+one runs `git add`, clearing it runs `git reset`, and committing is a plain `git commit` — so a
+`git add -p` you did in a terminal shows up as an already-ticked (or mixed) box instead of being
+thrown away, and a file you left unticked cannot end up in the commit. Click, ⌘/Ctrl-click,
+shift-click and press-drag select several rows at once; a checkbox or menu action on a row inside
+the selection applies to all of it.
+
+Right-click a file or folder for the four ways to keep it out of commits: **Ignore locally**
+(`.git/info/exclude` — never committed, so `.gitignore` stays clean), **Add to `.gitignore`**,
+**Ignore my local edits** (`--skip-worktree`, this worktree only) and **Stop tracking**
+(`git rm --cached`, which stages a deletion). The first three leave no trace in `git status`, so a
+"N paths hidden" chip under the file list lists them and puts them back.
+
 **Exact per-turn diffs** in the Agent tab need Claude Code hooks that tell canopyd when a tool call
 starts and ends: `npm run hooks:setup -- --write` adds them to `~/.claude/settings.json` (asks first).
 Without them the tab falls back to the files each turn's tool calls named.

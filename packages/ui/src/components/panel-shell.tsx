@@ -10,10 +10,10 @@ import {
   useAppShell
 } from '@/components/composites/app-shell'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { IconAction } from '@/components/icon-action'
 import { PaneSplitDirection, closePane as closePaneOp, collectPanes, splitPane, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
 import { placementOf, reinsertPane, type Placement } from '@/lib/panel-placement'
 import { Button } from '@/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
 export interface PanelRequest {
@@ -27,27 +27,6 @@ export interface PanelDef {
   title: string
   icon?: React.ComponentType<{ className?: string }>
   render: () => React.ReactNode
-}
-
-function IconAction({
-  label,
-  onClick,
-  children
-}: {
-  label: string
-  onClick: () => void
-  children: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" className="size-6 shrink-0 text-muted-foreground" aria-label={label} onClick={onClick}>
-          {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
-  )
 }
 
 function Pane({ pane, panels }: { pane: PaneNode; panels: PanelDef[] }): React.JSX.Element {

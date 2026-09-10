@@ -9,9 +9,13 @@ export const keys = {
   diffFiles: (worktreeId: string, spec: DiffSpec) => ['diff-files', worktreeId, spec] as const,
   filePatch: (worktreeId: string, spec: DiffSpec, path: string) => ['file-patch', worktreeId, spec, path] as const,
   tree: (worktreeId: string, dir: string) => ['tree', worktreeId, dir] as const,
+  worktreeFiles: (worktreeId: string) => ['worktree-files', worktreeId] as const,
   fileContents: (worktreeId: string, path: string, rev?: string) => ['file', worktreeId, rev ?? 'worktree', path] as const,
   log: (worktreeId: string) => ['log', worktreeId] as const,
   comments: (worktreeId: string) => ['comments', worktreeId] as const,
+  /** Which hunks of one file are in the index; only read while that file's hunk view is open. */
+  hunkStates: (worktreeId: string, path: string) => ['hunk-states', worktreeId, path] as const,
+  hidden: (worktreeId: string) => ['hidden', worktreeId] as const,
   sessions: (worktreeId: string) => ['agent-sessions', worktreeId] as const,
   transcript: (ref: SessionRef) => ['transcript', ref.provider, ref.sessionId] as const,
   edits: (ref: SessionRef) => ['agent-edits', ref.provider, ref.sessionId] as const,

@@ -1,11 +1,18 @@
-import { useInfiniteQuery, useMutation, useQueries, useQuery, useQueryClient, type UseMutationOptions } from '@tanstack/react-query'
+import { useCallback, useRef } from 'react'
+import { useInfiniteQuery, useIsMutating, useMutation, useQueries, useQuery, useQueryClient, type UseMutationOptions } from '@tanstack/react-query'
 
 import type {
   AddCommentInput,
   AddProjectInput,
   AdoptWorktreeInput,
   AppSettingsPatch,
+  ChangesResponse,
+  CommitInput,
   CreateWorktreeInput,
+  ExcludeInput,
+  StageHunksInput,
+  StageInput,
+  UnhideInput,
   DbSource,
   DestroyAllInput,
   DiffSpec,
@@ -44,12 +51,18 @@ export const useWorktree = (id: string) => {
   return useQuery({ queryKey: keys.worktree(id), queryFn: () => api.getWorktree(id), refetchInterval: POLL_MS })
 }
 
+/** Staging mutations are keyed on this so the poll can stand aside while one is in flight. */
+const stageKey = (worktreeId: string) => ['stage', worktreeId] as const
+
 export const useDiffFiles = (worktreeId: string, spec: DiffSpec) => {
   const api = useApi()
+  // A poll that started before a checkbox was clicked can land after it and undo the optimistic
+  // flip, so the interval pauses while a stage request is outstanding.
+  const staging = useIsMutating({ mutationKey: stageKey(worktreeId) })
   return useQuery({
     queryKey: keys.diffFiles(worktreeId, spec),
     queryFn: () => api.diffFiles(worktreeId, spec),
-    refetchInterval: spec.kind === 'worktree' ? POLL_MS : false
+    refetchInterval: spec.kind === 'worktree' && staging === 0 ? POLL_MS : false
   })
 }
 
@@ -69,6 +82,12 @@ export const useTrees = (worktreeId: string, dirs: string[]) => {
   return useQueries({
     queries: dirs.map((dir) => ({ queryKey: keys.tree(worktreeId, dir), queryFn: () => api.tree(worktreeId, dir), staleTime: 30_000 }))
   })
+}
+
+/** Every path in the worktree, for the open-anything picker; fetched the first time it opens. */
+export const useWorktreeFiles = (worktreeId: string, enabled: boolean) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.worktreeFiles(worktreeId), queryFn: () => api.worktreeFiles(worktreeId), enabled, staleTime: 30_000 })
 }
 
 export const useFileContents = (worktreeId: string, path: string, rev: string | undefined, enabled: boolean) => {
@@ -324,4 +343,157 @@ export const useDestroyWorktreeWith = () => {
 export const useDirs = (path: string | undefined, hidden: boolean, enabled = true) => {
   const api = useApi()
   return useQuery({ queryKey: keys.dirs(path, hidden), queryFn: () => api.listDirs(path, hidden), enabled, staleTime: 15_000, placeholderData: (previous) => previous })
+}
+
+// =====================================================================================
+// Commit panel — the checkbox is git's index, so every mutation here writes it
+// =====================================================================================
+
+/** The only spec the commit panel works against: you can stage against HEAD and nothing else. */
+const HEAD_SPEC = { kind: 'worktree', against: 'head' } as const
+
+/** Merges a queued toggle into one already waiting: the later word on a path wins. */
+function mergeStage(into: { stage: Set<string>; unstage: Set<string> }, next: StageInput): void {
+  for (const path of next.stage) {
+    into.unstage.delete(path)
+    into.stage.add(path)
+  }
+  for (const path of next.unstage) {
+    into.stage.delete(path)
+    into.unstage.add(path)
+  }
+}
+
+/**
+ * Checkbox toggles. Optimistic so a click lands instantly, and written back from the response,
+ * which carries the whole refreshed list — so no follow-up fetch either.
+ *
+ * Two things keep a burst of clicks from feeling slow. The optimistic flip is written
+ * synchronously rather than behind an awaited `cancelQueries`, so it never waits out a poll that
+ * happened to be in the air. And only one request is ever outstanding: toggles made while it runs
+ * are merged into a single follow-up, which both spares the daemon a queue of index writes it
+ * would have to serialize anyway, and — because a response is only written back when nothing is
+ * queued behind it — stops an earlier reply from flipping a later click back.
+ */
+export const useStage = (worktreeId: string) => {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  const key = keys.diffFiles(worktreeId, HEAD_SPEC)
+  const queued = useRef<{ stage: Set<string>; unstage: Set<string> } | null>(null)
+  const busy = useRef(false)
+
+  const mutation = useMutation({
+    mutationKey: ['stage', worktreeId],
+    mutationFn: (input: StageInput) => api.stage(worktreeId, input),
+    onSuccess: (fresh) => {
+      // A queued toggle has already been drawn; this reply predates it and would undo it.
+      if (!queued.current) queryClient.setQueryData(key, fresh)
+    },
+    onError: () => {
+      queued.current = null
+      void queryClient.invalidateQueries({ queryKey: key })
+    }
+  })
+
+  const { mutate } = mutation
+  const send = useCallback(
+    (input: StageInput) => {
+      busy.current = true
+      mutate(input, {
+        onSettled: () => {
+          busy.current = false
+          const next = queued.current
+          queued.current = null
+          if (next) send({ stage: [...next.stage], unstage: [...next.unstage] })
+        }
+      })
+    },
+    [mutate]
+  )
+
+  const toggle = useCallback(
+    (input: StageInput) => {
+      const stage = new Set(input.stage)
+      const unstage = new Set(input.unstage)
+      // Cancel is not awaited: it marks any in-flight read cancelled there and then, so the
+      // write below is what the panel repaints from, this frame.
+      void queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData<ChangesResponse>(key)
+      if (previous) {
+        queryClient.setQueryData<ChangesResponse>(key, {
+          ...previous,
+          files: previous.files.map((file) =>
+            stage.has(file.path) ? { ...file, staged: 'staged' as const } : unstage.has(file.path) ? { ...file, staged: 'unstaged' as const } : file
+          )
+        })
+      }
+      if (busy.current) {
+        queued.current ??= { stage: new Set(), unstage: new Set() }
+        mergeStage(queued.current, input)
+        return
+      }
+      send(input)
+    },
+    [key, queryClient, send]
+  )
+
+  return { mutate: toggle, error: mutation.error, isPending: mutation.isPending }
+}
+
+/** Which hunks of a file are in the index. Read only while that file's hunk view is open. */
+export const useHunkStates = (worktreeId: string, path: string | undefined, enabled: boolean) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.hunkStates(worktreeId, path ?? ''),
+    queryFn: () => api.hunkStates(worktreeId, path as string),
+    enabled: enabled && path !== undefined,
+    staleTime: POLL_MS
+  })
+}
+
+export const useStageHunks = (worktreeId: string) => {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationKey: ['stage', worktreeId],
+    mutationFn: (input: StageHunksInput) => api.stageHunks(worktreeId, input),
+    onSuccess: async (fresh, input) => {
+      queryClient.setQueryData(keys.diffFiles(worktreeId, HEAD_SPEC), fresh)
+      await queryClient.invalidateQueries({ queryKey: keys.hunkStates(worktreeId, input.path) })
+    }
+  })
+}
+
+/**
+ * Committing moves HEAD, so it touches nearly every read: the diff, the log, and the worktree
+ * rows that carry ahead/behind and the last-commit line. A pre-commit hook may also have
+ * rewritten files, which is why the change list is refetched rather than assumed empty.
+ */
+export const useCommitChanges = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating((input: CommitInput) => api.commitChanges(worktreeId, input), () => [
+    keys.diffFiles(worktreeId, HEAD_SPEC),
+    keys.log(worktreeId),
+    keys.worktree(worktreeId),
+    keys.worktrees
+  ])
+}
+
+/** Locally hidden paths — its own read, so the changes poll never pays for it. */
+export const useHidden = (worktreeId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.hidden(worktreeId), queryFn: () => api.hiddenPaths(worktreeId), staleTime: 60_000 })
+}
+
+const useHiding = <T>(worktreeId: string, call: (input: T) => Promise<unknown>) =>
+  useInvalidating(call, () => [keys.hidden(worktreeId), keys.diffFiles(worktreeId, HEAD_SPEC)])
+
+export const useExclude = (worktreeId: string) => {
+  const api = useApi()
+  return useHiding(worktreeId, (input: ExcludeInput) => api.excludePaths(worktreeId, input))
+}
+
+export const useUnhide = (worktreeId: string) => {
+  const api = useApi()
+  return useHiding(worktreeId, (input: UnhideInput) => api.unhidePaths(worktreeId, input))
 }

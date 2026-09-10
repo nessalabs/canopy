@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import type { ChangedFile, FileContents, FilePatch } from '@canopy/shared'
 
 import type { GitRunner } from './exec'
-import { joinChangedFiles, parseNameStatus, parseNumstat } from './parse'
+import { joinChangedFiles, parseNameStatus, parseNumstat, UNSTAGED } from './parse'
 
 /** DiffSpec with `against` already resolved to a revision. */
 export type ResolvedDiffSpec = { kind: 'worktree'; rev: string } | { kind: 'commit'; sha: string } | { kind: 'trees'; before: string; after: string }
@@ -43,6 +43,11 @@ const NO_INDEX = ['diff', '--no-index', '--no-color', ...PREFIXES]
 
 export interface DiffReader {
   files(cwd: string, spec: ResolvedDiffSpec): Promise<ChangedFile[]>
+  /**
+   * `files` without the untracked pass. The commit panel already learns about untracked paths
+   * from `git status`, so asking git for them a second time would be a wasted process.
+   */
+  trackedFiles(cwd: string, spec: ResolvedDiffSpec): Promise<ChangedFile[]>
   patch(cwd: string, spec: ResolvedDiffSpec, path: string): Promise<FilePatch>
 }
 
@@ -68,10 +73,10 @@ function countLines(raw: Buffer): number {
  * Doing it here matters because `files()` needs one per untracked path, and a checkout with a
  * few dozen new files was spawning a git process for each.
  */
-async function untrackedStat(cwd: string, path: string): Promise<ChangedFile> {
+export async function untrackedStat(cwd: string, path: string): Promise<ChangedFile> {
   const raw = await readFile(join(cwd, path)).catch(() => null)
   const binary = raw !== null && raw.subarray(0, BINARY_SNIFF_BYTES).includes(0)
-  return { path, status: 'U', additions: raw === null || binary ? 0 : countLines(raw), deletions: 0, binary }
+  return { path, status: 'U', additions: raw === null || binary ? 0 : countLines(raw), deletions: 0, binary, ...UNSTAGED }
 }
 
 export function toFilePatch(path: string, raw: string): FilePatch {
@@ -97,6 +102,8 @@ export function createDiffReader(run: GitRunner, untracked: (cwd: string, path?:
   }
 
   return {
+    trackedFiles: tracked,
+
     async files(cwd, spec) {
       const changed = await tracked(cwd, spec)
       if (spec.kind !== 'worktree') return changed

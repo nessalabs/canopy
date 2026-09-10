@@ -1,69 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { FolderTree } from 'lucide-react'
-import { Popover } from 'radix-ui'
+import { useEffect, useMemo } from 'react'
 
 import type { ChangedFile, DiffSpec, ReviewComment } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
-import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
-import { Button } from '@/components/ui/button'
 import { FileDiffPath } from '@/components/ui/file-diff-list'
-import { PopoverSurface } from '@/components/ui/popover-surface'
 import { groupBy } from '@/lib/group'
-import { useElementWidth } from '@/lib/use-element-width'
+import { useFileTrail } from '@/lib/use-file-trail'
 import { useHighlighterWarmup } from '@/lib/use-highlighter-warmup'
 
 import { ContentPane, LooseFilePane } from './content-pane'
-import type { OpenPath } from './file-viewer'
-import { ChangedFilesTree } from './file-tree'
+import { ExplorerShell } from './explorer-shell'
+import { ChangedFilesTree, type CommitSelection } from './file-tree'
 
 /** Where the explorer should land: a file, and optionally a comment inside it to scroll to. */
 export interface ExplorerFocus {
   path: string
   commentId?: string
-}
-
-/** One file the pane has shown, and the heading the link that opened it named. */
-interface Stop {
-  path: string
-  hash?: string
-}
-
-/** Tree beside the content, tree above it, or tree in a popover — chosen from the container width. */
-type Arrangement = 'side' | 'stacked' | 'overlay'
-
-const BREAKPOINTS: ReadonlyArray<[minWidth: number, arrangement: Arrangement]> = [
-  [680, 'side'],
-  [480, 'stacked'],
-  [0, 'overlay']
-]
-const arrangementFor = (width: number): Arrangement => (BREAKPOINTS.find(([min]) => width >= min) as [number, Arrangement])[1]
-
-const SPLIT: Record<Exclude<Arrangement, 'overlay'>, SplitViewOrientation> = {
-  side: SplitViewOrientation.Horizontal,
-  stacked: SplitViewOrientation.Vertical
-}
-
-/** Narrow layouts: the tree opens from a button and closes on a tap outside or a pick. */
-function TreePopover({ tree, selectedPath }: { tree: React.ReactNode; selectedPath?: string }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-border bg-muted/30 px-2 py-1">
-      <Popover.Root open={open} onOpenChange={setOpen}>
-        <Popover.Trigger asChild>
-          <Button variant="ghost" size="icon" className="size-7" aria-label="Changed files" aria-expanded={open}>
-            <FolderTree className="size-4" />
-          </Button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content asChild side="bottom" align="start" sideOffset={6} collisionPadding={8} onClick={() => setOpen(false)}>
-            <PopoverSurface className="h-[60vh] w-[min(92vw,22rem)] overflow-hidden p-0">{tree}</PopoverSurface>
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
-      {selectedPath ? <FileDiffPath path={selectedPath} className="min-w-0 flex-1 font-mono text-xs" /> : null}
-    </div>
-  )
 }
 
 /**
@@ -79,6 +31,8 @@ export function DiffExplorer({
   comments,
   mode,
   focus,
+  commit,
+  treeFooter,
   className
 }: {
   worktreeId: string
@@ -87,26 +41,29 @@ export function DiffExplorer({
   comments: ReviewComment[]
   mode: DiffMode
   focus?: ExplorerFocus
+  /** Present only in the commit panel: checkboxes, mouse selection and the right-click menu. */
+  commit?: CommitSelection
+  /** The commit box, pinned under the tree. */
+  treeFooter?: React.ReactNode
   className?: string
 }): React.JSX.Element {
-  const container = useRef<HTMLDivElement>(null)
-  const arrangement = arrangementFor(useElementWidth(container))
   // Start resolving the grammars this change set needs now, not when a file is first clicked.
   useHighlighterWarmup(useMemo(() => files.map((file) => file.path), [files]))
-  // Where the pane is, and how it got there: following a link inside a rendered doc pushes a
-  // stop, Back pops one. An empty trail means the first changed file, whatever that is today.
-  const [trail, setTrail] = useState<Stop[]>([])
-  useEffect(() => setTrail(focus === undefined ? [] : [{ path: focus.path }]), [focus])
-  const stop = trail.at(-1)
-  const selectedPath = stop?.path ?? files[0]?.path
+  // Where the pane is, and how it got there. An empty trail means the first changed file,
+  // whatever that is today; a focus handed in from outside starts the trail over there.
+  const trail = useFileTrail(files[0]?.path)
+  const { go, reset } = trail
+  useEffect(() => {
+    if (focus === undefined) reset()
+    else go(focus.path)
+  }, [focus, go, reset])
+  const stop = trail.current
+  const selectedPath = stop?.path
   const selected = files.find((f) => f.path === selectedPath)
-  const openPath: OpenPath = (path, hash) =>
-    setTrail((current) => [...(current.length > 0 || selectedPath === undefined ? current : [{ path: selectedPath }]), { path, hash }])
-  const onBack = trail.length > 1 ? () => setTrail((current) => current.slice(0, -1)) : undefined
   const byFile = useMemo(() => groupBy(comments, (c) => c.file), [comments])
   const counts = useMemo(() => new Map([...byFile].map(([file, list]) => [file, list.length])), [byFile])
 
-  const tree = <ChangedFilesTree files={files} commentCounts={counts} selected={selectedPath} onSelect={(path) => setTrail([{ path }])} className="h-full" />
+  const tree = <ChangedFilesTree files={files} commentCounts={counts} selected={selectedPath} onSelect={go} commit={commit} className="h-full" />
   const content = selected ? (
     <ContentPane
       key={selected.path}
@@ -116,33 +73,24 @@ export function DiffExplorer({
       comments={byFile.get(selected.path) ?? []}
       mode={mode}
       focusCommentId={focus?.path === selected.path ? focus.commentId : undefined}
+      canPickHunks={commit !== undefined}
       anchor={stop?.hash}
-      onOpenPath={openPath}
-      onBack={onBack}
+      onOpenPath={trail.open}
+      onBack={trail.back}
     />
   ) : stop ? (
     // A doc linked somewhere the change set does not reach — read it anyway, outside the diff.
-    <LooseFilePane key={stop.path} worktreeId={worktreeId} spec={spec} path={stop.path} anchor={stop.hash} onOpenPath={openPath} onBack={onBack} />
+    <LooseFilePane key={stop.path} worktreeId={worktreeId} spec={spec} path={stop.path} anchor={stop.hash} onOpenPath={trail.open} onBack={trail.back} />
   ) : null
 
   return (
-    <div ref={container} className={className}>
-      {arrangement === 'overlay' ? (
-        <div className="flex h-full min-h-0 flex-col">
-          <TreePopover tree={tree} selectedPath={selectedPath} />
-          <div className="min-h-0 flex-1">{content}</div>
-        </div>
-      ) : (
-        <SplitView orientation={SPLIT[arrangement]} className="h-full">
-          <SplitViewPanel id="files" defaultSize={30} minSize={18} className="min-h-0 border-r border-border bg-card">
-            {tree}
-          </SplitViewPanel>
-          <SplitViewSeparator />
-          <SplitViewPanel id="content" minSize={40} className="min-h-0">
-            {content}
-          </SplitViewPanel>
-        </SplitView>
-      )}
-    </div>
+    <ExplorerShell
+      className={className}
+      treeLabel="Changed files"
+      overlayHeader={selectedPath ? <FileDiffPath path={selectedPath} className="min-w-0 flex-1 font-mono text-xs" /> : null}
+      tree={tree}
+      treeFooter={treeFooter}
+      content={content}
+    />
   )
 }

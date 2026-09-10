@@ -8,6 +8,7 @@ import { ApiError, routes } from '@canopy/shared'
 import { EditDiffsService } from './agents/edit-diffs/service'
 import { createSnapshots } from './agents/edit-diffs/snapshots'
 import { createAgentRegistry, type AgentRegistry } from './agents/registry'
+import { CommitService } from './commit/service'
 import { registerAuth } from './auth'
 import type { DaemonConfig } from './config'
 import { createDbRegistry } from './env/databases/registry'
@@ -29,6 +30,7 @@ import { createRepo } from './git/repo'
 import { ProjectsService } from './projects/service'
 import { ReviewService } from './review/service'
 import { registerAgentRoutes } from './routes/agents'
+import { registerCommitRoutes } from './routes/commit'
 import type { Services } from './routes/context'
 import { registerEnvironmentRoutes } from './routes/environment'
 import { registerFsRoutes } from './routes/fs'
@@ -91,12 +93,14 @@ export function buildServices(deps: ServerDeps): Services {
     sampler: new ResourceSampler(docker)
   })
   worktrees.attachEnvironment(environment)
+  const history = new HistoryService({ repo, diffs, worktrees })
   return {
     config: deps.config,
     version: deps.version ?? '0.1.0',
     projects,
     worktrees,
-    history: new HistoryService({ repo, diffs, worktrees }),
+    history,
+    commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
     review: new ReviewService({ db: deps.db, worktrees, agents }),
     agents,
     editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots: createSnapshots(git) }),
@@ -128,6 +132,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   app.get(routes.healthz(), async () => ({ ok: true, version: services.version }))
   registerProjectRoutes(app, services)
   registerWorktreeRoutes(app, services)
+  registerCommitRoutes(app, services)
   registerReviewRoutes(app, services)
   registerAgentRoutes(app, services)
   registerEnvironmentRoutes(app, services)

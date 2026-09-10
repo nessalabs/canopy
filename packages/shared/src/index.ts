@@ -1,5 +1,6 @@
 export * from './schemas'
 export * from './canopy-yaml'
+export * from './patch'
 export * from './environment-helpers'
 export * from './api/errors'
 export * from './api/routes'

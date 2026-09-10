@@ -29,7 +29,15 @@ import type {
   Against,
   Branch,
   ChangesResponse,
+  Commit,
+  CommitInput,
   CommitResponse,
+  ExcludeInput,
+  HiddenResponse,
+  HunkStatesResponse,
+  StageHunksInput,
+  StageInput,
+  UnhideInput,
   CreateWorktreeInput,
   DiffSpec,
   FileContents,
@@ -160,9 +168,21 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     },
     /** Immediate children of a directory in the working tree (tracked + untracked, ignore-aware). */
     tree: (worktreeId: string, path = '') => get<TreeResponse>(routes.tree(worktreeId), { path }),
+    worktreeFiles: (worktreeId: string) => get<{ paths: string[]; truncated: boolean }>(routes.files(worktreeId)),
     /** A file's contents from the working tree, or from `rev` when given. */
     fileContents: (worktreeId: string, path: string, rev?: string) => get<FileContents>(routes.file(worktreeId), { path, rev }),
     log: (worktreeId: string, limit: number, skip: number) => get<LogResponse>(routes.log(worktreeId), { limit, skip }),
+
+    /** Stage/unstage a batch of paths; the answer is the whole refreshed list, so no refetch. */
+    stage: (worktreeId: string, input: StageInput) => post<ChangesResponse>(routes.stage(worktreeId), input),
+    /** Which hunks of a file's HEAD→worktree patch are currently in the index. */
+    hunkStates: (worktreeId: string, path: string) => get<HunkStatesResponse>(routes.stageHunks(worktreeId), { path }),
+    stageHunks: (worktreeId: string, input: StageHunksInput) => post<ChangesResponse>(routes.stageHunks(worktreeId), input),
+    commitChanges: (worktreeId: string, input: CommitInput) =>
+      post<{ commit: Commit }>(routes.commitChanges(worktreeId), input).then((r) => r.commit),
+    excludePaths: (worktreeId: string, input: ExcludeInput) => post<ChangesResponse>(routes.exclude(worktreeId), input),
+    hiddenPaths: (worktreeId: string) => get<HiddenResponse>(routes.hidden(worktreeId)).then((r) => r.hidden),
+    unhidePaths: (worktreeId: string, input: UnhideInput) => post<ChangesResponse>(routes.unhide(worktreeId), input),
 
     listComments: (worktreeId: string) =>
       get<{ comments: ReviewComment[] }>(routes.comments(worktreeId)).then((r) => r.comments),

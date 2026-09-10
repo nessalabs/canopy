@@ -98,6 +98,11 @@ function applyEvent(queryClient: QueryClient, samples: SampleStore, event: Canop
       return
     case 'worktrees-changed':
       void queryClient.invalidateQueries({ queryKey: keys.worktrees })
+      // A commit made in another client moves HEAD, so the diff and the log are stale too. The
+      // event is rare (create, destroy, sync, commit), so the extra prefixes cost nothing while
+      // nothing is happening.
+      void queryClient.invalidateQueries({ queryKey: ['diff-files'] })
+      void queryClient.invalidateQueries({ queryKey: ['log'] })
       return
     case 'project-changed':
       void queryClient.invalidateQueries({ queryKey: keys.projects })

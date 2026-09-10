@@ -11,9 +11,12 @@ import {
   parseBranches,
   parseLogZ,
   parsePorcelainV2,
+  parseStatusBranch,
+  parseStatusEntries,
   parseWorktreeList,
   splitNul,
   type StatusCounts,
+  type StatusEntry,
   type WorktreeRecord
 } from './parse'
 
@@ -38,12 +41,39 @@ export interface Repo {
   showFile(cwd: string, rev: string, path: string): Promise<string | null>
   worktreeAdd(repo: string, path: string, branch: { mode: 'new'; name: string; base: string } | { mode: 'existing'; name: string }): Promise<void>
   worktreeRemove(repo: string, path: string, force: boolean): Promise<void>
+
+  // ---- the index: everything the commit panel's checkboxes drive ----
+  /** Every path git has something to say about, plus the branch, from one `status` call. */
+  statusEntries(cwd: string): Promise<{ entries: StatusEntry[]; branch: string | null }>
+  /** Resolves a path inside the worktree's git dir (`MERGE_HEAD`, …). Linked-worktree aware. */
+  gitPath(cwd: string, name: string): Promise<string>
+  /** A blob's bytes as a latin1 string — a byte-exact round trip, unlike a utf8 decode. */
+  catBlob(cwd: string, sha: string): Promise<string>
+  /** Writes `content` (latin1) as a blob, applying the clean filters configured for `path`. */
+  writeBlob(cwd: string, path: string, content: string): Promise<string>
+  /** Points the index entry for `path` at `sha`; `--add` covers a path git does not know yet. */
+  updateIndexEntry(cwd: string, mode: string, sha: string, path: string): Promise<void>
+  /** Records a deletion in the index, which `--cacheinfo` cannot express. */
+  removeIndexEntry(cwd: string, path: string): Promise<void>
+  stagePaths(cwd: string, paths: string[]): Promise<void>
+  /** Restores the HEAD entry for each path; on an unborn branch there is none, so it removes. */
+  unstagePaths(cwd: string, paths: string[], hasHead: boolean): Promise<void>
+  /** `git rm --cached`: stops tracking a path while leaving it on disk. */
+  untrackPaths(cwd: string, paths: string[]): Promise<void>
+  setSkipWorktree(cwd: string, paths: string[], skip: boolean): Promise<void>
+  /** `ls-files -v`: the per-path flag letter, where 'S' marks skip-worktree. */
+  indexFlags(cwd: string): Promise<Map<string, string>>
+  /** The staged tree as a commit. Returns the new sha. */
+  commitIndex(cwd: string, message: string, options: { noVerify: boolean; timeout: number }): Promise<string>
 }
 
 const WORKTREE_ADD_ARGS = {
   new: (path: string, b: { name: string; base: string }) => ['worktree', 'add', '-b', b.name, path, b.base],
   existing: (path: string, b: { name: string }) => ['worktree', 'add', path, b.name]
 } as const
+
+/** Paths for `--pathspec-from-file=- --pathspec-file-nul`: NUL-separated, no shell, no ARG_MAX. */
+const nulList = (paths: string[]): string => paths.map((path) => `${path}\0`).join('')
 
 export function createRepo(run: GitRunner): Repo {
   const tryRun = async (cwd: string, args: string[]): Promise<string | null> => {
@@ -126,6 +156,80 @@ export function createRepo(run: GitRunner): Repo {
 
     async showFile(cwd, rev, path) {
       return tryRun(cwd, ['show', `${rev}:${path}`])
+    },
+
+    async statusEntries(cwd) {
+      // --no-renames is what keeps these entries one-to-one with the --no-renames diffs the rest
+      // of the daemon takes; without it a rename is one status record but two diff records.
+      const out = await run(cwd, ['status', '--porcelain=v2', '--branch', '-z', '--no-renames', '--untracked-files=all'])
+      return { entries: parseStatusEntries(out), branch: parseStatusBranch(out) }
+    },
+
+    async gitPath(cwd, name) {
+      return (await run(cwd, ['rev-parse', '--git-path', name])).trim()
+    },
+
+    async catBlob(cwd, sha) {
+      return run(cwd, ['cat-file', 'blob', sha], { binary: true })
+    },
+
+    async writeBlob(cwd, path, content) {
+      // --path is not cosmetic: it applies the clean filters (.gitattributes, autocrlf) that the
+      // blob would get through `git add`, so a partially staged file matches byte for byte.
+      const out = await run(cwd, ['hash-object', '-w', '--stdin', '--path', path], { input: Buffer.from(content, 'latin1'), binary: true })
+      return out.trim()
+    },
+
+    async updateIndexEntry(cwd, mode, sha, path) {
+      await run(cwd, ['update-index', '--add', '--cacheinfo', `${mode},${sha},${path}`])
+    },
+
+    async removeIndexEntry(cwd, path) {
+      await run(cwd, ['update-index', '--force-remove', '--', path])
+    },
+
+    async stagePaths(cwd, paths) {
+      if (paths.length === 0) return
+      await run(cwd, ['add', '--all', '--pathspec-from-file=-', '--pathspec-file-nul'], { input: nulList(paths) })
+    },
+
+    async unstagePaths(cwd, paths, hasHead) {
+      if (paths.length === 0) return
+      const args = hasHead
+        ? ['reset', '--quiet', '--pathspec-from-file=-', '--pathspec-file-nul']
+        : ['rm', '--cached', '--quiet', '--ignore-unmatch', '--pathspec-from-file=-', '--pathspec-file-nul']
+      await run(cwd, args, { input: nulList(paths) })
+    },
+
+    async untrackPaths(cwd, paths) {
+      if (paths.length === 0) return
+      await run(cwd, ['rm', '--cached', '-r', '--quiet', '--ignore-unmatch', '--pathspec-from-file=-', '--pathspec-file-nul'], { input: nulList(paths) })
+    },
+
+    async setSkipWorktree(cwd, paths, skip) {
+      if (paths.length === 0) return
+      // update-index predates --pathspec-from-file and rejects it; its stdin form is `-z --stdin`.
+      await run(cwd, ['update-index', skip ? '--skip-worktree' : '--no-skip-worktree', '-z', '--stdin'], { input: nulList(paths) })
+    },
+
+    async indexFlags(cwd) {
+      const flags = new Map<string, string>()
+      for (const line of splitNul(await run(cwd, ['ls-files', '-v', '-z']))) {
+        const letter = line[0]
+        if (letter === undefined) continue
+        flags.set(line.slice(2), letter)
+      }
+      return flags
+    },
+
+    async commitIndex(cwd, message, { noVerify, timeout }) {
+      await run(cwd, ['commit', '--file=-', '--cleanup=whitespace', ...(noVerify ? ['--no-verify'] : [])], {
+        input: message,
+        timeout,
+        // Signing without a cached passphrase would otherwise sit on a pinentry prompt forever.
+        env: { GIT_TERMINAL_PROMPT: '0' }
+      })
+      return (await run(cwd, ['rev-parse', 'HEAD'])).trim()
     },
 
     async worktreeAdd(repo, path, branch) {

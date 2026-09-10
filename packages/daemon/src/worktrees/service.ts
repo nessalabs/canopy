@@ -170,9 +170,9 @@ export class WorktreesService {
    * without spawning git. Readers that only need the checkout (diffs, log, file browsing) take
    * this instead of `get`, whose status derivation costs three git processes per call.
    */
-  location(id: string): { path: string; baseBranch: string } {
+  location(id: string): { path: string; baseBranch: string; projectId: string } {
     const row = this.row(id)
-    return { path: row.path, baseBranch: row.base_branch ?? this.deps.projects.get(row.project_id).defaultBase }
+    return { path: row.path, baseBranch: row.base_branch ?? this.deps.projects.get(row.project_id).defaultBase, projectId: row.project_id }
   }
 
   /**

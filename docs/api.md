@@ -30,6 +30,13 @@ Schemas are zod in `packages/shared/src/schemas`; route paths in `packages/share
 | GET | `/worktrees/:id/trees/:before/:after` | | `{ before, after, files }` — diff between two snapshot trees (see hooks) |
 | GET | `/worktrees/:id/trees/:before/:after/file` | `?path=` | `FilePatch` |
 | GET | `/worktrees/:id/commits/:sha/file` | `?path=` | `FilePatch` |
+| POST | `/worktrees/:id/stage` | `{ stage: string[], unstage: string[] }` | `ChangesResponse` — batched checkbox toggles; answers with the refreshed list so the client needs no follow-up read |
+| GET | `/worktrees/:id/stage/hunks` | `?path=` | `{ path, patchHash, staged: number[], partial: number[], representable }` — which hunks of a file's HEAD→worktree patch are in the index |
+| POST | `/worktrees/:id/stage/hunks` | `{ path, hunks: number[], patchHash }` | `ChangesResponse`; `409 stale_patch` when the file moved under the picks, `409 not_representable` when the index holds content those hunks cannot express |
+| POST | `/worktrees/:id/commit` | `{ summary, description?, noVerify? }` | 201 `{ commit }`; `400 nothing_staged`, `409 conflicted`, `409 operation_in_progress` |
+| GET | `/worktrees/:id/hidden` | | `{ hidden: [{ path, how }] }` — locally hidden paths; its own read so the changes poll never pays for it |
+| POST | `/worktrees/:id/exclude` | `{ paths, how: 'exclude'\|'gitignore'\|'skipWorktree'\|'untrack' }` | `{ hidden }` |
+| POST | `/worktrees/:id/unhide` | `{ paths }` | `{ hidden }` — undoes whichever mechanism was hiding each path |
 | GET | `/worktrees/:id/comments` | | `{ comments }` |
 | POST | `/worktrees/:id/comments` | `{ file, line, side, text, code?, commitSha? }` | 201 `{ comment }` |
 | DELETE | `/worktrees/:id/comments/:cid` | | 204 |
@@ -44,6 +51,26 @@ Schemas are zod in `packages/shared/src/schemas`; route paths in `packages/share
 
 SSE streams carry one `data: <json>` frame per event: `session` → (`event` | `files` | `progress`)* → `done` | `error`. An `event` frame wraps one agent-stream `AgentEvent`; a `files` frame names the paths a tool call wrote.
 Closing the connection aborts the agent turn.
+
+### Staging is the index
+
+The commit panel's checkbox *is* git's index: checked means staged, and `POST /commit` is a plain
+`git commit` of it. Nothing is kept beside the index and merged in later, so staging done in a
+terminal shows up as a checked (or mixed) box within one poll and is never silently discarded, and
+a file left unchecked cannot reach the commit. `ChangedFile` therefore carries `staged`
+(`staged | unstaged | partial`), `conflicted`, and the HEAD and index blob ids;
+`ChangesResponse` adds `branch` and `operation` (a merge/rebase/cherry-pick/revert in progress,
+during which staging individual paths is refused because it can discard a conflict resolution).
+
+Hunk staging rewrites one file's index entry from HEAD plus the chosen hunks, which is only safe
+while everything already staged for that file is expressible as those same hunks. The daemon
+proves that first by comparing the `-U0` changes of `git diff HEAD` and `git diff --cached HEAD`
+(zero context, so git never merges neighbouring hunks and the two are comparable); when they do
+not line up it answers `not_representable` rather than guessing.
+
+`hidden` is read separately from the changes list because two of its three mechanisms
+(`.git/info/exclude`, `--skip-worktree`) leave no trace in `git status` at all, and collecting it
+costs an `ls-files -v` plus two file reads that the 5-second poll should not repeat.
 
 `FilePatch.patch` is `null` for binary files and for patches over 512 KiB (`truncated: true`);
 `FileContents.content` likewise for binary files and files over 2 MiB. Paths that leave the worktree are `400 bad_path`.

@@ -1,4 +1,5 @@
 import type { EditDiffsService } from '../agents/edit-diffs/service'
+import type { CommitService } from '../commit/service'
 import type { AgentRegistry } from '../agents/registry'
 import type { DaemonConfig } from '../config'
 import type { EnvironmentService } from '../env/service'
@@ -15,6 +16,7 @@ export interface Services {
   projects: ProjectsService
   worktrees: WorktreesService
   history: HistoryService
+  commits: CommitService
   review: ReviewService
   agents: AgentRegistry
   editDiffs: EditDiffsService

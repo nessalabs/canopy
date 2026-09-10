@@ -93,6 +93,96 @@ export function parsePorcelainV2(out: string): StatusCounts {
   return counts
 }
 
+/**
+ * One path from `git status --porcelain=v2`, keeping what `parsePorcelainV2` throws away.
+ * `x`/`y` are the staged and unstaged status letters ('.' for "no change on this side").
+ */
+export interface StatusEntry {
+  path: string
+  x: string
+  y: string
+  untracked: boolean
+  conflicted: boolean
+  /** Blob ids of the HEAD and index copies; null where that side has no blob. */
+  headSha: string | null
+  indexSha: string | null
+  /**
+   * The *worktree* mode (`mW`), which is what a staged entry must carry — using the HEAD mode
+   * would silently drop a `chmod +x`. '000000' when the file is gone from disk.
+   */
+  mode: string
+  /** Porcelain v2's submodule field: 'N...' for an ordinary path, 'S...' for a submodule. */
+  sub: string
+}
+
+const NO_SHA = '0000000000000000000000000000000000000000'
+const sha = (value: string | undefined): string | null => (value === undefined || value === NO_SHA ? null : value)
+
+/**
+ * `git status --porcelain=v2 -z --no-renames -uall`, per path rather than as counts.
+ *
+ * `--no-renames` is what keeps this simple: git then reports a rename as an add plus a delete
+ * (two `1 ` records) instead of a `2 ` record with a second path field, which also matches the
+ * `--no-renames` convention every diff in this daemon already uses. Unmerged (`u `) records carry
+ * three stage modes and three stage shas instead of the two of a `1 ` record, so the field offsets
+ * differ and the two are parsed apart.
+ */
+export function parseStatusEntries(out: string): StatusEntry[] {
+  const entries: StatusEntry[] = []
+  for (const record of splitNul(out)) {
+    const kind = record[0]
+    if (kind === '?') {
+      entries.push({ path: record.slice(2), x: '?', y: '?', untracked: true, conflicted: false, headSha: null, indexSha: null, mode: '', sub: 'N...' })
+      continue
+    }
+    if (kind === '1') {
+      // 1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>
+      const fields = record.split(' ')
+      const xy = fields[1] ?? '..'
+      entries.push({
+        path: fields.slice(8).join(' '),
+        x: xy[0] ?? '.',
+        y: xy[1] ?? '.',
+        untracked: false,
+        conflicted: false,
+        headSha: sha(fields[6]),
+        indexSha: sha(fields[7]),
+        mode: fields[5] ?? '000000',
+        sub: fields[2] ?? 'N...'
+      })
+      continue
+    }
+    if (kind === 'u') {
+      // u <XY> <sub> <m1> <m2> <m3> <mW> <h1> <h2> <h3> <path>
+      const fields = record.split(' ')
+      const xy = fields[1] ?? 'UU'
+      entries.push({
+        path: fields.slice(10).join(' '),
+        x: xy[0] ?? 'U',
+        y: xy[1] ?? 'U',
+        untracked: false,
+        conflicted: true,
+        headSha: null,
+        indexSha: null,
+        mode: fields[6] ?? '000000',
+        sub: fields[2] ?? 'N...'
+      })
+    }
+    // '#' header lines and anything else carry no path.
+  }
+  return entries
+}
+
+/** The branch `git status --porcelain=v2 --branch` reports; null when detached or unborn. */
+export function parseStatusBranch(out: string): string | null {
+  for (const record of splitNul(out)) {
+    if (!record.startsWith('# branch.head ')) continue
+    const head = record.slice('# branch.head '.length)
+    return head === '(detached)' ? null : head
+  }
+  return null
+}
+
 /** `git rev-list --left-right --count <base>...HEAD` → `behind\tahead`. */
 export function parseAheadBehind(out: string): { ahead: number; behind: number } {
   const [behind = '0', ahead = '0'] = out.trim().split('\t')
@@ -141,12 +231,18 @@ export function parseNameStatus(out: string): Map<string, FileStatus> {
   return statuses
 }
 
+/**
+ * The index-facing half of a `ChangedFile`, for the diffs that have no index to speak of — a
+ * commit, a pair of trees, or the working tree compared against the base branch.
+ */
+export const UNSTAGED = { staged: 'unstaged', conflicted: false, headSha: null, indexSha: null } as const
+
 /** Joins numstat and name-status on path; files only in one list default to modified/zero. */
 export function joinChangedFiles(numstat: Map<string, Numstat>, statuses: Map<string, FileStatus>): ChangedFile[] {
   const paths = [...new Set([...numstat.keys(), ...statuses.keys()])]
   return paths.map((path) => {
     const stat = numstat.get(path) ?? { additions: 0, deletions: 0, binary: false }
-    return { path, status: statuses.get(path) ?? 'M', ...stat }
+    return { path, status: statuses.get(path) ?? 'M', ...stat, ...UNSTAGED }
   })
 }
 

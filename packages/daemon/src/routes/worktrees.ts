@@ -28,6 +28,8 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
 
   app.get(routes.tree(':id'), async (request) => history.tree(IdParams.parse(request.params).id, DirQuery.parse(request.query).path))
 
+  app.get(routes.files(':id'), async (request) => history.files(IdParams.parse(request.params).id))
+
   app.get(routes.file(':id'), async (request) => {
     const { path, rev } = PathQuery.merge(RevQuery).parse(request.query)
     return history.file(IdParams.parse(request.params).id, path, rev)

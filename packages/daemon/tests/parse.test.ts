@@ -9,6 +9,9 @@ import {
   parseNameStatus,
   parseNumstat,
   parsePorcelainV2,
+  parseStatusBranch,
+  parseStatusEntries,
+  UNSTAGED,
   parseWorktreeList
 } from '../src/git/parse'
 
@@ -38,9 +41,32 @@ describe('git parsers', () => {
     const numstat = parseNumstat('3\t1\tsrc/a.ts\0-\t-\timg.png\0')
     const statuses = parseNameStatus('M\0src/a.ts\0A\0img.png\0D\0gone.ts\0')
     expect(joinChangedFiles(numstat, statuses)).toEqual([
-      { path: 'src/a.ts', status: 'M', additions: 3, deletions: 1, binary: false },
-      { path: 'img.png', status: 'A', additions: 0, deletions: 0, binary: true },
-      { path: 'gone.ts', status: 'D', additions: 0, deletions: 0, binary: false }
+      { path: 'src/a.ts', status: 'M', additions: 3, deletions: 1, binary: false, ...UNSTAGED },
+      { path: 'img.png', status: 'A', additions: 0, deletions: 0, binary: true, ...UNSTAGED },
+      { path: 'gone.ts', status: 'D', additions: 0, deletions: 0, binary: false, ...UNSTAGED }
+    ])
+  })
+
+  it('reads porcelain v2 entries per path, including the differently-shaped unmerged records', () => {
+    const out =
+      [
+        '# branch.oid abc',
+        '# branch.head feature',
+        '1 M. N... 100644 100644 100644 aaa bbb staged.ts',
+        '1 .M N... 100644 100644 100755 ccc ccc chmodded.ts',
+        // An unmerged record carries three stage modes and three stage shas, not two of each,
+        // so reading it at the `1 ` offsets would take a mode for the path.
+        'u UU N... 100644 100644 100644 100644 d1 d2 d3 conflict.ts',
+        '? new.ts'
+      ].join('\0') + '\0'
+    const entries = parseStatusEntries(out)
+    expect(parseStatusBranch(out)).toBe('feature')
+    expect(entries).toEqual([
+      { path: 'staged.ts', x: 'M', y: '.', untracked: false, conflicted: false, headSha: 'aaa', indexSha: 'bbb', mode: '100644', sub: 'N...' },
+      // The mode staging must use is the worktree one, or a chmod +x is silently dropped.
+      { path: 'chmodded.ts', x: '.', y: 'M', untracked: false, conflicted: false, headSha: 'ccc', indexSha: 'ccc', mode: '100755', sub: 'N...' },
+      { path: 'conflict.ts', x: 'U', y: 'U', untracked: false, conflicted: true, headSha: null, indexSha: null, mode: '100644', sub: 'N...' },
+      { path: 'new.ts', x: '?', y: '?', untracked: true, conflicted: false, headSha: null, indexSha: null, mode: '', sub: 'N...' }
     ])
   })
 

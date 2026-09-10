@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { routes, type ChangedFile } from '@canopy/shared'
 
 import { FILE_CAP_BYTES, PATCH_CAP_BYTES } from '../src/git/diff'
+import { UNSTAGED } from '../src/git/parse'
 import { repoPath } from '../src/worktrees/history'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 import { createTestServer, type TestServer } from './helpers/test-server'
@@ -61,10 +62,13 @@ describe('changes and history', () => {
   it('lists working-tree changes vs HEAD and vs base', async () => {
     const head = (await server.call('GET', routes.changes(worktreeId))).body
     expect(head.against).toBe('head')
-    expect(head.files).toEqual([
-      { path: 'a.txt', status: 'M', additions: 1, deletions: 0, binary: false },
-      { path: 'new.txt', status: 'U', additions: 1, deletions: 0, binary: false }
+    expect(head.files).toMatchObject([
+      { path: 'a.txt', status: 'M', additions: 1, deletions: 0, binary: false, staged: 'unstaged', conflicted: false },
+      { path: 'new.txt', status: 'U', additions: 1, deletions: 0, binary: false, staged: 'unstaged', conflicted: false }
     ])
+    // The vs-HEAD view is the only one that can speak about the index.
+    expect(head.branch).toBe('feature')
+    expect(head.operation).toBeNull()
     const base = (await server.call('GET', `${routes.changes(worktreeId)}?against=base`)).body
     expect(base.files.map((f: { path: string }) => f.path)).toEqual(['a.txt', 'c.txt', 'new.txt'])
     expect(base.baseBranch).toBe('main')
@@ -74,9 +78,9 @@ describe('changes and history', () => {
     repo.write({ 'no-newline.txt': 'a\nb\nc', 'empty.txt': '', 'blob.bin': 'a\0b\n' })
     const files = (await server.call('GET', routes.changes(worktreeId))).body.files as ChangedFile[]
     const byPath = new Map(files.map((file) => [file.path, file]))
-    expect(byPath.get('no-newline.txt')).toEqual({ path: 'no-newline.txt', status: 'U', additions: 3, deletions: 0, binary: false })
-    expect(byPath.get('empty.txt')).toEqual({ path: 'empty.txt', status: 'U', additions: 0, deletions: 0, binary: false })
-    expect(byPath.get('blob.bin')).toEqual({ path: 'blob.bin', status: 'U', additions: 0, deletions: 0, binary: true })
+    expect(byPath.get('no-newline.txt')).toEqual({ path: 'no-newline.txt', status: 'U', additions: 3, deletions: 0, binary: false, ...UNSTAGED })
+    expect(byPath.get('empty.txt')).toEqual({ path: 'empty.txt', status: 'U', additions: 0, deletions: 0, binary: false, ...UNSTAGED })
+    expect(byPath.get('blob.bin')).toEqual({ path: 'blob.bin', status: 'U', additions: 0, deletions: 0, binary: true, ...UNSTAGED })
   })
 
   it('returns unified patches for tracked and untracked files', async () => {
@@ -98,7 +102,7 @@ describe('changes and history', () => {
 
     const commit = (await server.call('GET', routes.commit(worktreeId, secondSha))).body
     expect(commit.commit).toMatchObject({ subject: 'add two', author: 'Fixture' })
-    expect(commit.files).toEqual([{ path: 'a.txt', status: 'M', additions: 1, deletions: 0, binary: false }])
+    expect(commit.files).toEqual([{ path: 'a.txt', status: 'M', additions: 1, deletions: 0, binary: false, ...UNSTAGED }])
     const patch = (await server.call('GET', `${routes.commitFile(worktreeId, secondSha)}?path=a.txt`)).body
     expect(patch.patch).toContain('+two')
 

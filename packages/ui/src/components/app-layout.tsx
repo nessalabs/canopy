@@ -123,8 +123,12 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
   const [addOpen, setAddOpen] = useState(false)
   const host = new URL(api.baseUrl).host
   const [panel, setPanel] = useState<SidePanelId>()
+  // Full screen keeps the split mounted and only hides the main panel, so the screen behind it
+  // — a transcript's scroll, a half-typed message — is exactly where it was on the way back.
+  const [panelFull, setPanelFull] = useState(false)
   const [, worktreeRoute] = useRoute('/worktrees/:id')
   const worktreeId = worktreeRoute?.id
+  const open = panel && worktreeId ? { panel, worktreeId } : undefined
   // Keyed on the location so navigating away from a screen that threw clears the error.
   const main = (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -195,25 +199,51 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
             {/* The active screen's title row. Empty, it stays a drag handle for the window. */}
             <HeaderSlotTarget className={cn('flex min-w-0 flex-1 items-center', titleBarInset && '[-webkit-app-region:no-drag] empty:[-webkit-app-region:drag]')} />
             <div className={cn('ml-auto flex shrink-0 items-center gap-2', noDrag)}>
-              <SidePanelButtons open={panel} disabled={!worktreeId} onToggle={(id) => setPanel((current) => (current === id ? undefined : id))} />
+              <SidePanelButtons
+                open={panel}
+                disabled={!worktreeId}
+                onToggle={(id) => {
+                  // A panel opened from the header starts docked, whatever the last one did.
+                  setPanelFull(false)
+                  setPanel((current) => (current === id ? undefined : id))
+                }}
+              />
               <Button variant="ghost" size="icon" aria-label={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'} onClick={toggleTheme}>
                 {theme === 'dark' ? <Sun /> : <Moon />}
               </Button>
             </div>
           </header>
-          {panel && worktreeId ? (
-            <SplitView orientation={SplitViewOrientation.Horizontal} className="min-h-0 flex-1">
-              <SplitViewPanel id="main" minSize={40} className="flex min-h-0 flex-col">
-                {main}
-              </SplitViewPanel>
-              <SplitViewSeparator />
-              <SplitViewPanel id="side" defaultSize={36} minSize={20} className="min-h-0 border-l border-border">
-                <SidePanel id={panel} worktreeId={worktreeId} onClose={() => setPanel(undefined)} />
-              </SplitViewPanel>
-            </SplitView>
-          ) : (
-            main
-          )}
+          {/*
+            The split stays mounted whether or not a panel is open: swapping between a bare
+            <main> and one nested in a panel would remount the screen, and the tab it was on,
+            its scroll and its half-typed message would all go back to their defaults. Closing
+            the panel hides it instead, exactly as full screen hides the main side.
+          */}
+          <SplitView orientation={SplitViewOrientation.Horizontal} className="min-h-0 flex-1">
+            <SplitViewPanel id="main" minSize={40} className={cn('flex min-h-0 flex-col', open && panelFull && 'hidden')}>
+              {main}
+            </SplitViewPanel>
+            <SplitViewSeparator className={open && !panelFull ? undefined : 'hidden'} />
+            <SplitViewPanel
+              id="side"
+              defaultSize={36}
+              minSize={20}
+              className={cn('min-h-0 border-l border-border', panelFull && 'border-l-0', !open && 'hidden')}
+            >
+              {open ? (
+                <SidePanel
+                  id={open.panel}
+                  worktreeId={open.worktreeId}
+                  full={panelFull}
+                  onToggleFull={() => setPanelFull((current) => !current)}
+                  onClose={() => {
+                    setPanel(undefined)
+                    setPanelFull(false)
+                  }}
+                />
+              ) : null}
+            </SplitViewPanel>
+          </SplitView>
         </SidebarInset>
         <AddProjectDialog open={addOpen} onOpenChange={setAddOpen} />
       </SidebarProvider>

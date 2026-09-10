@@ -7,11 +7,15 @@ import { isAbsolute, join, normalize } from 'node:path'
 
 import type { ChangesResponse, CommitResponse, DiffSpec, FileContents, FilePatch, LogResponse, TreeResponse, TreesResponse } from '@canopy/shared'
 
+import { worktreeChanges } from '../commit/status'
 import { toFileContents, type DiffReader, type ResolvedDiffSpec } from '../git/diff'
 import { childrenOf } from '../git/parse'
 import type { Repo } from '../git/repo'
 import { badRequest, notFound } from '../lib/errors'
 import type { WorktreesService } from './service'
+
+/** How many paths the flat file list hands a client at most. */
+const FILE_LIST_LIMIT = 20_000
 
 /** git's well-known empty tree: what an unborn branch is diffed against. */
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -45,7 +49,14 @@ export class HistoryService {
 
   async changes(worktreeId: string, spec: Extract<DiffSpec, { kind: 'worktree' }>): Promise<ChangesResponse> {
     const { cwd, resolved, baseBranch } = await this.resolve(worktreeId, spec)
-    return { against: spec.against, rev: (resolved as { rev: string }).rev, baseBranch, files: await this.deps.diffs.files(cwd, resolved) }
+    const rev = (resolved as { rev: string }).rev
+    // Only the vs-HEAD view can talk about the index: `base` resolves to the merge base, so its
+    // rows include work that is already committed and "staged" would mean nothing there.
+    if (spec.against === 'base') {
+      return { against: spec.against, rev, baseBranch, files: await this.deps.diffs.files(cwd, resolved), branch: null, operation: null }
+    }
+    const { files, branch, operation } = await worktreeChanges(this.deps.repo, this.deps.diffs, cwd, resolved)
+    return { against: spec.against, rev, baseBranch, files, branch, operation }
   }
 
   async commit(worktreeId: string, sha: string): Promise<CommitResponse> {
@@ -70,6 +81,18 @@ export class HistoryService {
     const path = repoPath(dir)
     const cwd = this.deps.worktrees.location(worktreeId).path
     return { path, entries: childrenOf(path, await this.deps.repo.lsFiles(cwd, path)) }
+  }
+
+  /**
+   * Every file in the worktree, flat — tracked and untracked, ignored files left out, the same
+   * set the tree walks one directory at a time. Capped so a monorepo cannot hand the client a
+   * list no picker could search anyway.
+   */
+  async files(worktreeId: string): Promise<{ paths: string[]; truncated: boolean }> {
+    const cwd = this.deps.worktrees.location(worktreeId).path
+    // git hands them back in index order; a picker reads better sorted.
+    const paths = (await this.deps.repo.lsFiles(cwd, '')).sort()
+    return { paths: paths.slice(0, FILE_LIST_LIMIT), truncated: paths.length > FILE_LIST_LIMIT }
   }
 
   /** Working-tree contents, or the blob at `rev` when given. */
