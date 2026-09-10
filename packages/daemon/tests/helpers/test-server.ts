@@ -6,8 +6,28 @@ import type { FastifyInstance, InjectOptions } from 'fastify'
 
 import { createAgentRegistry } from '../../src/agents/registry'
 import { openDb } from '../../src/db'
+import type { DockerHelper } from '../../src/env/types'
+import { createWorktrunk, type Worktrunk } from '../../src/env/worktrunk/wt'
+import { runGit } from '../../src/git/exec'
 import { buildServer } from '../../src/server'
 import { FakeAgent } from './fake-agent'
+
+/** A docker CLI that is never there: adapters report unavailable, runners are never used. */
+export const noDocker: DockerHelper = {
+  info: async () => ({ available: false, version: null, path: null }),
+  run: async () => {
+    throw new Error('docker is not available in tests')
+  },
+  stream: async () => ({ exitCode: 1 }),
+  ps: async () => [],
+  inspect: async () => null,
+  remove: async () => undefined,
+  stats: async () => new Map(),
+  ensureImage: async () => {
+    throw new Error('docker is not available in tests')
+  },
+  ensureNetwork: async () => 'canopy'
+}
 
 export const TOKEN = 'test-token'
 
@@ -20,14 +40,17 @@ export interface TestServer {
   close(): Promise<void>
 }
 
-export async function createTestServer(): Promise<TestServer> {
+export async function createTestServer(opts: { worktrunk?: Worktrunk; docker?: DockerHelper } = {}): Promise<TestServer> {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'canopy-home-')))
   const agent = new FakeAgent()
   const app = await buildServer({
-    config: { home, port: 0, host: '127.0.0.1', worktreeRoot: join(home, 'worktrees'), dbPath: ':memory:', tokenPath: join(home, 'token') },
+    config: { home, port: 0, host: '127.0.0.1', worktreeRoot: join(home, 'worktrees'), dataRoot: join(home, 'worktrees-data'), dbPath: ':memory:', tokenPath: join(home, 'token') },
     db: openDb(':memory:'),
     token: TOKEN,
-    agents: createAgentRegistry([agent])
+    agents: createAgentRegistry([agent]),
+    docker: opts.docker ?? noDocker,
+    // Tests exercise the git fallback unless a test opts into the real `wt`.
+    worktrunk: opts.worktrunk ?? createWorktrunk(runGit, { bin: 'wt-not-installed-for-tests' })
   })
   await app.ready()
 

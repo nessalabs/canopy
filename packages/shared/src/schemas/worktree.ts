@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { Id, Millis } from './common'
+import { WorktreeEnvironment, WorktreeOptions } from './environment'
 
 export const LastCommit = z.object({
   sha: z.string(),
@@ -39,7 +40,9 @@ export const Worktree = z.object({
   /** Created by Canopy (as opposed to discovered from `git worktree list`). */
   managed: z.boolean(),
   state: WorktreeState,
-  status: WorktreeStatus.nullable()
+  status: WorktreeStatus.nullable(),
+  /** Services, databases, ports, env and provisioning for this worktree. */
+  environment: WorktreeEnvironment
 })
 export type Worktree = z.infer<typeof Worktree>
 
@@ -53,6 +56,11 @@ export type BranchSpec = z.infer<typeof BranchSpec>
 
 export const CreateWorktreeInput = z.object({
   name: z.string().regex(WORKTREE_NAME_PATTERN, 'lowercase letters, digits, . _ - only'),
-  branch: BranchSpec
+  branch: BranchSpec,
+  /** Provision (ports, databases, env, setup) right after creation when the project has a canopy.yaml. Default true. */
+  provision: z.boolean().optional(),
+  /** Start services once provisioned. Defaults to the project's `defaults.autoStart`. */
+  autoStart: z.boolean().optional(),
+  options: WorktreeOptions.partial().optional()
 })
 export type CreateWorktreeInput = z.infer<typeof CreateWorktreeInput>

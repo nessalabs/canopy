@@ -12,4 +12,16 @@ describe('cors on sse', () => {
     console.log('GET acao:', get.headers['access-control-allow-origin'])
     expect(res.headers['access-control-allow-origin']).toBe('http://localhost:5173')
   })
+
+  it('preflights DELETE, PATCH and PUT for browser clients', async () => {
+    for (const method of ['DELETE', 'PATCH', 'PUT']) {
+      const res = await server.app.inject({
+        method: 'OPTIONS',
+        url: `${routes.worktree('x')}?force=true`,
+        headers: { origin: 'http://localhost:5173', 'access-control-request-method': method, 'access-control-request-headers': 'authorization,content-type' }
+      })
+      expect(res.statusCode).toBe(204)
+      expect(res.headers['access-control-allow-methods']).toContain(method)
+    }
+  })
 })

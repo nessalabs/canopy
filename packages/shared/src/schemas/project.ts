@@ -1,26 +1,14 @@
 import { z } from 'zod'
 
-import { Id, Millis } from './common'
+import { Ecosystem, Id, Millis } from './common'
 
-export const Ecosystem = z.enum(['node', 'python', 'go', 'rust', 'docker-compose'])
-export type Ecosystem = z.infer<typeof Ecosystem>
+export { Ecosystem } from './common'
+export type { Ecosystem as EcosystemName } from './common'
 
 export const ComposeInfo = z.object({ file: z.string(), services: z.array(z.string()) })
 export type ComposeInfo = z.infer<typeof ComposeInfo>
 
-/** The subset of canopy.yaml this iteration validates; unknown keys are kept. */
-export const CanopyYaml = z.looseObject({
-  version: z.literal(1),
-  name: z.string().optional()
-})
-export type CanopyYaml = z.infer<typeof CanopyYaml>
-
-export const CanopyYamlReport = z.object({
-  present: z.boolean(),
-  valid: z.boolean(),
-  errors: z.array(z.string())
-})
-export type CanopyYamlReport = z.infer<typeof CanopyYamlReport>
+import { CanopyYamlReport } from './environment'
 
 export const Branch = z.object({
   name: z.string(),
@@ -48,6 +36,8 @@ export const Project = z.object({
   path: z.string(),
   defaultBase: z.string(),
   hasCanopyYaml: z.boolean(),
+  /** Lint of the primary checkout's canopy.yaml, re-read when the file changes. */
+  config: CanopyYamlReport,
   ecosystems: z.array(Ecosystem),
   compose: ComposeInfo.optional(),
   createdAt: Millis

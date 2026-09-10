@@ -3,7 +3,7 @@ import type { FastifyInstance } from 'fastify'
 import { routes } from '@canopy/shared'
 
 import type { Services } from './context'
-import { AgainstQuery, CommitParams, DirQuery, ForceQuery, IdParams, PageQuery, PathQuery, RevQuery, TreesParams } from './params'
+import { AgainstQuery, CommitParams, DestroyQuery, DirQuery, IdParams, PageQuery, PathQuery, RevQuery, TreesParams } from './params'
 
 export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, history }: Services): void {
   app.get(routes.worktrees(), async () => ({ worktrees: await worktrees.listAll() }))
@@ -11,7 +11,8 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
   app.get(routes.worktree(':id'), async (request) => ({ worktree: await worktrees.get(IdParams.parse(request.params).id) }))
 
   app.delete(routes.worktree(':id'), async (request, reply) => {
-    await worktrees.destroy(IdParams.parse(request.params).id, ForceQuery.parse(request.query).force === 'true')
+    const { force, deleteBranch } = DestroyQuery.parse(request.query)
+    await worktrees.destroy(IdParams.parse(request.params).id, force === 'true', deleteBranch === undefined ? undefined : deleteBranch === 'true' ? 'always' : 'never')
     return reply.code(204).send()
   })
 

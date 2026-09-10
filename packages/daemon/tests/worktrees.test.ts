@@ -7,6 +7,17 @@ import { routes } from '@canopy/shared'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 import { createTestServer, type TestServer } from './helpers/test-server'
 
+/** Creation returns as soon as the row exists; the checkout lands a moment later. */
+async function settled(server: TestServer, id: string) {
+  for (let i = 0; i < 200; i++) {
+    const { body } = await server.call('GET', routes.worktree(id))
+    const state = body.worktree.environment.state
+    if (state !== 'creating' && state !== 'provisioning') return body.worktree
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  throw new Error('worktree never left creating')
+}
+
 describe('worktrees', () => {
   let server: TestServer
   let repo: FixtureRepo
@@ -34,10 +45,16 @@ describe('worktrees', () => {
     const fresh = await server.call('POST', routes.projectWorktrees(projectId), { name: 'feat-x', branch: { mode: 'new', name: 'feat/x', base: 'main' } })
     expect(fresh.status).toBe(201)
     expect(fresh.body.worktree).toMatchObject({ name: 'feat-x', branch: 'feat/x', managed: true, isMain: false, baseBranch: 'main' })
-    expect(existsSync(fresh.body.worktree.path)).toBe(true)
+    expect(fresh.body.worktree.environment.state).toBe('creating')
+    const landed = await settled(server, fresh.body.worktree.id)
+    expect(existsSync(landed.path)).toBe(true)
+    // No canopy.yaml in this repo: the worktree exists but has no environment to run.
+    expect(landed.environment.state).toBe('none')
+    expect(landed.environment.provisioning.steps[0]).toMatchObject({ name: 'create-worktree', status: 'done' })
 
     const reused = await server.call('POST', routes.projectWorktrees(projectId), { name: 'exist', branch: { mode: 'existing', name: 'existing' } })
     expect(reused.body.worktree.branch).toBe('existing')
+    await settled(server, reused.body.worktree.id)
     expect((await server.call('GET', routes.worktrees())).body.worktrees).toHaveLength(3)
 
     expect((await server.call('DELETE', routes.worktree(fresh.body.worktree.id))).status).toBe(204)
@@ -46,7 +63,7 @@ describe('worktrees', () => {
   })
 
   it('refuses to destroy dirty worktrees unless forced, and never the main checkout', async () => {
-    const created = (await server.call('POST', routes.projectWorktrees(projectId), { name: 'dirty', branch: { mode: 'new', name: 'dirty', base: 'main' } })).body.worktree
+    const created = await settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name: 'dirty', branch: { mode: 'new', name: 'dirty', base: 'main' } })).body.worktree.id)
     const { writeFileSync } = await import('node:fs')
     writeFileSync(`${created.path}/a.txt`, 'changed\n')
 

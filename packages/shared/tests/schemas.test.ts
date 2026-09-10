@@ -11,7 +11,8 @@ describe('shared schemas', () => {
   it('round-trips a project', () => {
     const project = {
       id: 'p1', name: 'acme', path: '/tmp/acme', defaultBase: 'main',
-      hasCanopyYaml: false, ecosystems: ['node'], createdAt: 1
+      hasCanopyYaml: false, ecosystems: ['node'], createdAt: 1,
+      config: { present: false, valid: false, errors: [], warnings: [], services: 0, ports: 0, databases: 0 }
     }
     expect(Project.parse(project)).toEqual(project)
   })

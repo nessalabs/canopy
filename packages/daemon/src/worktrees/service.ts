@@ -3,12 +3,23 @@ import { basename, join } from 'node:path'
 
 import type { Database } from 'better-sqlite3'
 
-import type { CreateWorktreeInput, Project, Worktree, WorktreeState, WorktreeStatus } from '@canopy/shared'
+import { emptyEnvironment, projectDirName, type CreateWorktreeInput, type Project, type Worktree, type WorktreeState, type WorktreeStatus } from '@canopy/shared'
 
+import type { EventBus } from '../env/types'
+import type { Worktrunk } from '../env/worktrunk/wt'
 import type { Repo } from '../git/repo'
 import { conflict, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
 import type { ProjectsService } from '../projects/service'
+
+/** The slice of EnvironmentService the worktree service needs; bound late because each depends on the other. */
+export interface EnvironmentHooks {
+  environmentOf(worktreeId: string): Worktree['environment']
+  createAndProvision(project: Project, input: CreateWorktreeInput): WorktreeRow
+  teardown(worktreeId: string): Promise<void>
+  forget(worktreeId: string): void
+  settings(projectId: string): { worktrunk: { enabled: boolean }; cleanup: { deleteBranch: 'never' | 'if-merged' | 'ask' } }
+}
 
 export interface WorktreeRow {
   id: string
@@ -20,6 +31,7 @@ export interface WorktreeRow {
   is_main: number
   managed: number
   missing: number
+  env_state: string
 }
 
 interface Deps {
@@ -27,6 +39,8 @@ interface Deps {
   repo: Repo
   projects: ProjectsService
   worktreeRoot: string
+  worktrunk: Worktrunk
+  events: EventBus
 }
 
 const stateOf = (row: WorktreeRow, status: WorktreeStatus | null): WorktreeState =>
@@ -37,16 +51,28 @@ const stateOf = (row: WorktreeRow, status: WorktreeStatus | null): WorktreeState
  * pins survive across daemon restarts. Rows git no longer lists are flagged `missing`.
  */
 export class WorktreesService {
+  private environment: EnvironmentHooks | null = null
+
   constructor(private readonly deps: Deps) {}
 
   private get db(): Database {
     return this.deps.db
   }
 
+  /** EnvironmentService is built after this service (it needs rows); it registers itself here. */
+  attachEnvironment(environment: EnvironmentHooks): void {
+    this.environment = environment
+  }
+
   row(id: string): WorktreeRow {
     const row = this.db.prepare('SELECT * FROM worktrees WHERE id = ?').get(id) as WorktreeRow | undefined
     if (!row) throw notFound('worktree', id)
     return row
+  }
+
+  rowByPath(path: string): WorktreeRow | undefined {
+    const target = path.replace(/\/$/, '')
+    return this.db.prepare('SELECT * FROM worktrees WHERE path = ?').get(target) as WorktreeRow | undefined
   }
 
   /** The worktree whose checkout holds `cwd` (deepest match), or undefined when Canopy does not manage it. */
@@ -78,8 +104,9 @@ export class WorktreesService {
         })
       )
       const paths = records.map((r) => r.path)
+      // Rows mid-creation have no checkout yet, and rows mid-destroy are about to go: neither is "missing".
       this.db
-        .prepare(`UPDATE worktrees SET missing = 1 WHERE project_id = ? AND path NOT IN (${paths.map(() => '?').join(',') || "''"})`)
+        .prepare(`UPDATE worktrees SET missing = 1 WHERE project_id = ? AND env_state NOT IN ('creating', 'destroying') AND path NOT IN (${paths.map(() => '?').join(',') || "''"})`)
         .run(project.id, ...paths)
     })()
     return this.db.prepare('SELECT * FROM worktrees WHERE project_id = ? ORDER BY is_main DESC, name').all(project.id) as WorktreeRow[]
@@ -118,7 +145,8 @@ export class WorktreesService {
       isMain: row.is_main === 1,
       managed: row.managed === 1,
       state: stateOf(row, status),
-      status
+      status,
+      environment: this.environment?.environmentOf(row.id) ?? emptyEnvironment(project.config.valid, project.config.errors)
     }
   }
 
@@ -137,8 +165,24 @@ export class WorktreesService {
     return this.toWorktree(row, this.deps.projects.get(row.project_id))
   }
 
+  /**
+   * Where a worktree lives and what it compares against — both plain columns, so this answers
+   * without spawning git. Readers that only need the checkout (diffs, log, file browsing) take
+   * this instead of `get`, whose status derivation costs three git processes per call.
+   */
+  location(id: string): { path: string; baseBranch: string } {
+    const row = this.row(id)
+    return { path: row.path, baseBranch: row.base_branch ?? this.deps.projects.get(row.project_id).defaultBase }
+  }
+
+  /**
+   * Registers the worktree and hands creation + provisioning to the environment pipeline, which
+   * runs in the background (the row is `creating` until `wt switch` / `git worktree add` lands).
+   */
   async create(project: Project, input: CreateWorktreeInput): Promise<Worktree> {
-    const path = join(this.deps.worktreeRoot, project.name, input.name)
+    if (this.environment) return this.toWorktree(this.environment.createAndProvision(project, input), project)
+    // Without an environment service (tests of the git layer alone) fall back to a synchronous git add.
+    const path = join(this.deps.worktreeRoot, projectDirName(project.name), 'worktrees', input.name)
     if (existsSync(path)) throw conflict('worktree_exists', `${path} already exists`)
     await this.deps.repo.worktreeAdd(project.path, path, input.branch)
     await this.sync(project)
@@ -149,17 +193,31 @@ export class WorktreesService {
     return this.toWorktree(row, project)
   }
 
-  async destroy(id: string, force: boolean): Promise<void> {
+  /**
+   * Tears the environment down (services, containers, forks, ports, logs), then removes the
+   * checkout through worktrunk or git. `deleteBranch` overrides the project's cleanup policy.
+   */
+  async destroy(id: string, force: boolean, deleteBranch?: 'never' | 'if-merged' | 'always'): Promise<void> {
     const row = this.row(id)
     if (row.is_main) throw conflict('cannot_destroy_main', 'the primary checkout cannot be destroyed')
     const project = this.deps.projects.get(row.project_id)
-    if (!row.missing && existsSync(row.path)) {
+    const present = !row.missing && existsSync(row.path)
+    if (present) {
       const status = await this.status(row, project.defaultBase)
       if (status && status.dirtyTotal > 0 && !force) {
         throw conflict('worktree_dirty', `${row.name} has ${status.dirtyTotal} uncommitted change(s); pass force=true`, status)
       }
-      await this.deps.repo.worktreeRemove(project.path, row.path, force)
+    }
+    const settings = this.environment?.settings(project.id)
+    const policy = deleteBranch ?? (settings?.cleanup.deleteBranch === 'if-merged' ? 'if-merged' : 'never')
+    await this.environment?.teardown(id)
+    if (present) {
+      await this.deps.worktrunk.remove({ repoPath: project.path, path: row.path, branch: row.branch, force, deleteBranch: policy, useWt: settings?.worktrunk.enabled ?? true })
+    } else {
+      await this.deps.repo.worktreeRemove(project.path, row.path, true).catch(() => undefined)
     }
     this.db.prepare('DELETE FROM worktrees WHERE id = ?').run(id)
+    this.environment?.forget(id)
+    this.deps.events.emit({ type: 'worktrees-changed', projectId: project.id })
   }
 }

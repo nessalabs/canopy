@@ -11,6 +11,11 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
-  "dependencies": { "zod": "^4.5.4" },
-  "devDependencies": { "vitest": "^4.1.11" }
+  "dependencies": {
+    "yaml": "^2.9.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
 }

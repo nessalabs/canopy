@@ -1,5 +1,6 @@
 export * from './common'
 export * from './project'
+export * from './environment'
 export * from './worktree'
 export * from './git'
 export * from './agent'

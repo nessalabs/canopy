@@ -5,10 +5,17 @@ import { join } from 'node:path'
 
 import { z } from 'zod'
 
-const ConfigFile = z.object({
+import { projectDirName } from '@canopy/shared'
+
+const ConfigFile = z.looseObject({
   port: z.number().int().positive().default(9483),
   host: z.string().default('127.0.0.1'),
-  worktreeRoot: z.string().optional()
+  /** Root the per-project worktree-path template renders into; default ~/.canopy (so `<project>/worktrees/<name>`). */
+  worktreeRoot: z.string().optional(),
+  /** Per-worktree runtime data (logs, SQLite forks, Redis data); default ~/.canopy/worktrees-data. */
+  dataRoot: z.string().optional(),
+  /** Machine-level app settings live under `app` (see env/settings/app-settings.ts); kept opaque here. */
+  app: z.unknown().optional()
 })
 
 export interface DaemonConfig {
@@ -16,6 +23,8 @@ export interface DaemonConfig {
   port: number
   host: string
   worktreeRoot: string
+  /** Runtime data per worktree id: logs, file-backed database forks. */
+  dataRoot: string
   dbPath: string
   tokenPath: string
   /** Built web client to serve at `/`, when present. */
@@ -40,11 +49,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): DaemonConfig {
     home,
     port: env['CANOPY_PORT'] ? Number(env['CANOPY_PORT']) : file.port,
     host: file.host,
-    worktreeRoot: expandHome(file.worktreeRoot ?? join(home, 'worktrees')),
+    worktreeRoot: expandHome(file.worktreeRoot ?? home),
+    dataRoot: expandHome(file.dataRoot ?? join(home, 'worktrees-data')),
     dbPath: join(home, 'state.db'),
     tokenPath: join(home, 'token'),
     webDist: env['CANOPY_WEB_DIST']
   }
+}
+
+/**
+ * A project's own directory under the Canopy home: `~/.canopy/<project>/`. It holds the
+ * canopy.yaml for repos that should not carry one, and (through the default worktree-path
+ * template) that project's worktrees under `worktrees/`.
+ */
+export function projectHome(home: string, projectName: string): string {
+  return join(home, projectDirName(projectName))
 }
 
 /** The shared bearer token; generated once, mode 0600. */

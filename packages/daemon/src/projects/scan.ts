@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 
 import { parse as parseYaml } from 'yaml'
 
-import { CanopyYaml, type CanopyYamlReport, type ComposeInfo, type Ecosystem, type ScanResult } from '@canopy/shared'
+import { EMPTY_REPORT, parseCanopyYaml, reportFor, type CanopyYamlReport, type ComposeInfo, type Ecosystem, type ScanResult } from '@canopy/shared'
 
 import type { Repo } from '../git/repo'
 import { badRequest } from '../lib/errors'
@@ -34,16 +34,10 @@ function detectCompose(root: string): ComposeInfo | undefined {
 }
 
 export function readCanopyYaml(root: string): { report: CanopyYamlReport; raw: string | null } {
-  const path = join(root, 'canopy.yaml')
-  if (!existsSync(path)) return { report: { present: false, valid: false, errors: [] }, raw: null }
+  const path = ['canopy.yaml', 'canopy.yml'].map((name) => join(root, name)).find((candidate) => existsSync(candidate))
+  if (!path) return { report: EMPTY_REPORT, raw: null }
   const raw = readFileSync(path, 'utf8')
-  try {
-    const result = CanopyYaml.safeParse(parseYaml(raw))
-    const errors = result.success ? [] : result.error.issues.map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
-    return { report: { present: true, valid: result.success, errors }, raw }
-  } catch (error) {
-    return { report: { present: true, valid: false, errors: [error instanceof Error ? error.message : String(error)] }, raw }
-  }
+  return { report: reportFor(parseCanopyYaml(raw)), raw }
 }
 
 /** Everything the Add-project dialog shows before the user commits to registering. */

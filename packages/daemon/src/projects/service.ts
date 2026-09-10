@@ -1,7 +1,9 @@
 import type { Database } from 'better-sqlite3'
 
-import type { AddProjectInput, Branch, ComposeInfo, Ecosystem, Project, ScanResult, UpdateProjectInput } from '@canopy/shared'
+import { defaultProjectSettings, type AddProjectInput, type Branch, type ComposeInfo, type Ecosystem, type Project, type ScanResult, type UpdateProjectInput } from '@canopy/shared'
 
+import { projectHome } from '../config'
+import { loadCanopyConfig } from '../env/config/load'
 import type { Repo } from '../git/repo'
 import { conflict, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
@@ -22,14 +24,17 @@ interface Detected {
   compose?: ComposeInfo
 }
 
-function toProject(row: ProjectRow): Project {
+function toProject(row: ProjectRow, home: string): Project {
   const detected = JSON.parse(row.detected_json) as Detected
+  // Re-read (mtime-cached) so edits made outside Canopy show up without re-registering.
+  const config = loadCanopyConfig(row.path, undefined, projectHome(home, row.name)).report
   return {
     id: row.id,
     name: row.name,
     path: row.path,
     defaultBase: row.default_base,
-    hasCanopyYaml: row.config_yaml !== null,
+    hasCanopyYaml: config.present,
+    config,
     ecosystems: detected.ecosystems,
     compose: detected.compose,
     createdAt: row.created_at
@@ -39,17 +44,19 @@ function toProject(row: ProjectRow): Project {
 export class ProjectsService {
   constructor(
     private readonly db: Database,
-    private readonly repo: Repo
+    private readonly repo: Repo,
+    /** Canopy home; a project's canopy.yaml may live under `<home>/<project>/` instead of in the repo. */
+    private readonly home: string
   ) {}
 
   list(): Project[] {
-    return (this.db.prepare('SELECT * FROM projects ORDER BY name').all() as ProjectRow[]).map(toProject)
+    return (this.db.prepare('SELECT * FROM projects ORDER BY name').all() as ProjectRow[]).map((row) => toProject(row, this.home))
   }
 
   get(id: string): Project {
     const row = this.db.prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined
     if (!row) throw notFound('project', id)
-    return toProject(row)
+    return toProject(row, this.home)
   }
 
   scan(path: string): Promise<ScanResult> {
@@ -66,11 +73,16 @@ export class ProjectsService {
     const detected: Detected = { ecosystems: scan.ecosystems, compose: scan.compose }
     this.db
       .prepare(
-        `INSERT INTO projects (id, name, path, default_base, config_yaml, detected_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, name, path, default_base, config_yaml, detected_json, settings_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, input.name ?? scan.name, scan.path, input.defaultBase ?? scan.defaultBranch, readCanopyYaml(scan.path).raw, JSON.stringify(detected), at, at)
+      .run(id, input.name ?? scan.name, scan.path, input.defaultBase ?? scan.defaultBranch, readCanopyYaml(scan.path).raw, JSON.stringify(detected), JSON.stringify(defaultProjectSettings(scan.ecosystems)), at, at)
     return this.get(id)
+  }
+
+  /** Keeps the stored copy of canopy.yaml current after the settings editor writes it. */
+  rememberConfig(id: string, raw: string): void {
+    this.db.prepare('UPDATE projects SET config_yaml = ?, updated_at = ? WHERE id = ?').run(raw, now(), id)
   }
 
   update(id: string, patch: UpdateProjectInput): Project {

@@ -1,7 +1,26 @@
 import { ApiError, ApiErrorBody } from '../api/errors'
 import { routes } from '../api/routes'
 import type {
+  AdoptWorktreeInput,
   AgentEditsResponse,
+  AppSettings,
+  AppSettingsPatch,
+  CanopyEvent,
+  CanopyYamlReport,
+  DbResetInput,
+  DestroyAllInput,
+  DirListing,
+  HostInfo,
+  LogEvent,
+  LogsResponse,
+  OpenInput,
+  ProjectEnvironmentPreview,
+  ProjectSettings,
+  ProjectSettingsPatch,
+  ProvisionInput,
+  ResourcesResponse,
+  ServiceAction,
+  WorktreeEnvironment,
   TreesResponse,
   AddCommentInput,
   AddProjectInput,
@@ -29,7 +48,8 @@ import type {
   UpdateProjectInput,
   Worktree
 } from '../schemas'
-import { readSse } from './sse'
+import { CanopyEvent as CanopyEventSchema, LogEvent as LogEventSchema } from '../schemas/environment'
+import { readSse, readSseWith } from './sse'
 
 export interface ClientOptions {
   baseUrl: string
@@ -98,6 +118,18 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     yield* readSse(response)
   }
 
+  /** GET-based SSE for long-lived subscriptions (events, log follow). */
+  async function* subscribe<T>(path: string, query: Query, parse: (raw: unknown) => T | undefined, signal?: AbortSignal): AsyncGenerator<T> {
+    const response = await fetchImpl(`${base}${withQuery(path, query)}`, { headers: { authorization: `Bearer ${token}`, accept: 'text/event-stream' }, signal })
+    if (!response.ok) throw await toApiError(response)
+    yield* readSseWith(response, parse)
+  }
+  const parseWith = <T>(schema: { safeParse: (raw: unknown) => { success: boolean; data?: T } }) => (raw: unknown): T | undefined => {
+    const parsed = schema.safeParse(raw)
+    return parsed.success ? parsed.data : undefined
+  }
+  const put = <T>(path: string, body: unknown) => request<T>('PUT', path, body)
+
   return {
     baseUrl: base,
     health: () => request<{ ok: boolean; version: string }>('GET', routes.healthz()),
@@ -150,7 +182,49 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     streamNewSession: (worktreeId: string, input: NewSessionInput, signal?: AbortSignal) =>
       stream(routes.agentSessions(worktreeId), input, signal),
     streamReview: (worktreeId: string, input: ReviewRequest, signal?: AbortSignal) =>
-      stream(routes.review(worktreeId), input, signal)
+      stream(routes.review(worktreeId), input, signal),
+
+    // ---- environment & resources ----
+    host: () => get<HostInfo>(routes.host()),
+    /** Directories under `path` (default: the daemon user's home). */
+    listDirs: (path?: string, hidden = false) => get<DirListing>(routes.fsDirs(), { path, hidden: hidden ? 1 : undefined }),
+    /** Live environment/resource events; resumes from `since` when the daemon still has it. */
+    events: (since: number | undefined, signal?: AbortSignal) => subscribe(routes.events(), { since }, parseWith<CanopyEvent>(CanopyEventSchema), signal),
+    appSettings: () => get<{ settings: AppSettings }>(routes.appSettings()).then((r) => r.settings),
+    updateAppSettings: (patch: AppSettingsPatch) => request<{ settings: AppSettings }>('PATCH', routes.appSettings(), patch).then((r) => r.settings),
+    projectSettings: (id: string) => get<{ settings: ProjectSettings }>(routes.projectSettings(id)).then((r) => r.settings),
+    updateProjectSettings: (id: string, patch: ProjectSettingsPatch) =>
+      request<{ settings: ProjectSettings; project: Project }>('PATCH', routes.projectSettings(id), patch),
+    projectConfig: (id: string) => get<{ raw: string | null; path: string; report: CanopyYamlReport }>(routes.projectConfig(id)),
+    writeProjectConfig: (id: string, raw: string) => put<{ raw: string; report: CanopyYamlReport; project: Project }>(routes.projectConfig(id), { raw }),
+    scaffoldProjectConfig: (id: string) => post<{ raw: string; report: CanopyYamlReport }>(routes.projectConfigScaffold(id), {}),
+    projectEnvironment: (id: string) => get<ProjectEnvironmentPreview>(routes.projectEnvironment(id)),
+    /** Rendered `.config/wt.toml` (preview) and whether it matches the file in the repo. */
+    projectWtToml: (id: string) => get<{ toml: string; path: string; inSync: boolean; exists: boolean }>(routes.projectWtToml(id)),
+    writeProjectWtToml: (id: string) => post<{ toml: string; path: string; inSync: boolean; exists: boolean }>(routes.projectWtToml(id), {}),
+    refreshProjectDatabase: (id: string, db: string) => post<void>(routes.projectDbRefresh(id, db), {}),
+    stopAllWorktrees: (id: string) => post<void>(routes.projectStopAll(id), {}),
+    destroyAllWorktrees: (id: string, input: DestroyAllInput) => post<void>(routes.projectDestroyAll(id), input),
+    adoptWorktree: (input: AdoptWorktreeInput) => post<{ worktree: Worktree }>(routes.adoptWorktree(), input).then((r) => r.worktree),
+    destroyWorktreeWith: (id: string, opts: { force?: boolean; deleteBranch?: boolean }) =>
+      del(routes.worktree(id), { force: opts.force ? 'true' : undefined, deleteBranch: opts.deleteBranch === undefined ? undefined : String(opts.deleteBranch) }),
+    worktreeEnvironment: (id: string) => get<{ environment: WorktreeEnvironment }>(routes.worktreeEnvironment(id)).then((r) => r.environment),
+    startWorktree: (id: string) => post<{ environment: WorktreeEnvironment }>(routes.worktreeStart(id), {}).then((r) => r.environment),
+    stopWorktree: (id: string) => post<{ environment: WorktreeEnvironment }>(routes.worktreeStop(id), {}).then((r) => r.environment),
+    restartWorktree: (id: string) => post<{ environment: WorktreeEnvironment }>(routes.worktreeRestart(id), {}).then((r) => r.environment),
+    provisionWorktree: (id: string, input: ProvisionInput) => post<{ environment: WorktreeEnvironment }>(routes.worktreeProvision(id), input).then((r) => r.environment),
+    teardownWorktree: (id: string) => post<{ environment: WorktreeEnvironment }>(routes.worktreeTeardown(id), {}).then((r) => r.environment),
+    regenerateEnvFile: (id: string) => post<{ environment: WorktreeEnvironment }>(routes.worktreeEnvFile(id), {}).then((r) => r.environment),
+    openWorktree: (id: string, input: OpenInput) => post<{ command: string }>(routes.worktreeOpen(id), input),
+    worktreeResources: (id: string) => get<ResourcesResponse>(routes.worktreeResources(id)),
+    serviceAction: (id: string, name: string, action: ServiceAction) =>
+      post<{ environment: WorktreeEnvironment }>(routes.serviceAction(id, name, action), {}).then((r) => r.environment),
+    serviceLogs: (id: string, name: string, since?: number, limit?: number) => get<LogsResponse>(routes.serviceLogs(id, name), { since, limit }),
+    /** Follows a service log from `since` (offset); ends when the service log is closed. */
+    followServiceLogs: (id: string, name: string, since: number | undefined, signal?: AbortSignal) =>
+      subscribe(routes.serviceLogs(id, name), { since, follow: 1 }, parseWith<LogEvent>(LogEventSchema), signal),
+    resetDatabase: (id: string, name: string, input: DbResetInput = {}) =>
+      post<{ environment: WorktreeEnvironment }>(routes.databaseReset(id, name), input).then((r) => r.environment)
   }
 }
 

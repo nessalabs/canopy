@@ -1,5 +1,7 @@
 export * from './schemas'
+export * from './canopy-yaml'
+export * from './environment-helpers'
 export * from './api/errors'
 export * from './api/routes'
 export * from './client'
-export { readSse } from './client/sse'
+export { readSse, readSseWith } from './client/sse'
