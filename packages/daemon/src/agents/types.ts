@@ -6,9 +6,19 @@
  *   send       — resume it (or start a fresh one when sessionId is null) and append a user turn
  * Wire types live in @canopy/shared so the UI renders exactly what the daemon emits.
  */
-import type { AgentProvider, AgentSessionSummary, AgentStreamEvent, PermissionDecisionInput, TranscriptResponse, TurnImage, TurnOptions } from '@canopy/shared'
+import type {
+  AgentCapabilities,
+  AgentProvider,
+  AgentSessionSummary,
+  AgentStreamEvent,
+  LiveControlsInput,
+  PermissionDecisionInput,
+  TranscriptResponse,
+  TurnImage,
+  TurnOptions
+} from '@canopy/shared'
 
-export type { AgentProvider, AgentSessionSummary, AgentStreamEvent, TranscriptResponse }
+export type { AgentCapabilities, AgentProvider, AgentSessionSummary, AgentStreamEvent, TranscriptResponse }
 
 export interface SendOptions extends TurnOptions {
   /** Worktree checkout the turn should run in. Defaults to the session's own cwd. */
@@ -31,4 +41,16 @@ export interface AgentAdapter {
    * was waiting under that request id. Providers that never park on a prompt leave this undefined.
    */
   answerPermission?(sessionId: string, input: PermissionDecisionInput): boolean
+  /**
+   * Everything a session in this checkout can do — commands, skills, subagents, models, MCP
+   * servers, hooks. Read lazily (never at boot) and cached by the adapter; `refresh` bypasses that
+   * cache. Providers that advertise nothing leave this undefined and the route 404s.
+   */
+  capabilities?(cwd: string, opts?: { sessionId?: string; refresh?: boolean }): Promise<AgentCapabilities>
+  /** Stops the turn running in this session. True when a turn was running and got interrupted. */
+  interrupt?(sessionId: string): Promise<boolean>
+  /** Hands a prompt to the running turn. True when a turn was running and took the prompt. */
+  queue?(sessionId: string, text: string, images?: Array<Omit<TurnImage, 'label'>>): boolean
+  /** Retunes the running turn. True when a turn was running and the knobs were applied. */
+  control?(sessionId: string, input: LiveControlsInput): Promise<boolean>
 }

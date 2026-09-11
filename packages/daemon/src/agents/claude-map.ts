@@ -1,7 +1,8 @@
-import type { TurnImage } from '@canopy/shared'
+import type { AgentStreamEvent, TurnImage } from '@canopy/shared'
 import type { AgentEvent, ClaudeStreamMapper, ClaudeWireLine } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
+import { newId } from '../lib/ids'
 import { normalizeUserMessage, type WireMessage } from './claude-normalize'
 import { filesFromEvents } from './files-annotation'
 
@@ -13,6 +14,37 @@ export interface MappedMessage {
   extras: Record<string, { images: TurnImage[] }>
 }
 
+const nothing = (): MappedMessage => ({ events: [], files: {}, extras: {} })
+
+/**
+ * Rewrites the few message kinds agent-stream has no arm for, before the mapper sees them.
+ *
+ * `local_command_output` is what a local slash command (`/context`, `/usage`) answers with; the CLI
+ * draws it as assistant text, so it arrives here as the assistant message it would have been.
+ * `commands_changed` and `conversation_reset` are bookkeeping the daemon acts on elsewhere (the
+ * capability cache; the UI's own `/clear`) — mapping them would only add an `unknown` event to the
+ * transcript, so they map to nothing at all.
+ */
+function forMapper(message: WireMessage): WireMessage | null {
+  if (message.type === 'conversation_reset') return null
+  if (message.type !== 'system') return message
+
+  switch (message.subtype as string | undefined) {
+    case 'local_command_output':
+      return {
+        type: 'assistant',
+        uuid: message.uuid ?? newId(),
+        session_id: message.session_id,
+        parent_tool_use_id: null,
+        message: { role: 'assistant', content: [{ type: 'text', text: String(message.content ?? '') }] }
+      }
+    case 'commands_changed':
+      return null
+    default:
+      return message
+  }
+}
+
 /**
  * Normalizes one SDK / session-file message and maps it to agent-stream events, tagging on the two
  * things agent-stream leaves to the host: which files each tool call wrote, and the images a user
@@ -20,7 +52,9 @@ export interface MappedMessage {
  * produce the same events from the same message.
  */
 export function mapClaudeMessage(mapper: ClaudeStreamMapper, message: WireMessage, cwd?: string): MappedMessage {
-  const { line, images } = normalizeUserMessage(message)
+  const translated = forMapper(message)
+  if (translated === null) return nothing()
+  const { line, images } = normalizeUserMessage(translated)
   const events = [...mapper.map(line as unknown as ClaudeWireLine)]
   const files = filesFromEvents(events, cwd)
 
@@ -31,3 +65,45 @@ export function mapClaudeMessage(mapper: ClaudeStreamMapper, message: WireMessag
   }
   return { events, files, extras }
 }
+
+/** What one model contributed to a turn, as `result.modelUsage` reports it. */
+interface ModelSpend {
+  inputTokens?: number
+  contextWindow?: number
+}
+
+/**
+ * What the turn cost, read off the SDK's `result`.
+ *
+ * `usage` covers the main agent loop only, which is the right basis for "how full is the context
+ * window": its input plus both cache figures is what the last call actually carried. The window's
+ * *size* is only in `modelUsage`, keyed by model — several models can appear (subagents, compaction),
+ * so the main one is taken to be whichever read the most input.
+ *
+ * Nothing is reported that the CLI did not report: a subscription session prices nothing, and a
+ * `costUsd` of 0 there would read as free rather than as unknown.
+ */
+export function usageFrom(result: {
+  total_cost_usd?: number
+  duration_ms?: number
+  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+  modelUsage?: Record<string, ModelSpend>
+}): Extract<AgentStreamEvent, { type: 'usage' }> | undefined {
+  const usage = result.usage
+  const context = usage ? (usage.input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0) : undefined
+  const main = Object.values(result.modelUsage ?? {}).sort((a, b) => (b.inputTokens ?? 0) - (a.inputTokens ?? 0))[0]
+
+  const frame = {
+    type: 'usage' as const,
+    costUsd: positive(result.total_cost_usd),
+    inputTokens: usage?.input_tokens,
+    outputTokens: usage?.output_tokens,
+    contextTokens: context,
+    contextWindow: positive(main?.contextWindow),
+    durationMs: result.duration_ms
+  }
+  const reported = Object.entries(frame).filter(([key, value]) => key !== 'type' && value !== undefined)
+  return reported.length > 0 ? (Object.fromEntries([['type', 'usage'], ...reported]) as Extract<AgentStreamEvent, { type: 'usage' }>) : undefined
+}
+
+const positive = (value: number | undefined): number | undefined => (typeof value === 'number' && value > 0 ? value : undefined)

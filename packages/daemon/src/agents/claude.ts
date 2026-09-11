@@ -1,12 +1,14 @@
-import type { CanUseTool, SDKMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { CanUseTool, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 
-import type { AgentAdapter, AgentSessionSummary, AgentStreamEvent, SendOptions, TranscriptResponse } from './types'
+import type { AgentAdapter, AgentCapabilities, AgentSessionSummary, AgentStreamEvent, SendOptions, TranscriptResponse } from './types'
 import type { AgentEvent } from '@canopy/shared/agent-stream'
-import type { PermissionDecisionInput } from '@canopy/shared'
+import type { LiveControlsInput, PermissionDecisionInput, TurnImage } from '@canopy/shared'
 import { ClaudeStreamMapper } from '@canopy/shared/agent-stream'
 
 import { newId } from '../lib/ids'
-import { mapClaudeMessage } from './claude-map'
+import { ClaudeCapabilities, type InitAdvertisement } from './claude-capabilities'
+import { createLiveTurn, LiveTurns, PromptChannel, type LiveQuery } from './claude-live'
+import { mapClaudeMessage, usageFrom } from './claude-map'
 import type { WireMessage } from './claude-normalize'
 import { readSessionExtras, type QueuedPrompt } from './claude-session'
 import { liveSessionFor, liveSessions } from './claude-terminal'
@@ -80,15 +82,45 @@ export class ClaudeAdapter implements AgentAdapter {
   readonly provider = 'claude' as const
   /** Where live turns park their permission prompts until a client answers one. */
   readonly permissions: PermissionDesk
+  /** The turns running right now, by session id — what interrupt/queue/controls steer. */
+  readonly live = new LiveTurns()
   private readonly loadSdk: () => Promise<SdkModule | undefined>
+  private readonly capabilityCache: ClaudeCapabilities
 
   constructor(options: ClaudeAdapterOptions = {}) {
     this.permissions = options.desk ?? createPermissionDesk()
     this.loadSdk = options.loadSdk ?? sdk
+    this.capabilityCache = new ClaudeCapabilities(this.loadSdk)
   }
 
   answerPermission(sessionId: string, input: PermissionDecisionInput): boolean {
     return this.permissions.answer(sessionId, input)
+  }
+
+  capabilities(cwd: string, opts: { sessionId?: string; refresh?: boolean } = {}): Promise<AgentCapabilities> {
+    return this.capabilityCache.read(cwd, opts)
+  }
+
+  async interrupt(sessionId: string): Promise<boolean> {
+    const turn = this.live.get(sessionId)
+    if (!turn) return false
+    await turn.interrupt()
+    return true
+  }
+
+  queue(sessionId: string, text: string, images?: Array<Omit<TurnImage, 'label'>>): boolean {
+    const turn = this.live.get(sessionId)
+    if (!turn) return false
+    turn.push(userMessage(text, images, sessionId))
+    return true
+  }
+
+  async control(sessionId: string, input: LiveControlsInput): Promise<boolean> {
+    const turn = this.live.get(sessionId)
+    if (!turn) return false
+    if (input.model) await turn.setModel(input.model)
+    if (input.autonomy) await turn.setPermissionMode(PERMISSION_MODE[input.autonomy])
+    return true
   }
 
   async available(): Promise<boolean> {
@@ -176,16 +208,14 @@ export class ClaudeAdapter implements AgentAdapter {
     let announced = sessionId !== null
     if (sessionId) yield { type: 'session', provider: this.provider, sessionId }
 
-    // Images ride along as content blocks, which needs the structured prompt form.
-    const prompt = options.images?.length
-      ? (async function* () {
-          yield {
-            type: 'user' as const,
-            message: { role: 'user' as const, content: [{ type: 'text' as const, text }, ...toImageBlocks(options.images ?? [])] },
-            parent_tool_use_id: null
-          }
-        })()
-      : text
+    /**
+     * Every turn runs in streaming-input mode, even a one-shot: it is the only mode with a control
+     * channel, so it is what makes Stop, "type while it works" and a mid-turn model switch possible
+     * at all. The channel yields this first message and then whatever `queue()` pushes, and closes
+     * when the turn ends — the SDK holds the CLI open until it does.
+     */
+    const channel = new PromptChannel()
+    const prompt = channel.stream(userMessage(text, options.images, resolvedSession))
 
     // Numbering continues from the transcript the client already holds, so a live turn's events
     // extend that log instead of colliding with it.
@@ -292,6 +322,22 @@ export class ClaudeAdapter implements AgentAdapter {
       }
     })
 
+    /**
+     * The turn is addressable from here on. A resumed turn is keyed by its session id at once; a
+     * fresh one has no id yet, so it parks under a throwaway key and re-keys when `init` names it —
+     * the same moment the client learns that id from the `session` frame, so nothing can ask for a
+     * key that does not exist yet.
+     *
+     * A prompt pushed mid-turn is echoed into the stream for the same reason the opening one is:
+     * the SDK never sends it back, and replay (which reads it from the session file) would show a
+     * prompt the live view never did.
+     */
+    let liveKey = sessionId ?? `pending:${newId()}`
+    const turn = createLiveTurn(response as unknown as LiveQuery, channel, {
+      onPush: (message) => feed({ ...(message as unknown as WireMessage), uuid: newId(), session_id: resolvedSession })
+    })
+    this.live.register(liveKey, turn)
+
     // The API reports output tokens cumulatively per message; the turn total is the finished
     // messages plus the one in flight. The mapper drops `message_delta.usage`, so this stays.
     let finishedTokens = 0
@@ -306,7 +352,13 @@ export class ClaudeAdapter implements AgentAdapter {
           announced = true
           echoPrompt()
         }
+        this.live.rekey(liveKey, resolvedSession)
+        liveKey = resolvedSession
       }
+      // Only a turn advertises what the session can do — the capability probe never sees an `init`
+      // — so every turn's is folded into the cache for its checkout.
+      if (message.type === 'system' && message.subtype === 'init') this.capabilityCache.observeInit(options.cwd, message as unknown as InitAdvertisement)
+      if (message.type === 'system' && message.subtype === 'commands_changed') this.capabilityCache.observeCommands(options.cwd, message.commands)
       if (message.type === 'stream_event') {
         const event = message.event as { type?: string; usage?: { output_tokens?: number } }
         if (event.type === 'message_start') {
@@ -327,7 +379,18 @@ export class ClaudeAdapter implements AgentAdapter {
           const errors = 'errors' in message && Array.isArray(message.errors) ? message.errors : []
           push({ type: 'error', message: errors.length > 0 ? `claude: ${message.subtype}: ${errors.join('; ')}` : `claude: ${message.subtype}` })
         }
-        ended = true
+        /**
+         * One result per turn — but a prompt pushed by `queue()` too late to fold into the running
+         * turn runs as its own, and the CLI says so on the result it is about to follow. Ending the
+         * stream here would drop that turn on the floor with nobody watching it; anything else (an
+         * absent field, an older CLI) ends the stream exactly as it always did.
+         */
+        ended = (message.queued_turn_count ?? 0) === 0
+        // What the turn cost, while the numbers are still in hand — ahead of `done`, so a client
+        // that stops listening at `done` has already seen it. The figures are cumulative, so it is
+        // the last result that has them all.
+        const usage = ended ? usageFrom(message) : undefined
+        if (usage) push(usage)
       }
     }
 
@@ -356,9 +419,27 @@ export class ClaudeAdapter implements AgentAdapter {
       while (queue.length > 0) yield queue.shift() as AgentStreamEvent
       yield { type: 'done', sessionId: resolvedSession }
     } finally {
+      this.live.release(liveKey, turn)
+      // A streaming-input query stays open while its prompt stream might still produce a message,
+      // so the channel has to be closed or the CLI behind it never exits.
+      channel.close()
       // Closes the SDK's query the way falling out of a `for await` used to.
       void iterator.return?.()?.catch?.(() => undefined)
     }
+  }
+}
+
+/**
+ * One prompt as the SDK's streaming input wants it. Images ride along as content blocks, which is
+ * the only form that carries them; plain text stays a string so the mapper reads it as the prompt
+ * it is rather than as the CLI feeding the model back.
+ */
+function userMessage(text: string, images: Array<Omit<TurnImage, 'label'>> | undefined, sessionId: string): SDKUserMessage {
+  return {
+    type: 'user',
+    message: { role: 'user', content: images?.length ? [{ type: 'text', text }, ...toImageBlocks(images)] : text },
+    parent_tool_use_id: null,
+    session_id: sessionId
   }
 }
 
