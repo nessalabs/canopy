@@ -255,8 +255,11 @@ describe('WorktreeSupervisor', () => {
   it('emits debounced onChange batches with a fresh array each time', async () => {
     supervisor.configure([service('emit', 'sleep 5')], new Set())
     await supervisor.start()
-    await waitFor(() => changes.length >= 2)
+    // Wait on the content, not the count: the batches are debounced, so under load two of them
+    // can land before the one carrying `healthy` does, and a count is satisfied by the wrong two.
+    await waitFor(() => changes.at(-1)?.[0]?.status === 'healthy')
 
+    expect(changes.length).toBeGreaterThanOrEqual(2)
     expect(changes.length).toBeLessThan(20)
     expect(new Set(changes.map((batch) => batch)).size).toBe(changes.length)
     expect(changes.at(-1)?.[0]?.status).toBe('healthy')
