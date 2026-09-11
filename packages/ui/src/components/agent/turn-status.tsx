@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { Message } from '@/components/ui/message'
 
-import { ActivityOrb, type Activity } from './activity-orb'
+import { AgentAvatar, type Activity } from './agent-avatar'
 
 /** Rotating stand-ins for "working", the way Claude Code's spinner narrates a long turn. */
 const VERBS = ['Thinking', 'Pondering', 'Mulling', 'Tinkering', 'Churning', 'Cogitating', 'Noodling', 'Brewing', 'Percolating', 'Musing']
@@ -27,17 +27,18 @@ function useNow(): number {
 }
 
 /**
- * The live status row for a running turn: the orb, a verb that changes every few
- * seconds, and how long and how many tokens the turn has taken so far. Gone when it ends.
+ * The live status row for a running turn: the agent's own avatar, moving the way the activity
+ * says, then a verb that changes every few seconds and how long and how many tokens the turn
+ * has taken so far. Gone when it ends.
  */
-export function TurnStatus({ activity, startedAt, tokens }: { activity: Activity; startedAt: number; tokens: number }): React.JSX.Element {
+export function TurnStatus({ activity, startedAt, tokens, avatarSeed }: { activity: Activity; startedAt: number; tokens: number; avatarSeed: string }): React.JSX.Element {
   const now = useNow()
   const elapsed = Math.max(0, now - startedAt)
   const verb = VERBS[Math.floor(elapsed / VERB_PERIOD_MS) % VERBS.length]
   return (
-    <Message from="assistant" className="ml-10">
-      <span className="inline-flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
-        <ActivityOrb activity={activity} />
+    <Message from="assistant">
+      <AgentAvatar seed={avatarSeed} name="Agent" activity={activity} className="size-8 self-end" />
+      <span className="inline-flex min-h-8 items-center gap-2 font-mono text-[11px] text-muted-foreground">
         <span className="text-foreground/80">{verb}…</span>
         <span>
           ({formatElapsed(elapsed)}

@@ -15,10 +15,11 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
 
   app.get(routes.worktree(':id'), async (request) => ({ worktree: await worktrees.get(IdParams.parse(request.params).id) }))
 
-  app.delete(routes.worktree(':id'), async (request, reply) => {
+  // Answers with the salvage commit rather than 204: a forced destroy discards uncommitted
+  // work, and the caller needs to be told where it was put.
+  app.delete(routes.worktree(':id'), async (request) => {
     const { force, deleteBranch } = DestroyQuery.parse(request.query)
-    await worktrees.destroy(IdParams.parse(request.params).id, force === 'true', deleteBranch === undefined ? undefined : deleteBranch === 'true' ? 'always' : 'never')
-    return reply.code(204).send()
+    return worktrees.destroy(IdParams.parse(request.params).id, force === 'true', deleteBranch === undefined ? undefined : deleteBranch === 'true' ? 'always' : 'never')
   })
 
   app.post(routes.merge(':id'), async (request) => merges.merge(IdParams.parse(request.params).id, MergeInput.parse(request.body ?? {})))

@@ -61,9 +61,9 @@ describe('worktrees', () => {
     await settled(server, reused.body.worktree.id)
     expect((await server.call('GET', routes.worktrees())).body.worktrees).toHaveLength(3)
 
-    expect((await server.call('DELETE', routes.worktree(fresh.body.worktree.id))).status).toBe(204)
+    expect((await server.call('DELETE', routes.worktree(fresh.body.worktree.id))).status).toBe(200)
     expect(existsSync(fresh.body.worktree.path)).toBe(false)
-    expect((await server.call('DELETE', routes.worktree(reused.body.worktree.id))).status).toBe(204)
+    expect((await server.call('DELETE', routes.worktree(reused.body.worktree.id))).status).toBe(200)
   })
 
   it('refuses to destroy dirty worktrees unless forced, and never the main checkout', async () => {
@@ -75,7 +75,7 @@ describe('worktrees', () => {
     expect(refused.status).toBe(409)
     expect(refused.body.error.code).toBe('worktree_dirty')
     expect((await server.call('GET', routes.worktree(created.id))).body.worktree.state).toBe('dirty')
-    expect((await server.call('DELETE', `${routes.worktree(created.id)}?force=true`)).status).toBe(204)
+    expect((await server.call('DELETE', `${routes.worktree(created.id)}?force=true`)).status).toBe(200)
 
     const main = (await server.call('GET', routes.worktrees())).body.worktrees[0]
     expect((await server.call('DELETE', routes.worktree(main.id))).body.error.code).toBe('cannot_destroy_main')
@@ -108,6 +108,49 @@ describe('worktrees', () => {
     expect(changes.body.error.code).toBe('worktree_gone')
     expect(changes.body.error.message).toContain('vanishing')
     expect((await server.call('GET', routes.log(created.id))).status).toBe(410)
+  })
+
+  describe('salvage', () => {
+    const dirtyWorktree = async (name: string) => {
+      const wt = await settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name, branch: { mode: 'new', name: `feat/${name}`, base: 'main' } })).body.worktree.id)
+      // One tracked file changed and one file git has never seen: forcing past the dirty check
+      // discards both, and only the tracked one would be in any reflog.
+      writeFileSync(join(wt.path, 'a.txt'), 'work in progress\n')
+      writeFileSync(join(wt.path, 'new-file.ts'), 'export const rescued = true\n')
+      return wt
+    }
+
+    it('saves uncommitted work to a ref before destroying, tracked and untracked alike', async () => {
+      const wt = await dirtyWorktree('rescue')
+
+      const { status, body } = await server.call('DELETE', `${routes.worktree(wt.id)}?force=true`)
+      expect(status).toBe(200)
+      expect(body.salvaged).toMatchObject({ files: 2 })
+      expect(body.salvaged.ref).toMatch(/^refs\/canopy\/salvage\/rescue-/)
+      expect(existsSync(wt.path)).toBe(false)
+
+      // The ref is in the repository, so it outlives the checkout it came from, and the commit
+      // it points at holds both files exactly as they were.
+      expect((await repo.git('rev-parse', body.salvaged.ref)).trim()).toBe(body.salvaged.sha)
+      expect(await repo.git('show', `${body.salvaged.sha}:a.txt`)).toBe('work in progress')
+      expect(await repo.git('show', `${body.salvaged.sha}:new-file.ts`)).toBe('export const rescued = true')
+    })
+
+    it('survives the branch being deleted with the worktree', async () => {
+      const wt = await dirtyWorktree('rescue-branch')
+
+      const { body } = await server.call('DELETE', `${routes.worktree(wt.id)}?force=true&deleteBranch=true`)
+      await expect(repo.git('rev-parse', '--verify', 'feat/rescue-branch')).rejects.toThrow()
+      // The salvage commit is held by its own ref, not by the branch it was taken from.
+      expect(await repo.git('show', `${body.salvaged.sha}:new-file.ts`)).toBe('export const rescued = true')
+    })
+
+    it('saves nothing when there was nothing uncommitted', async () => {
+      const clean = await settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name: 'tidy', branch: { mode: 'new', name: 'feat/tidy', base: 'main' } })).body.worktree.id)
+      const { body } = await server.call('DELETE', routes.worktree(clean.id))
+      expect(body.salvaged).toBeNull()
+      expect((await repo.git('for-each-ref', '--format=%(refname)', 'refs/canopy/salvage')).trim()).toBe('')
+    })
   })
 
   describe('merged', () => {

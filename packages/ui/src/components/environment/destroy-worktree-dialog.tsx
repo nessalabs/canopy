@@ -46,14 +46,20 @@ export function DestroyWorktreeDialog({
           <DialogTitle>Destroy {worktree.name}?</DialogTitle>
           <DialogDescription>
             Removes the worktree at <span className="font-mono">{worktree.path}</span>: this stops every service, frees its ports, and drops its database forks.
-            {dirty > 0 ? <span className="mt-2 block text-destructive">This worktree has {plural(dirty, 'uncommitted change')} — they will be lost.</span> : null}
+            {dirty > 0 ? (
+              <span className="mt-2 block text-amber-600 dark:text-amber-500">
+                This worktree has {plural(dirty, 'uncommitted change')}. They are saved as a commit under{' '}
+                <span className="font-mono">refs/canopy/salvage/</span> first — <span className="font-mono">git for-each-ref refs/canopy/salvage</span> lists them, and{' '}
+                <span className="font-mono">git restore --source=&lt;ref&gt; .</span> brings them back.
+              </span>
+            ) : null}
             {merged && !merged.merged && branch ? (
               <span className={`mt-2 block ${deleteBranch ? 'text-destructive' : 'text-amber-600 dark:text-amber-500'}`}>
                 {merged.label}: branch <span className="font-mono">{branch}</span>
                 {deleteBranch ? ' will be deleted and its commits discarded.' : ' is kept unless you delete it below.'}
               </span>
             ) : null}
-            {merged?.disposable ? <span className="mt-2 block text-muted-foreground">{merged.label} — nothing here is lost by removing it.</span> : null}
+            {merged?.disposable ? <span className="mt-2 block text-muted-foreground">{merged.label}.</span> : null}
           </DialogDescription>
         </DialogHeader>
         <label className="flex items-center gap-2 text-sm">

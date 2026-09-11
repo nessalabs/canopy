@@ -44,6 +44,12 @@ export const useProjects = () => {
   return useQuery({ queryKey: keys.projects, queryFn: api.listProjects })
 }
 
+/** What a destroy left behind for this project; read when the Trash tab opens. */
+export const useProjectTrash = (projectId: string, enabled = true) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.projectTrash(projectId), queryFn: () => api.projectTrash(projectId), enabled })
+}
+
 export const useBranches = (projectId: string) => {
   const api = useApi()
   return useQuery({ queryKey: keys.branches(projectId), queryFn: () => api.listBranches(projectId) })
@@ -383,6 +389,17 @@ export const useRefreshProjectDatabase = (projectId: string) => {
 export const useResourcesBackfill = (worktreeId: string, enabled = true) => {
   const api = useApi()
   return useQuery({ queryKey: keys.resources(worktreeId), queryFn: () => api.worktreeResources(worktreeId), enabled, staleTime: Number.POSITIVE_INFINITY })
+}
+
+/** Puts a destroyed worktree back: the checkout, its branch, and the work still uncommitted. */
+export const useRestoreFromTrash = (projectId: string) => {
+  const api = useApi()
+  return useInvalidating((entry: string) => api.restoreFromTrash(projectId, entry), () => [keys.projectTrash(projectId), keys.worktrees, keys.projects])
+}
+
+export const usePurgeFromTrash = (projectId: string) => {
+  const api = useApi()
+  return useInvalidating((entry: string) => api.purgeFromTrash(projectId, entry), () => [keys.projectTrash(projectId)])
 }
 
 export const useDestroyWorktreeWith = () => {

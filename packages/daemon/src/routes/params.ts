@@ -3,6 +3,8 @@ import { z } from 'zod'
 import { Against } from '@canopy/shared'
 
 export const IdParams = z.object({ id: z.string() })
+/** A project and one of its trash entries, addressed by the salvage commit. */
+export const TrashParams = z.object({ id: z.string(), entry: z.string() })
 export const CommitParams = z.object({ id: z.string(), sha: z.string() })
 export const TreesParams = z.object({ id: z.string(), before: z.string().regex(/^[0-9a-f]{40}$/), after: z.string().regex(/^[0-9a-f]{40}$/) })
 export const CommentParams = z.object({ id: z.string(), cid: z.string() })

@@ -14,6 +14,20 @@ import type { ProjectsService } from '../projects/service'
 
 import { MergedDetector } from './merged'
 
+/** Where a destroyed worktree's uncommitted work is kept; `git for-each-ref` finds them all. */
+export const SALVAGE_REFS = 'refs/canopy/salvage'
+
+/** The commit a destroy left behind, so the work it discarded can be got back. */
+export interface Salvage {
+  ref: string
+  sha: string
+  files: number
+}
+
+export interface DestroyResult {
+  salvaged: Salvage | null
+}
+
 /** The slice of EnvironmentService the worktree service needs; bound late because each depends on the other. */
 export interface EnvironmentHooks {
   environmentOf(worktreeId: string): Worktree['environment']
@@ -256,17 +270,25 @@ export class WorktreesService {
   /**
    * Tears the environment down (services, containers, forks, ports, logs), then removes the
    * checkout through worktrunk or git. `deleteBranch` overrides the project's cleanup policy.
+   *
+   * Uncommitted work is saved before the checkout goes. Forcing past the dirty check is the
+   * ordinary way to destroy a worktree — the UI sets `force` for you whenever there is
+   * anything uncommitted — and what it discards has never been committed anywhere, so no
+   * reflog, no dangling object and no `fsck` will bring it back. A commit under
+   * `refs/canopy/salvage/` costs nothing and turns that into something recoverable.
    */
-  async destroy(id: string, force: boolean, deleteBranch?: 'never' | 'if-merged' | 'always'): Promise<void> {
+  async destroy(id: string, force: boolean, deleteBranch?: 'never' | 'if-merged' | 'always'): Promise<DestroyResult> {
     const row = this.row(id)
     if (row.is_main) throw conflict('cannot_destroy_main', 'the primary checkout cannot be destroyed')
     const project = this.deps.projects.get(row.project_id)
     const present = !row.missing && existsSync(row.path)
+    let salvaged: Salvage | null = null
     if (present) {
       const status = await this.status(row, project.defaultBase)
       if (status && status.dirtyTotal > 0 && !force) {
         throw conflict('worktree_dirty', `${row.name} has ${status.dirtyTotal} uncommitted change(s); pass force=true`, status)
       }
+      if (status && status.dirtyTotal > 0) salvaged = await this.salvage(row)
     }
     const settings = this.environment?.settings(project.id)
     const policy = deleteBranch ?? (settings?.cleanup.deleteBranch === 'if-merged' ? 'if-merged' : 'never')
@@ -279,5 +301,36 @@ export class WorktreesService {
     this.db.prepare('DELETE FROM worktrees WHERE id = ?').run(id)
     this.environment?.forget(id)
     this.deps.events.emit({ type: 'worktrees-changed', projectId: project.id })
+    return { salvaged }
+  }
+
+  /**
+   * The working tree as one commit on a ref of its own, taken just before the checkout is
+   * removed. Failing to save is not a reason to refuse the destroy the caller asked for, so a
+   * failure is reported as "nothing saved" rather than thrown — but it is never silent.
+   */
+  private async salvage(row: WorktreeRow): Promise<Salvage | null> {
+    const ref = `${SALVAGE_REFS}/${row.name}-${new Date().toISOString().replace(/[:.]/g, '-')}`
+    try {
+      // Trailers, so the trash can describe an entry and put the worktree back without a
+      // record of its own: one `for-each-ref` answers the whole list.
+      const head = await this.deps.repo.resolveCommit(row.path, 'HEAD')
+      const message = (files: number): string =>
+        [
+          `canopy: uncommitted work in ${row.name} at the time it was destroyed`,
+          '',
+          `Canopy-Worktree: ${row.name}`,
+          ...(row.branch === null ? [] : [`Canopy-Branch: ${row.branch}`]),
+          `Canopy-Path: ${row.path}`,
+          ...(head === null ? [] : [`Canopy-Base: ${head}`]),
+          `Canopy-Files: ${files}`,
+          ''
+        ].join('\n')
+      const snapshot = await this.deps.repo.snapshotWorkingTree(row.path, ref, message)
+      return snapshot && { ref, ...snapshot }
+    } catch (error) {
+      console.error(`[worktrees] could not save the uncommitted work in ${row.name}:`, error)
+      return null
+    }
   }
 }
