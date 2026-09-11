@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
-import type { AgentProvider, AgentStreamEvent, LiveControlsInput, PermissionDecisionInput, ReviewRequest, SessionRef, TranscriptResponse, TurnAttachment, TurnImage, TurnOptions } from '@canopy/shared'
+import type { AgentProvider, AgentStreamEvent, LiveControlsInput, PermissionDecisionInput, ReviewRequest, SessionRef, TranscriptResponse, TurnAttachment, TurnExtras, TurnImage, TurnOptions } from '@canopy/shared'
 import type { AgentEvent, AgentEventPayload } from '@canopy/shared/agent-stream'
 
 import type { Activity } from '../components/agent/activity-orb'
@@ -28,8 +28,8 @@ export interface TurnState {
   events: AgentEvent[]
   /** Written paths by `callId` from this turn's `files` frames. */
   filesByCall: Record<string, string[]>
-  /** Images a user turn carried, by the echoed `user_message` event id. */
-  extras: Record<string, { images: TurnImage[] }>
+  /** Canopy-only data by event id: the images a user turn carried and the provider's id for it. */
+  extras: Record<string, TurnExtras>
   /** The turn just sent, until its echo arrives; rendered so the user sees it immediately. */
   pending: PendingPrompt | null
   /** Prompts typed into the running turn, until the agent echoes each as a `user_message`. */
@@ -101,6 +101,11 @@ export function onEvent(state: TurnState, event: AgentStreamEvent): TurnState {
     const { type: _type, ...usage } = event
     return { ...state, usage }
   }
+  // The provider's own id for a prompt of this turn — what a file rewind is addressed by. Merged,
+  // never assigned: the echo may already have hung the turn's images off the same event.
+  if (event.type === 'message_id') {
+    return { ...state, extras: { ...state.extras, [event.eventId]: { ...state.extras[event.eventId], messageId: event.messageId } } }
+  }
   if (event.type === 'done') return { ...state, streamingText: '', activity: null }
   if (event.type === 'error') return { ...state, streamingText: '', activity: null, error: event.message }
   if (event.type !== 'event') return state // exhaustive: every other arm is handled above
@@ -116,7 +121,9 @@ export function onEvent(state: TurnState, event: AgentStreamEvent): TurnState {
   if (payload.type === 'user_message' && !payload.synthetic && event.event.agentPath.length === 0) {
     const local = state.pending ?? state.queued[0]
     if (local) {
-      if (local.images.length > 0) next.extras = { ...state.extras, [event.event.id]: { images: local.images } }
+      if (local.images.length > 0) {
+        next.extras = { ...state.extras, [event.event.id]: { ...state.extras[event.event.id], images: local.images } }
+      }
       if (state.pending) next.pending = null
       else next.queued = state.queued.slice(1)
     }

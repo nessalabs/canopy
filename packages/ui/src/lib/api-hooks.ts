@@ -21,6 +21,7 @@ import type {
   OpenInput,
   ProjectSettingsPatch,
   ProvisionInput,
+  RewindInput,
   ServiceAction,
   SessionRef,
   UpdateProjectInput
@@ -538,6 +539,20 @@ export const useMergeWorktree = (worktreeId: string) => {
     keys.worktree(worktreeId),
     keys.worktrees
   ])
+}
+
+/**
+ * Puts the files a turn changed back to how they were before it ran. A dry run only reports, so it
+ * invalidates nothing; a real one rewrites the checkout, which every diff read of that worktree —
+ * the Git Diff tab's and the turn panel's tree diff alike — has to be told about. The transcript
+ * is deliberately left alone: the conversation still happened.
+ */
+export const useRewindFiles = (worktreeId: string, ref: SessionRef | undefined) => {
+  const api = useApi()
+  return useInvalidating(
+    (input: RewindInput) => (ref ? api.rewindFiles(ref, input) : Promise.reject(new Error('No agent session to rewind.'))),
+    (input) => (input.dryRun ? [] : [['diff-files', worktreeId], keys.worktree(worktreeId), keys.worktrees])
+  )
 }
 
 /** Locally hidden paths — its own read, so the changes poll never pays for it. */

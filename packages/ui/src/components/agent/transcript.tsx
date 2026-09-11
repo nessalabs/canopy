@@ -1,7 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, Copy, FileDiff, FileText, Globe, Pencil, Puzzle, Search, Terminal, Users, Webhook, Wrench } from 'lucide-react'
+import { Check, Copy, FileDiff, FileText, Globe, Pencil, Puzzle, Search, Terminal, Undo2, Users, Webhook, Wrench } from 'lucide-react'
 
-import type { AgentCapabilities, PermissionDecisionInput, TurnImage } from '@canopy/shared'
+import type { AgentCapabilities, PermissionDecisionInput, TurnExtras, TurnImage } from '@canopy/shared'
 import { isHarnessText } from '@canopy/shared'
 import type { AgentEvent, DeltaBuffers, ToolKind, Transcript as FoldedTranscript, Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent, previewOf, toolKind, toolTitle, toolVerb } from '@canopy/shared/agent-stream'
@@ -107,12 +107,14 @@ function CopyAction({ text }: { text: string }): React.JSX.Element {
 }
 
 /** A user turn: image previews, the typed text (image refs clickable), and on hover the files it changed. */
-function UserTurn({ text, images, files, turnKey, onReviewTurn }: {
+function UserTurn({ text, images, files, turnKey, onReviewTurn, onRewindTurn }: {
   text: string
   images: TurnImage[]
   files?: string[]
   turnKey: string
   onReviewTurn: (key: string) => void
+  /** Offered only for a turn the daemon can address — one whose provider message id is known. */
+  onRewindTurn?: (key: string) => void
 }): React.JSX.Element {
   const [viewer, setViewer] = useState<number | null>(null)
   return (
@@ -137,6 +139,16 @@ function UserTurn({ text, images, files, turnKey, onReviewTurn }: {
                   </TooltipTrigger>
                   <TooltipContent>Show code changes</TooltipContent>
                 </Tooltip>
+                {onRewindTurn ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <MessageAction aria-label="Rewind files to before this message" onClick={() => onRewindTurn(turnKey)}>
+                        <Undo2 />
+                      </MessageAction>
+                    </TooltipTrigger>
+                    <TooltipContent>Rewind files to before this message</TooltipContent>
+                  </Tooltip>
+                ) : null}
               </>
             ) : null}
             {text ? <CopyAction text={text} /> : null}
@@ -520,14 +532,15 @@ export function TranscriptView({
   filesByTurn,
   openInTerminal,
   onReviewTurn,
+  onRewindTurn,
   onAnswerPermission,
   onQuote,
   className
 }: {
   transcript: FoldedTranscript
   previews: DeltaBuffers
-  /** Images by user-message event id. */
-  extras: Record<string, { images: TurnImage[] }>
+  /** Canopy-only data by event id: the images a user turn carried and the provider's id for it. */
+  extras: Record<string, TurnExtras>
   /** The just-sent prompt, shown until its echo arrives. */
   pending: PendingPrompt | null
   /** Prompts typed into the running turn, shown until the agent echoes each of them. */
@@ -546,6 +559,8 @@ export function TranscriptView({
   filesByTurn: ReadonlyMap<string, string[]>
   openInTerminal?: boolean
   onReviewTurn: (turnKey: string) => void
+  /** Pins a turn and asks to put its files back; absent while no session can be addressed. */
+  onRewindTurn?: (turnKey: string) => void
   /** Answers a tool-permission ask of the running turn. */
   onAnswerPermission?: (input: PermissionDecisionInput) => void
   /** Stages transcript text the reader selected as context on the composer. */
@@ -640,6 +655,7 @@ export function TranscriptView({
                         files={filesByTurn.get(turn.key)}
                         turnKey={turn.key}
                         onReviewTurn={onReviewTurn}
+                        {...(onRewindTurn && extras[prompt.id]?.messageId ? { onRewindTurn } : {})}
                       />
                     ) : null}
                     {(beatsByTurn.get(turn.key) ?? []).map((beat) => (

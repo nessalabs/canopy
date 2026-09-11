@@ -1,6 +1,6 @@
 import { useMemo, useRef } from 'react'
 
-import type { TranscriptResponse, TurnImage } from '@canopy/shared'
+import type { TranscriptResponse, TurnExtras } from '@canopy/shared'
 import type { DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
 import { TranscriptBuilder, applyDeltas } from '@canopy/shared/agent-stream'
 
@@ -12,8 +12,8 @@ export interface TranscriptModel {
   previews: DeltaBuffers
   /** Written paths by `callId`, replay plus this turn. */
   filesByCall: Record<string, string[]>
-  /** Images by user-message event id, replay plus this turn. */
-  extras: Record<string, { images: TurnImage[] }>
+  /** Canopy-only data by event id — images and the provider's message id — replay plus this turn. */
+  extras: Record<string, TurnExtras>
 }
 
 /** The fold in progress: which replay it started from and how much of the live turn it has absorbed. */
@@ -50,7 +50,13 @@ export function useTranscriptModel(history: TranscriptResponse | undefined, turn
   // Only a live turn streams deltas; a replay stores committed blocks alone.
   const previews = useMemo(() => applyDeltas(turn.events), [turn.events])
   const filesByCall = useMemo(() => ({ ...(history?.files ?? {}), ...turn.filesByCall }), [history, turn.filesByCall])
-  const extras = useMemo(() => ({ ...(history?.extras ?? {}), ...turn.extras }), [history, turn.extras])
+  // Merged per event, not per map: the replay may know a message's provider id while the live turn
+  // holds the images it was sent with, and an event needs both.
+  const extras = useMemo(() => {
+    const merged: Record<string, TurnExtras> = { ...(history?.extras ?? {}) }
+    for (const [id, extra] of Object.entries(turn.extras)) merged[id] = { ...merged[id], ...extra }
+    return merged
+  }, [history, turn.extras])
   return { transcript, previews, filesByCall, extras }
 }
 

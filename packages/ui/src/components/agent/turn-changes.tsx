@@ -1,8 +1,13 @@
-import type { DiffSpec, Worktree } from '@canopy/shared'
+import { Undo2 } from 'lucide-react'
+
+import type { DiffSpec, RewindResult, Worktree } from '@canopy/shared'
 
 import { DiffExplorer } from '@/components/git/diff-explorer'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useComments, useDiffFiles } from '@/lib/api-hooks'
 import { plural } from '@/lib/format'
+import { rewoundLine } from '@/lib/rewind'
 import type { TurnSnapshot } from '@/lib/turn-changes'
 
 const WORKING_TREE = { kind: 'worktree', against: 'head' } as const
@@ -16,12 +21,22 @@ export interface TurnReview {
 
 const specFor = (review: TurnReview): DiffSpec => (review.snapshot ? { kind: 'trees', before: review.snapshot.before, after: review.snapshot.after } : WORKING_TREE)
 
+/** Undoing this turn's writes, offered next to its diff. */
+export interface RewindAction {
+  /** Opens the confirm dialog for the turn on show. */
+  onRewind: () => void
+  /** Why it cannot be offered, when it cannot — shown as the tooltip on the disabled button. */
+  disabledReason?: string
+  /** The last rewind that ran from here, for the line under the header. */
+  done?: RewindResult
+}
+
 /**
  * The files one agent turn wrote, through the same explorer (and comments) as the Git Diff
  * tab. With a hook snapshot the diff is exactly that turn's; without one it is the current
  * uncommitted diff of the files the turn named, and files clean again are only counted.
  */
-export function TurnChanges({ worktree, review, className }: { worktree: Worktree; review: TurnReview; className?: string }): React.JSX.Element {
+export function TurnChanges({ worktree, review, rewind, className }: { worktree: Worktree; review: TurnReview; rewind?: RewindAction; className?: string }): React.JSX.Element {
   const spec = specFor(review)
   const changes = useDiffFiles(worktree.id, spec)
   const comments = useComments(worktree.id).data ?? []
@@ -33,8 +48,8 @@ export function TurnChanges({ worktree, review, className }: { worktree: Worktre
   return (
     <div className={className}>
       <div className="flex h-full min-h-0 flex-col">
-        <div className="shrink-0 border-b border-border px-3 py-2">
-          <div className="min-w-0">
+        <div className="flex shrink-0 items-start gap-2 border-b border-border px-3 py-2">
+          <div className="min-w-0 flex-1">
             <p className="m-0 text-xs font-medium">
               {plural(review.files.length, 'file')} {review.snapshot ? 'changed in this turn' : 'edited'}
               {!review.snapshot && clean > 0 ? ` · ${clean} since committed or reverted` : ''}
@@ -43,7 +58,22 @@ export function TurnChanges({ worktree, review, className }: { worktree: Worktre
             <p className="m-0 line-clamp-2 text-[11px] text-muted-foreground" title={review.prompt}>
               {review.prompt}
             </p>
+            {rewind?.done ? <p className="m-0 mt-1 text-[11px] text-muted-foreground">{rewoundLine(rewind.done)}</p> : null}
           </div>
+          {rewind ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                {/* A disabled button swallows its own pointer events, so the tooltip listens on the wrapper. */}
+                <span className="shrink-0">
+                  <Button variant="outline" size="sm" className="h-7" disabled={rewind.disabledReason !== undefined} onClick={rewind.onRewind}>
+                    <Undo2 />
+                    Rewind files
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>{rewind.disabledReason ?? 'Put these files back to before this message'}</TooltipContent>
+            </Tooltip>
+          ) : null}
         </div>
         {changes.isPending ? <p className="p-3 font-mono text-[11px] text-muted-foreground">Reading changes…</p> : null}
         {changes.error ? <p className="p-3 text-xs text-destructive">{changes.error.message}</p> : null}
