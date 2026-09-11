@@ -269,10 +269,12 @@ export const QueueMessageInput = z.object({
 export type QueueMessageInput = z.infer<typeof QueueMessageInput>
 
 /** Knobs that take effect mid-turn on the session's next model call. */
-export const LiveControlsInput = z.object({
-  model: z.string().min(1).optional(),
-  autonomy: Autonomy.optional()
-})
+export const LiveControlsInput = z
+  .object({
+    model: z.string().min(1).optional(),
+    autonomy: Autonomy.optional()
+  })
+  .refine((input) => input.model !== undefined || input.autonomy !== undefined, { message: 'nothing to change: give a model or an autonomy' })
 export type LiveControlsInput = z.infer<typeof LiveControlsInput>
 
 /**

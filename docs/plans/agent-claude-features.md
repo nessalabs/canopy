@@ -67,3 +67,25 @@ the UI is a client of `@canopy/shared`'s contract.
   subagents, MCP servers (status), plugins, hooks, commands.
 - `AskUserQuestion` renders as a questionnaire card, not a JSON approval.
 - Usage line after a turn (cost · context).
+
+## Built-in commands, measured (2026-09-10, SDK 0.3.260, one fresh session each)
+
+Answer locally, no model call — kept in the menu: `/advisor`, `/autocompact`, `/config key=value`,
+`/context`, `/effort <level>`, `/mcp` (summary only), `/model <name>`, `/reload-plugins`,
+`/reload-skills`, `/rename`, `/usage` (= `/cost`, `/stats`), `/skill-doctor`, `/goal`, `/recap`,
+`/compact`, `/agents` (prints that the wizard was removed — hidden), `/clear` (emits
+`conversation_reset`; Canopy starts a new session client-side instead).
+
+Run a model turn — kept: `/init`, `/insights` (cost ≈ $2, writes an HTML report under
+`~/.claude/usage-data`), `/doctor` (> 90 s), `/schedule`, `/batch`, `/ultrareview`, and every
+skill / custom command (`/ping` from `.claude/commands/ping.md` answered "PONG").
+
+Hidden from the menu, with the reason: `/help` and `/fast` answer "not available in this
+environment / the Agent SDK"; `/usage-credits` and `/extra-usage` open a browser on the daemon's
+host; `/import`, `/auto-mode-setup`, `/design*`, `/list-agents`, `/team-onboarding` are wizards or
+terminal peering; `/loop` lives in the CLI process, which ends with the turn; `/color` and
+`/heapdump` (writes a heap snapshot to the Desktop) are terminal housekeeping.
+
+Replay caveat: a local command's answer is stored as a `system/local_command` row that the SDK's
+`getSessionMessages` drops, and its prompt as a `<command-name>` line — the daemon reads the
+former from the session file and unwraps the latter (`claude-session.ts`, `claude-map.ts`).
