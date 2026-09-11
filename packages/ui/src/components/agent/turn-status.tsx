@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 
-import { Message } from '@/components/ui/message'
+import { AgentActivityCue } from '@/components/ui/agent-activity'
 
 import { AgentAvatar, type Activity } from './agent-avatar'
 
@@ -26,25 +26,36 @@ function useNow(): number {
   return now
 }
 
+/** What a screen reader hears: the activity, when it changes — not the verb, not the clock. */
+const ANNOUNCED: Record<Activity, string> = { thinking: 'Thinking…', working: 'Working…', solving: 'Solving…' }
+
 /**
- * The live status row for a running turn: the agent's own avatar, moving the way the activity
- * says, then a verb that changes every few seconds and how long and how many tokens the turn
- * has taken so far. Gone when it ends.
+ * The live status row for a running turn, shaped like the activity cues above it: the agent's
+ * avatar at cue size, flooding the way the activity says, a shimmering verb that changes every
+ * few seconds, then how long and how many tokens the turn has taken. It sits in the content
+ * column, not the avatar column — the answer's own avatar is already there, and two of the same
+ * painting one above the other read as two agents. Gone when the turn ends.
+ *
+ * Only the activity is in the live region. The rotating verb and the ticking readout are for
+ * eyes: announced, they would interrupt a screen reader every second for the whole turn, saying
+ * nothing the activity did not already say.
  */
 export function TurnStatus({ activity, startedAt, tokens, avatarSeed }: { activity: Activity; startedAt: number; tokens: number; avatarSeed: string }): React.JSX.Element {
   const now = useNow()
   const elapsed = Math.max(0, now - startedAt)
   const verb = VERBS[Math.floor(elapsed / VERB_PERIOD_MS) % VERBS.length]
   return (
-    <Message from="assistant">
-      <AgentAvatar seed={avatarSeed} name="Agent" activity={activity} className="size-8 self-end" />
-      <span className="inline-flex min-h-8 items-center gap-2 font-mono text-[11px] text-muted-foreground">
-        <span className="text-foreground/80">{verb}…</span>
-        <span>
-          ({formatElapsed(elapsed)}
-          {tokens > 0 ? ` · ↓ ${formatTokens(tokens)} tokens` : ''})
-        </span>
+    <div className="ml-10 flex min-w-0 items-center gap-1.5">
+      <span role="status" className="sr-only">
+        {ANNOUNCED[activity]}
       </span>
-    </Message>
+      <AgentActivityCue aria-hidden="true" status="running" icon={<AgentAvatar seed={avatarSeed} activity={activity} />}>
+        {verb}…
+      </AgentActivityCue>
+      <span aria-hidden="true" className="nessa-text-2 tabular-nums text-muted-foreground/70">
+        {formatElapsed(elapsed)}
+        {tokens > 0 ? ` · ${formatTokens(tokens)} tokens` : ''}
+      </span>
+    </div>
   )
 }

@@ -7,12 +7,13 @@ export type Activity = 'thinking' | 'working' | 'solving'
 /**
  * How nessa's working flood is tuned per activity. `speed` multiplies the ~5s cycle; `flood`
  * is how far a wash expands, where 1 takes the whole paper and 0.25 only breathes. Thinking
- * is the quiet end — the paint barely stirs — and solving the urgent one.
+ * is the quiet end and solving the urgent one. All three run faster than nessa's default
+ * breath: at the 16px the status row uses, a slow flood reads as a still picture.
  */
 export const ACTIVITY_TUNING: Record<Activity, { speed: number; flood: number }> = {
-  thinking: { speed: 0.7, flood: 0.4 },
-  working: { speed: 1, flood: 1 },
-  solving: { speed: 1.6, flood: 1 }
+  thinking: { speed: 1.4, flood: 0.7 },
+  working: { speed: 1.6, flood: 1 },
+  solving: { speed: 2.2, flood: 1 }
 }
 
 const LABEL: Record<Activity, string> = { thinking: 'thinking', working: 'working', solving: 'solving' }
@@ -29,7 +30,7 @@ export interface AgentAvatarProps {
   flood?: number
   bleed?: number
   ground?: RandomAvatarGround
-  /** Size the box with `size-*`. */
+  /** Size the box with `size-*`; defaults to the 16px a cue row uses. */
   className?: string
 }
 
@@ -43,7 +44,6 @@ export function AgentAvatar({ seed, name, activity = null, speed, flood, bleed, 
   const tuning = activity ? ACTIVITY_TUNING[activity] : null
   return (
     <RandomAvatar
-      data-slot="agent-avatar"
       data-activity={activity ?? undefined}
       seed={seed}
       name={name ? (activity ? `${name}, ${LABEL[activity]}` : name) : undefined}
@@ -52,7 +52,7 @@ export function AgentAvatar({ seed, name, activity = null, speed, flood, bleed, 
       speed={speed ?? tuning?.speed}
       flood={flood ?? tuning?.flood}
       bleed={bleed}
-      className={cn('size-8', className)}
+      className={cn('size-4', className)}
     />
   )
 }
