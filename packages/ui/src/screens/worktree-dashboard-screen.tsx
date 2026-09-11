@@ -138,7 +138,10 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
           {/*
             Three groups, and the two outer ones share the leftover width evenly (flex-1 over a
             zero basis) — that is what centres the strip, whatever the identity and the actions
-            happen to measure. Both outer groups clip; the strip never shrinks.
+            happen to measure. Even sharing is the preference, not a cap: the actions floor at
+            their own width (min-w-fit), so a wide run of them — URL, Stop, Restart, a progress
+            word — takes what it needs from the identity side and nudges the strip left rather
+            than being clipped mid-button. Only the identity clips; the strip never shrinks.
           */}
           <div className="@container flex min-w-0 flex-1 items-center gap-3">
             <div className="flex min-w-0 flex-1 basis-0 items-center gap-3 overflow-hidden">
@@ -172,7 +175,7 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
                 </TabsTrigger>
               ))}
             </TabsList>
-            <div className="flex min-w-0 flex-1 basis-0 justify-end overflow-hidden">
+            <div className="flex min-w-fit flex-1 basis-0 justify-end">
               <WorktreeActions worktree={worktree} onDestroy={() => setDestroyOpen(true)} />
             </div>
           </div>
