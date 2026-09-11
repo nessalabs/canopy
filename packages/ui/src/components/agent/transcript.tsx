@@ -42,6 +42,7 @@ import { answerFor, answeredInput, parseAskQuestions, type AskQuestion } from '@
 import { plural } from '@/lib/format'
 import { beatLabel, beatsOf, type ActivityBeat, type Beat, type BeatCall } from '@/lib/turn-beats'
 import { rowsByTurn } from '@/lib/turn-rows'
+import { classifyLocalAnswer } from '@/lib/local-answers'
 import { parseUsageReport } from '@/lib/usage-report'
 import { cn } from '@/lib/utils'
 
@@ -49,6 +50,7 @@ import type { Activity } from './activity-orb'
 import type { PendingPrompt, TurnUsage } from '../../lib/use-agent-turn'
 import { SessionLine, SessionSheetBody } from './session-details'
 import { TurnStatus } from './turn-status'
+import { ContextCard, McpCard, ModelCard, SkillDoctorCard } from './local-cards'
 import { UsageCard } from './usage-card'
 import { ImageTiles, ImageViewer, TextWithImageRefs } from './image-strip'
 import { SelectionActions } from './selection-actions'
@@ -162,15 +164,47 @@ function UserTurn({ text, images, files, turnKey, onReviewTurn, onRewindTurn }: 
   )
 }
 
-/** An agent bubble; `streaming` marks text still arriving. A finished `/usage` answer draws as its meters. */
-function AssistantTurn({ text, avatarSeed, streaming }: { text: string; avatarSeed: string; streaming?: boolean }): React.JSX.Element {
-  const usage = streaming ? null : parseUsageReport(text)
+/** What a local slash command answered, as a card; null for the model's own prose. */
+function localCard(text: string, prompt: string | undefined, capabilities: AgentCapabilities | undefined, onPickModel: ((alias: string) => void) | undefined): React.ReactNode | null {
+  const usage = parseUsageReport(text)
+  if (usage) return <UsageCard report={usage} />
+  const answer = classifyLocalAnswer(text, prompt)
+  switch (answer?.kind) {
+    case 'context':
+      return <ContextCard report={answer.report} />
+    case 'skills':
+      return <SkillDoctorCard report={answer.report} />
+    case 'model':
+      return <ModelCard report={answer.report} onPick={onPickModel} />
+    case 'mcp':
+      return <McpCard summary={answer.summary} servers={capabilities?.mcpServers} />
+    default:
+      return null
+  }
+}
+
+/**
+ * An agent bubble; `streaming` marks text still arriving. A finished answer to a local slash
+ * command draws as its card, and a one-line one (`/effort`, `/rename`) as a note under the prompt.
+ */
+function AssistantTurn({ text, avatarSeed, streaming, prompt, capabilities, onPickModel }: {
+  text: string
+  avatarSeed: string
+  streaming?: boolean
+  /** The prompt this answers, for telling a built-in's one-liner from the model's own short reply. */
+  prompt?: string
+  capabilities?: AgentCapabilities
+  onPickModel?: (alias: string) => void
+}): React.JSX.Element {
+  const note = streaming ? null : classifyLocalAnswer(text, prompt)
+  if (note?.kind === 'note') return <p className="m-0 ml-10 nessa-text-2 text-muted-foreground">{note.text}</p>
+  const card = streaming ? null : localCard(text, prompt, capabilities, onPickModel)
   return (
     <Message from="assistant">
       <RandomAvatar seed={avatarSeed} name="Agent" className="size-8 shrink-0 self-end rounded-full" />
-      <MessageContent className={usage ? 'w-full max-w-full' : undefined}>
-        <MessageBubble variant="muted" className={cn('min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto', usage && 'w-full')}>
-          {usage ? <UsageCard report={usage} /> : <MessageMarkdown className="text-sm" streaming={streaming}>{text}</MessageMarkdown>}
+      <MessageContent className={card ? 'w-full max-w-full' : undefined}>
+        <MessageBubble variant="muted" className={cn('min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto', card && 'w-full')}>
+          {card ?? <MessageMarkdown className="text-sm" streaming={streaming}>{text}</MessageMarkdown>}
         </MessageBubble>
         {/* Copying half-arrived text would hand over a truncated answer, so the action waits for the end. */}
         {streaming ? null : (
@@ -488,13 +522,17 @@ function UsageLine({ usage }: { usage: TurnUsage }): React.JSX.Element | null {
   return <p className="m-0 ml-10 nessa-text-2 text-muted-foreground">{bits.join(' · ')}</p>
 }
 
-function BeatRow({ beat, avatarSeed, previews, open, sheetId, onOpen }: {
+function BeatRow({ beat, avatarSeed, previews, open, sheetId, onOpen, prompt, capabilities, onPickModel }: {
   beat: Beat
   avatarSeed: string
   previews: DeltaBuffers
   open: SheetTarget | null
   sheetId: string
   onOpen: (target: SheetTarget) => void
+  /** The turn's prompt, so a built-in's answer can be told apart from the model's. */
+  prompt?: string
+  capabilities?: AgentCapabilities
+  onPickModel?: (alias: string) => void
 }): React.JSX.Element | null {
   switch (beat.kind) {
     case 'activity':
@@ -503,7 +541,7 @@ function BeatRow({ beat, avatarSeed, previews, open, sheetId, onOpen }: {
       if (!isEvent(beat.event, AgentEventType.AssistantText)) return null
       // The committed text wins; the delta buffer only stands in while a block is still arriving.
       const text = beat.event.payload.text || previewOf(previews, beat.event.payload.block) || ''
-      return text ? <AssistantTurn text={text} avatarSeed={avatarSeed} /> : null
+      return text ? <AssistantTurn text={text} avatarSeed={avatarSeed} prompt={prompt} capabilities={capabilities} onPickModel={onPickModel} /> : null
     }
     case 'user':
       if (!isEvent(beat.event, AgentEventType.UserMessage) || isHarnessText(beat.event.payload.text)) return null
@@ -537,6 +575,7 @@ export function TranscriptView({
   onReviewTurn,
   onRewindTurn,
   onAnswerPermission,
+  onPickModel,
   onQuote,
   className
 }: {
@@ -566,6 +605,8 @@ export function TranscriptView({
   onRewindTurn?: (turnKey: string) => void
   /** Answers a tool-permission ask of the running turn. */
   onAnswerPermission?: (input: PermissionDecisionInput) => void
+  /** A `/model` card's chips set the composer's model for the next turn through this. */
+  onPickModel?: (alias: string) => void
   /** Stages transcript text the reader selected as context on the composer. */
   onQuote?: (text: string) => void
   className?: string
@@ -662,7 +703,18 @@ export function TranscriptView({
                       />
                     ) : null}
                     {(beatsByTurn.get(turn.key) ?? []).map((beat) => (
-                      <BeatRow key={beat.key} beat={beat} avatarSeed={avatarSeed} previews={previews} open={sheet} sheetId={sheetId} onOpen={setSheet} />
+                      <BeatRow
+                        key={beat.key}
+                        beat={beat}
+                        avatarSeed={avatarSeed}
+                        previews={previews}
+                        open={sheet}
+                        sheetId={sheetId}
+                        onOpen={setSheet}
+                        prompt={promptText(turn)}
+                        capabilities={capabilities}
+                        onPickModel={onPickModel}
+                      />
                     ))}
                   </div>
                 )

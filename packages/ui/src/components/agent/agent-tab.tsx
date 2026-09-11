@@ -150,6 +150,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             onReviewTurn={show}
             onRewindTurn={sessionRef ? askRewind : undefined}
             onAnswerPermission={agent.turn.answerPermission}
+            onPickModel={agent.setModel}
             onQuote={(text) => setQuote({ id: Date.now(), text })}
             className="min-h-0 flex-1"
           />
