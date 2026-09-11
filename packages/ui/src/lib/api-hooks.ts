@@ -156,7 +156,7 @@ export const useComments = (worktreeId: string) => {
  */
 export const useAgentSessions = (worktreeId: string) => {
   const api = useApi()
-  return useQuery({ queryKey: keys.sessions(worktreeId), queryFn: () => api.agentSessions(worktreeId), refetchInterval: 5_000, refetchIntervalInBackground: false })
+  return useQuery({ queryKey: keys.sessions(worktreeId), queryFn: () => api.agentSessions(worktreeId), refetchInterval: POLL_MS, refetchIntervalInBackground: false })
 }
 
 /**

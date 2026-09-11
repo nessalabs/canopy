@@ -7,7 +7,7 @@
  * tool call names the paths it touches, so this records each (session, worktree) pair the calls
  * reveal. The worktree's Agent tab lists those sessions next to its own.
  */
-import { resolve } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 
 import type { Database } from 'better-sqlite3'
 
@@ -17,6 +17,7 @@ import type { EventBus } from '../env/types'
 import { now } from '../lib/ids'
 import type { WorktreeRow, WorktreesService } from '../worktrees/service'
 import type { ClaudeHookPayload } from './edit-diffs/hook'
+import { tokenize } from './edit-diffs/shell-writes'
 import { claudeWrittenFiles } from './edit-diffs/written-files'
 
 export interface SessionPresence {
@@ -25,7 +26,6 @@ export interface SessionPresence {
   worktreeId: string
   /** The session's own working directory. */
   cwd: string
-  firstAt: number
   lastAt: number
 }
 
@@ -34,7 +34,6 @@ interface Row {
   session_id: string
   worktree_id: string
   cwd: string
-  first_at: number
   last_at: number
 }
 
@@ -43,20 +42,26 @@ const toPresence = (row: Row): SessionPresence => ({
   sessionId: row.session_id,
   worktreeId: row.worktree_id,
   cwd: row.cwd,
-  firstAt: row.first_at,
   lastAt: row.last_at
 })
 
-/** A path is "mentioned" when it appears whole: `…/trash` must not claim `…/trash-2`. */
-const mentions = (text: string, path: string): boolean => {
-  let from = 0
-  for (;;) {
-    const at = text.indexOf(path, from)
-    if (at < 0) return false
-    const next = text[at + path.length]
-    if (next === undefined || !/[A-Za-z0-9_.-]/.test(next)) return true
-    from = at + 1
-  }
+const CD = new Set(['cd', 'pushd'])
+
+/**
+ * The directories a shell command works in: where it `cd`s, and any worktree it names as a whole
+ * (`git -C <worktree> status`, `npm --prefix <worktree> test`). A file inside a worktree is not
+ * that — `cat <worktree>/src/a.ts` reads it from wherever the session is — and a bare mention in
+ * a heredoc or a string is a word like any other, which the tokenizer keeps in quotes' bounds.
+ */
+export function shellDirectories(command: string, cwd: string): string[] {
+  const words = tokenize(command).map((token) => (token.kind === 'word' ? token.text : undefined))
+  const found: string[] = []
+  words.forEach((word, i) => {
+    if (word === undefined || !word.includes('/')) return
+    const previous = words[i - 1]
+    if ((previous !== undefined && CD.has(previous)) || isAbsolute(word)) found.push(resolve(cwd, word))
+  })
+  return found
 }
 
 interface Deps {
@@ -70,8 +75,9 @@ export class PresenceService {
 
   /**
    * The worktrees one tool call reaches: the session's own, whichever holds a file the call
-   * writes, and any whose path the call's arguments name outright — `cd <worktree> && npm test`
-   * is working there as surely as an edit is.
+   * writes, and — for a shell command — any it works in: `cd <worktree> && npm test` is working
+   * there as surely as an edit is. Reading a worktree's file from elsewhere is not working there,
+   * so `Read`, `Grep` and friends count for nothing beyond the session's own cwd.
    */
   worktreesTouched(payload: ClaudeHookPayload): WorktreeRow[] {
     const { worktrees } = this.deps
@@ -81,8 +87,11 @@ export class PresenceService {
     }
     add(worktrees.containing(payload.cwd))
     for (const file of claudeWrittenFiles(payload.tool_name, payload.tool_input, payload.cwd)) add(worktrees.containing(resolve(payload.cwd, file)))
-    const text = JSON.stringify(payload.tool_input ?? null)
-    for (const row of worktrees.present()) if (mentions(text, row.path)) add(row)
+    const command = payload.tool_name === 'Bash' ? (payload.tool_input as { command?: unknown } | undefined)?.command : undefined
+    if (typeof command === 'string') {
+      const roots = new Map(worktrees.present().map((row) => [row.path, row]))
+      for (const dir of shellDirectories(command, payload.cwd)) add(roots.get(dir) ?? (dir.endsWith('/') ? roots.get(dir.slice(0, -1)) : undefined))
+    }
     return [...found.values()]
   }
 
@@ -92,15 +101,15 @@ export class PresenceService {
     if (touched.length === 0) return
     const at = now()
     const upsert = this.deps.db.prepare(
-      `INSERT INTO agent_session_worktrees (provider, session_id, worktree_id, cwd, first_at, last_at)
-       VALUES ('claude', ?, ?, ?, ?, ?)
+      `INSERT INTO agent_session_worktrees (provider, session_id, worktree_id, cwd, last_at)
+       VALUES ('claude', ?, ?, ?, ?)
        ON CONFLICT (provider, session_id, worktree_id) DO UPDATE SET last_at = excluded.last_at, cwd = excluded.cwd`
     )
     const appeared: string[] = []
     this.deps.db.transaction(() => {
       for (const worktree of touched) {
         if (!this.known('claude', payload.session_id, worktree.id)) appeared.push(worktree.id)
-        upsert.run(payload.session_id, worktree.id, resolve(payload.cwd), at, at)
+        upsert.run(payload.session_id, worktree.id, resolve(payload.cwd), at)
       }
     })()
     // A session showing up in a worktree for the first time is news the tab should not wait a poll

@@ -46,7 +46,13 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, r
   // Hook commands must never stall the agent: validation errors are the hook's problem, not Claude's.
   app.post(routes.hooksClaude(), async (request, reply) => {
     const payload = ClaudeHookPayload.parse(request.body)
-    presence.record(payload)
+    // Presence is advisory; the snapshot pair is not. A failed row (a locked database, a worktree
+    // deleted under the hook) must not cost the call its before-snapshot.
+    try {
+      presence.record(payload)
+    } catch (err) {
+      request.log.warn({ err }, 'session presence not recorded')
+    }
     await editDiffs.onClaudeHook(payload)
     return reply.code(204).send()
   })

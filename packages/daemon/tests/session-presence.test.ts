@@ -1,4 +1,4 @@
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import type { AgentSessionSummary } from '@canopy/shared'
 
+import { shellDirectories } from '../src/agents/presence'
 import { RECENT_HOOK_MS, statusOf } from '../src/agents/sessions'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 import { createTestServer, type TestServer } from './helpers/test-server'
@@ -62,11 +63,39 @@ describe('sessions that work in a worktree from elsewhere', () => {
     expect(visitor.status).toBe('busy')
   })
 
-  it('takes a shell command that names the worktree as working here, and a stranger as nothing', async () => {
+  it('takes a shell command that works in the worktree as working here, and a stranger as nothing', async () => {
     await server.call('POST', '/api/v1/hooks/claude', hook('shell', elsewhere, 'Bash', { command: `cd ${repo.path} && npm test` }))
+    await server.call('POST', '/api/v1/hooks/claude', hook('git', elsewhere, 'Bash', { command: `git -C "${repo.path}" status` }))
     await server.call('POST', '/api/v1/hooks/claude', hook('stranger', elsewhere, 'Bash', { command: `ls ${repo.path}-sibling` }))
     await server.call('POST', '/api/v1/hooks/claude', hook('nowhere', elsewhere, 'Edit', { file_path: join(elsewhere, 'x.ts') }))
-    expect((await sessions()).map((s) => s.sessionId)).toEqual(['shell', 's1'])
+    expect((await sessions()).map((s) => s.sessionId).sort()).toEqual(['git', 's1', 'shell'])
+  })
+
+  it('does not take reading a file here, from a tool or a shell, as working here', async () => {
+    await server.call('POST', '/api/v1/hooks/claude', hook('reader', elsewhere, 'Read', { file_path: join(repo.path, 'src/a.ts') }))
+    await server.call('POST', '/api/v1/hooks/claude', hook('grepper', elsewhere, 'Grep', { pattern: 'a', path: repo.path }))
+    await server.call('POST', '/api/v1/hooks/claude', hook('catter', elsewhere, 'Bash', { command: `cat ${repo.path}/src/a.ts` }))
+    await server.call('POST', '/api/v1/hooks/claude', hook('writer', elsewhere, 'Write', { file_path: join(elsewhere, 'notes.md'), content: `see ${repo.path} for the code` }))
+    expect((await sessions()).map((s) => s.sessionId)).toEqual(['s1'])
+  })
+
+  it('lists a session started in a subdirectory of the worktree as its own, not a visitor', async () => {
+    await server.call('POST', '/api/v1/hooks/claude', hook('deep', join(repo.path, 'src'), 'Edit', { file_path: join(repo.path, 'src/a.ts') }))
+    const listed = await sessions()
+    expect(listed.map((s) => [s.sessionId, s.visiting ?? false])).toEqual([
+      ['deep', false],
+      ['s1', false]
+    ])
+  })
+
+  it("records a visitor's edit under the worktree it edited, not the one it started in", async () => {
+    const input = { file_path: join(repo.path, 'src/a.ts'), old_string: '1', new_string: '2' }
+    const pre = { ...hook('visitor', elsewhere, 'Edit', input, 'PreToolUse'), tool_use_id: 'tu-visit' }
+    expect((await server.call('POST', '/api/v1/hooks/claude', pre)).status).toBe(204)
+    writeFileSync(join(repo.path, 'src/a.ts'), 'export const a = 2\n')
+    expect((await server.call('POST', '/api/v1/hooks/claude', { ...pre, hook_event_name: 'PostToolUse' })).status).toBe(204)
+    const { body } = await server.call('GET', '/api/v1/agent/sessions/claude/visitor/edits')
+    expect(body.edits.map((e: { path: string; worktreeId: string; attributed: boolean }) => [e.path, e.worktreeId, e.attributed])).toEqual([['src/a.ts', worktreeId, true]])
   })
 
   it('does not list a session twice for working in its own checkout', async () => {
@@ -101,6 +130,17 @@ describe('sessions that work in a worktree from elsewhere', () => {
   })
 })
 
+describe('the directories a shell command works in', () => {
+  it('reads cd targets and whole absolute paths, quoted or not, and nothing inside a string', () => {
+    expect(shellDirectories('cd /wt/feat && npm test', '/main')).toEqual(['/wt/feat'])
+    expect(shellDirectories('cd ../feat; ls', '/wt/main')).toEqual(['/wt/feat'])
+    expect(shellDirectories('git -C "/wt/my feat" status', '/main')).toEqual(['/wt/my feat'])
+    expect(shellDirectories('cat /wt/feat/src/a.ts', '/main')).toEqual(['/wt/feat/src/a.ts'])
+    expect(shellDirectories('echo "see /wt/feat for the code"', '/main')).toEqual([])
+    expect(shellDirectories('npm test', '/main')).toEqual([])
+  })
+})
+
 describe('what a session is doing', () => {
   const session: AgentSessionSummary = { provider: 'claude', sessionId: 'x', title: 'x', updatedAt: 0 }
   const live = (status?: string) => ({ pid: 1, sessionId: 'x', socketPath: '/s', status })
@@ -112,10 +152,12 @@ describe('what a session is doing', () => {
     expect(statusOf(session, live(), undefined, at)).toBe('idle')
   })
 
-  it('takes a recent hook as a running turn, even with no terminal', () => {
+  it('takes a recent hook as a running turn where the terminal has not said', () => {
     expect(statusOf(session, undefined, at - RECENT_HOOK_MS + 1, at)).toBe('busy')
     expect(statusOf(session, undefined, at - RECENT_HOOK_MS, at)).toBeUndefined()
-    expect(statusOf(session, live('idle'), at - 1, at)).toBe('busy')
+    expect(statusOf(session, live(), at - 1, at)).toBe('busy')
+    // A turn that just ended is idle, however recent its last tool call.
+    expect(statusOf(session, live('idle'), at - 1, at)).toBe('idle')
   })
 
   it('says nothing about a session nothing is watching', () => {

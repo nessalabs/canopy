@@ -52,14 +52,17 @@ export function useWorktreeAgent(worktree: Worktree) {
   }
 
   const ref = selected ? { provider: selected.provider, sessionId: selected.sessionId } : undefined
+  // A session working here from another checkout is filed under that checkout: its transcript
+  // is read there, and a message sent to it resumes it there.
+  const cwd = selected?.visiting && selected.cwd ? selected.cwd : worktree.path
   // The turn hook needs history (detected model); the poll needs the turn's busy flag. A ref breaks the cycle.
   const busyRef = useRef(false)
-  const history = useTranscript(ref, worktree.path, () => busyRef.current)
+  const history = useTranscript(ref, cwd, () => busyRef.current)
   const detected = { model: modelAlias(history.data?.model), effort: history.data?.effort }
   const model = modelOverride ?? detected.model
   const effort = effortOverride ?? detected.effort
   const options = useMemo<TurnOptions>(() => ({ autonomy, model, effort }), [autonomy, model, effort])
-  const turn = useAgentTurn(worktree.id, ref, fresh, worktree.path, options)
+  const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options)
   busyRef.current = turn.busy
   // What this provider can do in this checkout: the `/` and `@` menus, the model list, the details sheet.
   const capabilities = useAgentCapabilities(worktree.id, selected?.provider ?? fresh, selected?.sessionId)
