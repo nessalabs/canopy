@@ -24,8 +24,12 @@ export interface Snapshots {
   take(cwd: string): Promise<string>
   /** Paths that differ between two trees. */
   changedPaths(cwd: string, before: string, after: string): Promise<string[]>
-  /** Whether this repo holds `sha` as a tree — what tells one of Canopy's snapshots from a typo. */
-  isTree(cwd: string, sha: string): Promise<boolean>
+  /**
+   * Whether `sha` is a tree `take` pinned under `refs/canopy/snapshots/`. Being a tree is not
+   * enough: every commit's tree is one, and restoring the checkout to `HEAD^{tree}` on request
+   * would be a checkout nobody asked for, not a rewind.
+   */
+  isSnapshot(cwd: string, sha: string): Promise<boolean>
   /** The same paths `changedPaths` reports, each with how it differs. */
   changes(cwd: string, before: string, after: string): Promise<TreeChange[]>
   /** Lines added and removed going from one tree to the other; a binary file counts as neither. */
@@ -73,10 +77,11 @@ export function createSnapshots(run: GitRunner): Snapshots {
       const out = await run(cwd, ['diff-tree', '-r', '--name-only', '-z', '--no-renames', before, after])
       return out.split('\0').filter(Boolean)
     },
-    async isTree(cwd, sha) {
-      // A sha this repo never heard of makes cat-file exit non-zero, which is the answer.
-      const type = await run(cwd, ['cat-file', '-t', sha], { okCodes: [0, 1, 128] }).catch(() => '')
-      return type.trim() === 'tree'
+    async isSnapshot(cwd, sha) {
+      // The ref is named after the tree it pins, so the answer is that it resolves to that tree.
+      // `--verify --quiet` exits 1 for a ref that is not there, which is the other answer.
+      const pinned = await run(cwd, ['rev-parse', '--verify', '--quiet', SNAPSHOT_REF(sha)], { okCodes: [0, 1] }).catch(() => '')
+      return pinned.trim() === sha
     },
     async changes(cwd, before, after) {
       if (before === after) return []

@@ -1,3 +1,5 @@
+import { resolve } from 'node:path'
+
 import type { FastifyInstance } from 'fastify'
 
 import { AgentProvider, CapabilitiesQuery, LiveControlsInput, NewSessionInput, PermissionDecisionInput, QueueMessageInput, RewindInput, SendMessageInput, SessionRef, routes } from '@canopy/shared'
@@ -107,8 +109,11 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, r
     const { provider, sid } = SessionParams.parse(request.params)
     const input = RewindInput.parse(request.body)
     // Writing into a directory Canopy knows nothing about is not a rewind, it is an arbitrary
-    // file write driven by a request body — so the cwd is checked the way the hook receiver does.
-    const worktree = worktrees.containing(input.cwd)
+    // file write driven by a request body — so the cwd is checked the way the hook receiver does,
+    // and in canonical form: `<worktree>/../elsewhere` is outside, whatever it starts with. The
+    // canonical path is what goes onward, so what was checked is what gets used.
+    const cwd = resolve(input.cwd)
+    const worktree = worktrees.containing(cwd)
     if (!worktree) throw new ApiError(400, 'unknown_worktree', `${input.cwd} is not inside a worktree Canopy manages`)
     // A snapshot is of the whole checkout, so it is restored at the checkout's root whatever
     // subdirectory the session happened to run in; the provider's own rewind keeps the caller's
@@ -117,7 +122,7 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, r
 
     const adapter = agents.adapterFor(provider)
     if (!adapter.rewind) throw new ApiError(404, 'unsupported', `the ${provider} agent cannot rewind files`)
-    return adapter.rewind(sid, input)
+    return adapter.rewind(sid, { ...input, cwd })
   })
 
   app.patch(routes.liveControls(':provider', ':sid'), async (request, reply) => {

@@ -73,9 +73,10 @@ export class EditDiffsService {
    * here would silently unstage (or stage) work the agent never touched.
    */
   async restore(cwd: string, tree: string, dryRun = false): Promise<RewindResult> {
-    // A sha this repo does not hold as a tree is not one of ours, and `git restore --source` would
-    // take almost anything: refusing by name is cheaper than finding out by damage.
-    if (!(await this.deps.snapshots.isTree(cwd, tree))) return { source: 'snapshot', canRewind: false, error: `${tree} is not a snapshot of this worktree`, filesChanged: [] }
+    // Only a tree Canopy's own hooks pinned is a snapshot. `git restore --source` would take any
+    // tree in the repo — `HEAD^{tree}` included — and a request body naming one of those is asking
+    // for a checkout, not a rewind: refusing by name is cheaper than finding out by damage.
+    if (!(await this.deps.snapshots.isSnapshot(cwd, tree))) return { source: 'snapshot', canRewind: false, error: `${tree} is not a snapshot of this worktree`, filesChanged: [] }
 
     const current = await this.deps.snapshots.take(cwd)
     const changes = await this.deps.snapshots.changes(cwd, tree, current)
