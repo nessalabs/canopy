@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { TooltipProvider } from '../src/components/ui/tooltip'
-import { ContextMeter, describeContext, formatTokens } from '../src/components/agent/context-meter'
+import { ContextMeter, assumedContextWindow, describeContext, formatTokens } from '../src/components/agent/context-meter'
 
 let host: HTMLDivElement
 let root: Root
@@ -46,8 +46,18 @@ describe('context meter', () => {
     expect(meter()?.textContent).toBe('5%')
     render(<ContextMeter usage={{ tokens: 100_000, window: null }} model="claude-haiku-4-5" />)
     expect(meter()?.textContent).toBe('50%')
-    render(<ContextMeter usage={{ tokens: 100_000, window: null }} model="claude-unknown" />)
+    render(<ContextMeter usage={{ tokens: 100_000, window: null }} model="some-other-model" />)
     expect(meter()?.textContent).toBe('100k')
     expect(meter()?.getAttribute('aria-valuenow')).toBe('0')
+  })
+
+  it('assumes the family window when nothing has stated one, so a replayed session still has a fraction', () => {
+    expect(assumedContextWindow('claude-fable-5-1')).toBe(1_000_000)
+    expect(assumedContextWindow('claude-haiku-4-5-20251001')).toBe(200_000)
+    expect(assumedContextWindow('claude-mystery[1m]')).toBe(1_000_000)
+    expect(assumedContextWindow('gpt-5')).toBeNull()
+    render(<ContextMeter usage={{ tokens: 583_000, window: null }} model="claude-fable-5-1" />)
+    expect(meter()?.textContent).toBe('58%')
+    expect(meter()?.dataset['level']).toBe('ok')
   })
 })

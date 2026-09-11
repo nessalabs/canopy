@@ -24,10 +24,26 @@ export function describeContext(usage: ContextUsage, window: number | null): str
 const WINDOWS_KEY = 'canopy-context-windows'
 
 /**
+ * What a model's window is when the wire has not said yet. The Claude 5 family runs on a 1M
+ * window — the checked-in `tools.jsonl` capture states it for Sonnet 5, and a Fable session has
+ * been seen holding 583k — Haiku 4.5 on 200k, and a `[1m]` suffix says so outright. Anything
+ * the wire or a remembered result states wins over this; unknown models get no fraction.
+ */
+export function assumedContextWindow(model: string | undefined): number | null {
+  if (!model) return null
+  const id = model.toLowerCase()
+  if (id.includes('[1m]')) return 1_000_000
+  if (/fable|opus|sonnet/.test(id)) return 1_000_000
+  if (/haiku/.test(id)) return 200_000
+  return null
+}
+
+/**
  * The window to measure against. The wire states it only on a turn's result, so a replayed
  * session knows its prompt sizes but not its window until it has run a turn — and a page reload
  * would forget it again. Once a result names the window for a model it is remembered per model,
- * which is the one fact here that does not change between sessions.
+ * which is the one fact here that does not change between sessions. Failing both, the model's
+ * family says what to assume.
  */
 export function useContextWindow(usage: ContextUsage | null, model: string | undefined): number | null {
   const stated = usage?.window ?? null
@@ -37,7 +53,8 @@ export function useContextWindow(usage: ContextUsage | null, model: string | und
     if (known[model] !== stated) writeStored(WINDOWS_KEY, { ...known, [model]: stated })
   }, [stated, model])
   if (stated !== null) return stated
-  return model ? (readStored<Record<string, number>>(WINDOWS_KEY)?.[model] ?? null) : null
+  const remembered = model ? (readStored<Record<string, number>>(WINDOWS_KEY)?.[model] ?? null) : null
+  return remembered ?? assumedContextWindow(model)
 }
 
 /**
@@ -48,12 +65,13 @@ export function useContextWindow(usage: ContextUsage | null, model: string | und
 const DISC = 7
 const WEDGE = DISC / 2
 const WEDGE_LENGTH = 2 * Math.PI * WEDGE
+const RIM_LENGTH = 2 * Math.PI * DISC
 
 /**
  * How full the agent's context window is, as a small ring in the composer footer — the glance
  * that says whether to keep going, start fresh, or expect Claude Code to compact soon. The disc
- * fills clockwise with the share used — grey while there is room, amber from 70%, red from
- * 85%. Without a known window it shows the token count alone and an empty disc, rather than a
+ * fills clockwise with the share used, traced round the rim as well — in the chat accent while
+ * there is room, amber from 70%, red from 85%. Without a known window it shows the token count alone and an empty disc, rather than a
  * fraction of a guess.
  */
 export function ContextMeter({ usage, model, className }: { usage: ContextUsage | null; model?: string; className?: string }): React.JSX.Element | null {
@@ -82,9 +100,14 @@ export function ContextMeter({ usage, model, className }: { usage: ContextUsage 
             className
           )}
         >
-          <svg viewBox="0 0 16 16" className="size-4 shrink-0 -rotate-90" aria-hidden="true">
-            <circle cx="8" cy="8" r={DISC} fill="currentColor" className="opacity-10" />
-            <circle cx="8" cy="8" r={DISC} fill="none" stroke="currentColor" strokeWidth="1" className="opacity-40" />
+          <svg
+            viewBox="0 0 16 16"
+            className={cn('size-4 shrink-0 -rotate-90', level === 'ok' && 'text-(--nessa-chat-accent)')}
+            aria-hidden="true"
+          >
+            {/* The track: an empty disc in the label's grey, whatever colour the fill takes. */}
+            <circle cx="8" cy="8" r={DISC} fill="none" stroke="currentColor" strokeWidth="1.5" className="text-muted-foreground opacity-35" />
+            {/* The share used, filled from the centre and traced round the rim in the accent. */}
             <circle
               cx="8"
               cy="8"
@@ -94,6 +117,18 @@ export function ContextMeter({ usage, model, className }: { usage: ContextUsage 
               strokeWidth={DISC}
               strokeDasharray={WEDGE_LENGTH}
               strokeDashoffset={WEDGE_LENGTH * (1 - fraction)}
+              className="opacity-30 transition-[stroke-dashoffset] duration-500 ease-out motion-reduce:transition-none"
+            />
+            <circle
+              cx="8"
+              cy="8"
+              r={DISC}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeDasharray={RIM_LENGTH}
+              strokeDashoffset={RIM_LENGTH * (1 - fraction)}
               className="transition-[stroke-dashoffset] duration-500 ease-out motion-reduce:transition-none"
             />
           </svg>
