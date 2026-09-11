@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { AtSign, Brain, FileDiff, Plus, Square } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AtSign, Brain, FileDiff, Plus, Square, Users } from 'lucide-react'
 
 import { ImageMediaType, type ChangedFile, type Effort } from '@canopy/shared'
 import type { ContextUsage } from '@canopy/shared/agent-stream'
@@ -23,9 +23,9 @@ import { ModelPicker } from '@/components/ui/model-picker'
 import { SearchableListbox } from '@/components/ui/searchable-listbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ACCESS_TO_AUTONOMY, AUTONOMY_TO_ACCESS } from '@/lib/autonomy'
-import { SLASH_COMMANDS, composeMessage, type Attachment } from '@/lib/compose'
+import { agentMention, commandMenu, composeMessage, isNewSessionCommand, type Attachment, type CommandItem, type MentionItem } from '@/lib/compose'
 import { plural } from '@/lib/format'
-import { EFFORT_LEVELS, modelGroupFor } from '@/lib/models'
+import { effortLevelsFor, modelGroupFor } from '@/lib/models'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
 import { ContextMeter } from './context-meter'
@@ -50,6 +50,30 @@ function readImage(file: File): Promise<Attachment | null> {
 }
 
 const dataUrl = (image: NonNullable<Attachment['image']>): string => `data:${image.mediaType};base64,${image.data}`
+
+/** One `/` row: the command, what it does, what it takes, and which list it came from. */
+function CommandRow({ item }: { item: CommandItem }): React.JSX.Element {
+  return (
+    <span className="flex w-full min-w-0 items-baseline gap-2">
+      <span className="shrink-0 font-mono text-sm text-foreground">/{item.name}</span>
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{item.description}</span>
+      {item.argumentHint ? <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{item.argumentHint}</span> : null}
+      <span className="shrink-0 rounded-sm bg-muted px-1 py-px nessa-text-1 text-muted-foreground">{item.group}</span>
+    </span>
+  )
+}
+
+/** One `@` row: a changed file, or a subagent the session can hand work to. */
+function MentionRow({ item }: { item: MentionItem }): React.JSX.Element {
+  if (item.kind === 'file') return <span className="min-w-0 truncate font-mono text-sm">{item.path}</span>
+  return (
+    <span className="flex w-full min-w-0 items-baseline gap-2">
+      <Users aria-hidden="true" className="size-3.5 shrink-0 self-center text-muted-foreground" />
+      <span className="shrink-0 font-mono text-sm text-foreground">@agent-{item.agent.name}</span>
+      <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{item.agent.description}</span>
+    </span>
+  )
+}
 
 /**
  * The nessa ChatComposer as a review tool: staged context chips, `/` prompts, `@` file
@@ -78,10 +102,26 @@ export function AgentComposer({
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
+  // The picked command's argument hint, shown as the input's placeholder rather than as text the
+  // agent would have to read past.
+  const [hint, setHint] = useState<{ name: string; text: string }>()
   const { busy } = agent.turn
   const ready = agent.selected !== undefined || agent.fresh !== undefined
-  const canSend = ready && !busy && (draft.trim() !== '' || attachments.length > 0)
+  // A running turn takes typing too: the daemon folds it into the turn rather than starting another.
+  const canSend = ready && (draft.trim() !== '' || attachments.length > 0)
   const provider = agent.selected?.provider ?? agent.fresh ?? 'claude'
+  const capabilities = agent.capabilities
+  const commands = useMemo(() => commandMenu(capabilities?.commands), [capabilities?.commands])
+  const mentions = useMemo<MentionItem[]>(
+    () => [
+      ...changedFiles.map((file): MentionItem => ({ kind: 'file', id: `file:${file.path}`, path: file.path })),
+      ...(capabilities?.agents ?? []).map((agentInfo): MentionItem => ({ kind: 'agent', id: `agent:${agentInfo.name}`, agent: agentInfo }))
+    ],
+    [changedFiles, capabilities?.agents]
+  )
+  const effortLevels = effortLevelsFor(agent.model, capabilities?.models)
+  const effort = agent.effort ?? 'medium'
+  const effortValue = effortLevels.some((level) => level.value === effort) ? effort : effortLevels[0]?.value
 
   const add = (attachment: Attachment): void => setAttachments((current) => [...current, attachment])
   const remove = (id: string): void => setAttachments((current) => current.filter((a) => a.id !== id))
@@ -99,12 +139,26 @@ export function AgentComposer({
     onQuoteStaged?.()
   }, [quote, onQuoteStaged])
 
-  const submit = (): void => {
-    if (!canSend) return
-    const images = attachments.filter((a) => a.image).map((a) => ({ label: a.label, ...a.image! }))
-    void agent.turn.sendMessage(composeMessage(draft, attachments), { display: draft.trim(), attachments: attachments.filter((a) => !a.image), images })
+  const clear = (): void => {
     setDraft('')
     setAttachments([])
+    setHint(undefined)
+  }
+
+  const submit = (): void => {
+    if (!canSend) return
+    // `/clear` and friends live inside the CLI's own process, so Canopy answers them the only way
+    // a client can: the next message starts a new session. Nothing is sent.
+    if (isNewSessionCommand(draft)) {
+      agent.startSession(provider)
+      clear()
+      return
+    }
+    const images = attachments.filter((a) => a.image).map((a) => ({ label: a.label, ...a.image! }))
+    const shown = { display: draft.trim(), attachments: attachments.filter((a) => !a.image), images }
+    const text = composeMessage(draft, attachments)
+    void (busy ? agent.turn.queueMessage(text, shown) : agent.turn.sendMessage(text, shown))
+    clear()
   }
 
   /** Images from the clipboard become numbered image attachments; text pastes stay with the input. */
@@ -118,6 +172,26 @@ export function AgentComposer({
       return [...current, ...read.map((a, i) => ({ ...a, label: `Image #${offset + i + 1}` }))]
     })
   }
+
+  /**
+   * A Canopy prompt is text the agent reads; a real command is a line it executes, so it goes
+   * into the input as `/name ` for the arguments to be typed after — with its argument hint shown
+   * as the placeholder rather than as text that would be sent along.
+   */
+  const pickCommand = (item: CommandItem, clearTrigger: (replaceWith?: string) => void): void => {
+    if (item.prompt !== undefined) {
+      clearTrigger()
+      setDraft((current) => (current.trim() ? `${current.trim()}\n${item.prompt}` : (item.prompt ?? '')))
+      return
+    }
+    clearTrigger(`/${item.name} `)
+    setHint(item.argumentHint ? { name: item.name, text: item.argumentHint } : undefined)
+    requestAnimationFrame(() => inputRef.current?.focus())
+  }
+
+  // The hint belongs to the command still in the input; typing something else retires it.
+  const activeHint = hint && draft.trimStart().startsWith(`/${hint.name}`) ? hint.text : undefined
+  const inputPlaceholder = !ready ? 'Pick a session to chat' : (activeHint ?? `${placeholder} — / for commands, @ for files and agents`)
 
   /** Typing "@" is what opens the mention menu, so the + menu does exactly that. */
   const openMentions = (): void => {
@@ -154,48 +228,45 @@ export function AgentComposer({
         onChange={(event) => setDraft(event.target.value)}
         onPaste={(event) => void pasteImages(event)}
         onPasteAttachment={(text) => add(attach('pasted-text', `Pasted text (${plural(text.split('\n').length, 'line')})`, text))}
-        placeholder={ready ? `${placeholder} — / for prompts, @ for files` : 'Pick a session to chat'}
+        placeholder={inputPlaceholder}
         aria-label="Message the agent"
         disabled={!ready}
       />
-      <ChatComposerTrigger trigger="/" label="Review prompts">
+      <ChatComposerTrigger trigger="/" label="Commands">
         {({ query, clearTrigger }) => (
           <SearchableListbox
-            items={SLASH_COMMANDS}
+            items={commands}
             query={query}
             getItemId={(item) => item.id}
-            getItemKeywords={(item) => [item.label, item.description]}
-            renderItem={(item) => (
-              <span className="flex flex-col">
-                <span className="font-mono text-sm">/{item.label}</span>
-                <span className="text-xs text-muted-foreground">{item.description}</span>
-              </span>
-            )}
-            onValueChange={(_, item) => {
-              clearTrigger()
-              setDraft((current) => (current.trim() ? `${current.trim()}\n${item.prompt}` : item.prompt))
-            }}
-            listLabel="Review prompts"
-            emptyMessage="No matching prompt"
-            className="max-h-64"
+            getItemKeywords={(item) => [item.name, item.description, item.group, ...(item.aliases ?? [])]}
+            renderItem={(item) => <CommandRow item={item} />}
+            onValueChange={(_, item) => pickCommand(item, clearTrigger)}
+            listLabel="Commands"
+            emptyMessage="No matching command"
+            className="max-h-72"
           />
         )}
       </ChatComposerTrigger>
-      <ChatComposerTrigger trigger="@" label="Mention a changed file">
+      <ChatComposerTrigger trigger="@" label="Mention a file or a subagent">
         {({ query, clearTrigger }) => (
           <SearchableListbox
-            items={changedFiles}
+            items={mentions}
             query={query}
-            getItemId={(file) => file.path}
-            getItemKeywords={(file) => [file.path]}
-            renderItem={(file) => <span className="font-mono text-sm">{file.path}</span>}
-            onValueChange={(_, file) => {
+            getItemId={(item) => item.id}
+            getItemKeywords={(item) => (item.kind === 'file' ? [item.path] : [item.agent.name, item.agent.description, 'subagent', 'agent'])}
+            renderItem={(item) => <MentionRow item={item} />}
+            onValueChange={(_, item) => {
+              if (item.kind === 'agent') {
+                // The CLI's own syntax for addressing a subagent, so it belongs in the text.
+                clearTrigger(agentMention(item.agent.name))
+                return
+              }
               clearTrigger()
-              add(attach('mention', file.path.split('/').pop() ?? file.path, file.path))
+              add(attach('mention', item.path.split('/').pop() ?? item.path, item.path))
             }}
-            listLabel="Changed files"
-            emptyMessage="No changed files match"
-            className="max-h-64"
+            listLabel="Files and subagents"
+            emptyMessage="Nothing matches"
+            className="max-h-72"
           />
         )}
       </ChatComposerTrigger>
@@ -234,16 +305,16 @@ export function AgentComposer({
           </Tooltip>
           <ContextMeter usage={context} model={agent.history.data?.model} />
           <ModelPicker
-            groups={[modelGroupFor(provider, agent.model)]}
+            groups={[modelGroupFor(provider, agent.model, capabilities?.models)]}
             value={agent.model ? { providerId: provider, modelId: agent.model } : undefined}
             onValueChange={(value) => agent.setModel(value.modelId)}
             placeholder="Session model"
-            triggerLabel="Model for the next turn"
+            triggerLabel={busy ? 'Model, from the next call on' : 'Model for the next turn'}
           />
           <ModelThinkingControl
             icon={<Brain className="size-4.5" aria-hidden="true" />}
-            levels={EFFORT_LEVELS}
-            value={agent.effort ?? 'medium'}
+            levels={effortLevels}
+            value={effortValue}
             onValueChange={(value) => agent.setEffort(value as Effort)}
             triggerLabel="Reasoning effort"
           />
@@ -257,7 +328,18 @@ export function AgentComposer({
               <TooltipContent>Stop this turn</TooltipContent>
             </Tooltip>
           ) : null}
-          <ChatComposerSubmit aria-label="Send" disabled={!canSend} loading={busy} />
+          {busy ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <ChatComposerSubmit aria-label="Queue" disabled={!canSend} className="w-auto px-3 text-xs font-medium">
+                  Queue
+                </ChatComposerSubmit>
+              </TooltipTrigger>
+              <TooltipContent>Send to the running turn</TooltipContent>
+            </Tooltip>
+          ) : (
+            <ChatComposerSubmit aria-label="Send" disabled={!canSend} />
+          )}
         </ChatComposerActions>
       </ChatComposerFooter>
     </ChatComposer>

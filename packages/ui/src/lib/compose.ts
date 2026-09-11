@@ -1,4 +1,4 @@
-import type { ImageMediaType } from '@canopy/shared'
+import type { AgentCommand, AgentSubagent, ImageMediaType } from '@canopy/shared'
 
 import type { ChatComposerAttachmentKind } from '@/components/ui/chat-composer'
 
@@ -13,21 +13,109 @@ export interface Attachment {
   image?: { mediaType: ImageMediaType; data: string }
 }
 
-export interface SlashCommand {
+/** The `/` menu's sections, in the order they are listed. */
+export const COMMAND_GROUPS = ['Commands', 'Skills', 'Custom commands', 'Plugins', 'Canopy prompts'] as const
+export type CommandGroup = (typeof COMMAND_GROUPS)[number]
+
+/** One row of the `/` menu: a command the provider advertises, or one of Canopy's own prompts. */
+export interface CommandItem {
   id: string
-  label: string
+  group: CommandGroup
+  /** As typed after the slash. */
+  name: string
   description: string
-  /** The prompt inserted when picked. */
-  prompt: string
+  /** What follows the name, e.g. `<file>`; shown as the input's placeholder once picked. */
+  argumentHint?: string
+  aliases?: readonly string[]
+  /** Canopy prompts insert this text; a real command inserts `/name ` instead. */
+  prompt?: string
 }
 
-/** Canopy's `/` menu: review-oriented prompts the agent gets verbatim. */
-export const SLASH_COMMANDS: SlashCommand[] = [
-  { id: 'summarize', label: 'summarize', description: 'Summarize the changes on this branch', prompt: 'Summarize the changes on this branch in a few bullet points: what changed, why, and anything risky.' },
-  { id: 'explain', label: 'explain', description: 'Explain the current diff line by line where it matters', prompt: 'Walk me through the current diff. Focus on the parts a reviewer would question and explain the reasoning behind them.' },
-  { id: 'tests', label: 'tests', description: 'Ask which tests cover the change', prompt: 'Which tests cover the changes on this branch? Run them if you can and report what passed, failed, or is missing.' },
-  { id: 'risks', label: 'risks', description: 'List regressions this change could cause', prompt: 'List the regressions this change could plausibly cause and how you would verify each one.' }
+/** Canopy's own `/` entries: review-oriented prompts the agent gets verbatim. */
+export const CANOPY_PROMPTS: CommandItem[] = [
+  { id: 'canopy:summarize', group: 'Canopy prompts', name: 'summarize', description: 'Summarize the changes on this branch', prompt: 'Summarize the changes on this branch in a few bullet points: what changed, why, and anything risky.' },
+  { id: 'canopy:explain', group: 'Canopy prompts', name: 'explain', description: 'Explain the current diff line by line where it matters', prompt: 'Walk me through the current diff. Focus on the parts a reviewer would question and explain the reasoning behind them.' },
+  { id: 'canopy:tests', group: 'Canopy prompts', name: 'tests', description: 'Ask which tests cover the change', prompt: 'Which tests cover the changes on this branch? Run them if you can and report what passed, failed, or is missing.' },
+  { id: 'canopy:risks', group: 'Canopy prompts', name: 'risks', description: 'List regressions this change could cause', prompt: 'List the regressions this change could plausibly cause and how you would verify each one.' }
 ]
+
+/**
+ * Built-ins that do nothing useful from a remote UI: they drive a terminal's own chrome, set up a
+ * machine, or exist for the CLI's internals. The provider lists them all; this menu is not a
+ * terminal.
+ */
+const HIDDEN_BUILTINS = new Set([
+  // Measured on 2026-09-10 by sending each built-in through the SDK: these answer "not available
+  // in this environment" / "not available in the Agent SDK", or belong to the terminal process.
+  'help',
+  'fast',
+  'agents',
+  'color',
+  'heapdump',
+  'workflow-launch-exec',
+  // Their whole effect is a browser opening on the machine the daemon runs on.
+  'usage-credits',
+  'extra-usage',
+  // Interactive setup wizards, not something a turn can finish.
+  'import',
+  'auto-mode-setup',
+  'design',
+  'design-consent',
+  'design-revoke',
+  'team-onboarding',
+  // A loop lives in the CLI process, which ends with the turn here.
+  'loop'
+])
+
+const GROUP_OF: Record<AgentCommand['source'], CommandGroup | null> = {
+  builtin: 'Commands',
+  skill: 'Skills',
+  custom: 'Custom commands',
+  plugin: 'Plugins',
+  // Terminal commands are bound to a terminal's UX; nothing here can run them.
+  terminal: null
+}
+
+/** Whether the `/` menu leaves a command out entirely. */
+export function isHiddenCommand(command: AgentCommand): boolean {
+  if (GROUP_OF[command.source] === null) return true
+  if (command.name.startsWith('__')) return true
+  return command.source === 'builtin' && HIDDEN_BUILTINS.has(command.name)
+}
+
+/**
+ * The `/` menu: what the provider advertises, grouped and ordered, with Canopy's own prompts last.
+ * SearchableListbox has no group headers, so the order is the grouping — each row wears its
+ * group's name as a tag.
+ */
+export function commandMenu(commands: readonly AgentCommand[] | undefined): CommandItem[] {
+  const advertised = (commands ?? []).filter((command) => !isHiddenCommand(command)).map(
+    (command): CommandItem => ({
+      id: `${command.source}:${command.name}`,
+      group: GROUP_OF[command.source] ?? 'Commands',
+      name: command.name,
+      description: command.description,
+      ...(command.argumentHint ? { argumentHint: command.argumentHint } : {}),
+      ...(command.aliases?.length ? { aliases: command.aliases } : {})
+    })
+  )
+  const rank = (item: CommandItem): number => COMMAND_GROUPS.indexOf(item.group)
+  return [...advertised, ...CANOPY_PROMPTS].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name))
+}
+
+/**
+ * `/clear` and its cousins end the conversation rather than saying something in it. Claude Code
+ * handles them inside its own process, so Canopy answers them the way it can: a new session.
+ */
+export function isNewSessionCommand(draft: string): boolean {
+  return /^\/(clear|reset|new)\b\s*$/.test(draft.trim())
+}
+
+/** The `@` menu's rows: the worktree's changed files, then the subagents the session can address. */
+export type MentionItem = { kind: 'file'; id: string; path: string } | { kind: 'agent'; id: string; agent: AgentSubagent }
+
+/** `@agent-<name> ` — the CLI's own syntax for addressing a subagent, so it belongs in the text. */
+export const agentMention = (name: string): string => `@agent-${name} `
 
 /** Renders one attachment as the agent should read it. */
 const RENDER: Record<ChatComposerAttachmentKind, (a: Attachment) => string> = {

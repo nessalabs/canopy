@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -70,6 +70,40 @@ describe('edit diffs from hooks', () => {
     await server.call('POST', '/api/v1/hooks/claude', hook('PostToolUse', '/somewhere/else', 'tu-3', { command: 'ls' }))
     const { body } = await server.call('GET', '/api/v1/agent/sessions/claude/sess-1/edits')
     expect(body.edits).toEqual([])
+  })
+
+  it('puts the checkout back to a snapshot, restoring from the root whatever the session cwd', async () => {
+    const input = { command: 'edit' }
+    await server.call('POST', '/api/v1/hooks/claude', hook('PreToolUse', repo.path, 'tu-4', input))
+    writeFileSync(join(repo.path, 'src/a.ts'), 'export const a = 2\n')
+    writeFileSync(join(repo.path, 'src/new.ts'), 'new\n')
+    await server.call('POST', '/api/v1/hooks/claude', hook('PostToolUse', repo.path, 'tu-4', input))
+    const [edit] = (await server.call('GET', '/api/v1/agent/sessions/claude/sess-1/edits')).body.edits
+
+    const rewind = await server.call('POST', '/api/v1/agent/sessions/claude/sess-1/rewind', { messageId: 'u-1', cwd: join(repo.path, 'src'), tree: edit.beforeTree })
+    expect(rewind.status).toBe(200)
+    expect(rewind.body).toMatchObject({ source: 'snapshot', canRewind: true, filesChanged: ['src/a.ts', 'src/new.ts'] })
+    expect(readFileSync(join(repo.path, 'src/a.ts'), 'utf8')).toBe('export const a = 1\n')
+    expect(existsSync(join(repo.path, 'src/new.ts'))).toBe(false)
+  })
+
+  it('refuses a tree its hooks never snapshotted, even one the repo holds', async () => {
+    // Every commit has a tree; restoring to one would be a checkout, not a rewind.
+    const head = (await repo.git('rev-parse', 'HEAD^{tree}')).trim()
+    writeFileSync(join(repo.path, 'src/a.ts'), 'export const a = 2\n')
+    const { status, body } = await server.call('POST', '/api/v1/agent/sessions/claude/sess-1/rewind', { messageId: 'u-1', cwd: repo.path, tree: head })
+    expect(status).toBe(200)
+    expect(body).toMatchObject({ source: 'snapshot', canRewind: false, filesChanged: [] })
+    expect(readFileSync(join(repo.path, 'src/a.ts'), 'utf8')).toBe('export const a = 2\n')
+  })
+
+  it('refuses a cwd that only starts with a managed worktree path', async () => {
+    const tree = (await repo.git('rev-parse', 'HEAD^{tree}')).trim()
+    for (const cwd of [join(repo.path, '..', 'outside'), `${repo.path}/../outside`, `${repo.path}-sibling`]) {
+      const { status, body } = await server.call('POST', '/api/v1/agent/sessions/claude/sess-1/rewind', { messageId: 'u-1', cwd, tree })
+      expect(status, cwd).toBe(400)
+      expect(body.error.code).toBe('unknown_worktree')
+    }
   })
 
   it('rejects a malformed hook payload with 400', async () => {

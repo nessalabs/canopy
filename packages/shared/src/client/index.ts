@@ -2,6 +2,7 @@ import { ApiError, ApiErrorBody } from '../api/errors'
 import { routes } from '../api/routes'
 import type {
   AdoptWorktreeInput,
+  AgentCapabilities,
   AgentEditsResponse,
   AppSettings,
   AppSettingsPatch,
@@ -20,7 +21,10 @@ import type {
   ProjectSettings,
   ProjectSettingsPatch,
   ProvisionInput,
+  QueueMessageInput,
   ResourcesResponse,
+  RewindInput,
+  RewindResult,
   ServiceAction,
   WorktreeEnvironment,
   TreesResponse,
@@ -46,6 +50,7 @@ import type {
   DiffSpec,
   FileContents,
   FilePatch,
+  LiveControlsInput,
   LogResponse,
   NewSessionInput,
   PermissionDecisionInput,
@@ -211,6 +216,17 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
       stream(routes.review(worktreeId), input, signal),
     /** Answers a tool-permission ask (`permission_requested`) of the turn running in `ref`. */
     answerPermission: (ref: SessionRef, input: PermissionDecisionInput) => post<void>(routes.permissions(ref.provider, ref.sessionId), input),
+    /** What a session of `provider` in this worktree can do; `sessionId` reads as of that session where supported. */
+    agentCapabilities: (worktreeId: string, provider: AgentProvider, opts: { sessionId?: string; refresh?: boolean } = {}) =>
+      get<AgentCapabilities>(routes.agentCapabilities(worktreeId), { provider, session: opts.sessionId, refresh: opts.refresh ? 1 : undefined }),
+    /** Interrupts the turn running in `ref`; its stream ends with what the agent got done. 404 when nothing is running. */
+    interruptTurn: (ref: SessionRef) => post<void>(routes.interrupt(ref.provider, ref.sessionId), {}),
+    /** Queues a prompt into the turn running in `ref`. 404 when nothing is running. */
+    queueMessage: (ref: SessionRef, input: QueueMessageInput) => post<void>(routes.queue(ref.provider, ref.sessionId), input),
+    /** Restores files to before a user message of `ref`; `dryRun` only reports what would change. */
+    rewindFiles: (ref: SessionRef, input: RewindInput) => post<RewindResult>(routes.rewind(ref.provider, ref.sessionId), input),
+    /** Changes the running turn's model / access mode from its next model call on. 404 when nothing is running. */
+    updateLiveControls: (ref: SessionRef, input: LiveControlsInput) => request<void>('PATCH', routes.liveControls(ref.provider, ref.sessionId), input),
 
     // ---- environment & resources ----
     host: () => get<HostInfo>(routes.host()),

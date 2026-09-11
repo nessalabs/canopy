@@ -50,6 +50,16 @@ item lands, delete it here.
   thinking and `ToolCall` rows; delegated runs are `AgentActivityCard`s. The grouping is
   `lib/turn-beats.ts` over `lib/turn-rows.ts`. Cue labels are Canopy's own wording (nessa's
   `formatAgentActivitySummary` has no running tense) — upstream a `running` flag and re-use it.
+- Claude Code parity (2026-09-10): every turn runs in the SDK's streaming-input mode so the
+  daemon can `interrupt()`, queue a prompt into the running turn and switch model / access mode
+  mid-turn (`agents/claude-live.ts`); the `/` menu, `@agent-<name>` mentions, model catalog,
+  session sheet (skills, subagents, MCP status, hooks, plugins) come from
+  `GET …/agent/capabilities` (`agents/claude-capabilities.ts`: an idle-query probe per checkout,
+  cached, plus whatever the last live turn's `init` advertised). Which built-ins work headless is
+  recorded in `docs/plans/agent-claude-features.md`; `lib/compose.ts` hides the rest.
+  Not done: `effort` cannot change mid-turn (the SDK has no control for it), `/loop` and
+  `/fast` have no headless equivalent, file-checkpoint rewind (`rewindFiles`) is not surfaced —
+  Canopy's own per-turn snapshots cover that ground.
 - Tool permissions: for `edit`/`read-only` autonomy the daemon routes the SDK's `canUseTool` ask to
   the UI as a `permission_requested` event and a nessa `ToolApproval` card answers it through
   `POST …/permissions`. Codex approvals are still auto-answered by autonomy (see Codex below).

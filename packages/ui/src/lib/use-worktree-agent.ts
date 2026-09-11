@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AgentProvider, Autonomy, Effort, SessionRef, TurnOptions, Worktree } from '@canopy/shared'
 
-import { useAgentSessions, usePinSession, useTranscript } from './api-hooks'
+import { useAgentCapabilities, useAgentSessions, usePinSession, useTranscript } from './api-hooks'
 import { modelAlias } from './models'
 import { useAgentTurn } from './use-agent-turn'
 
@@ -61,6 +61,18 @@ export function useWorktreeAgent(worktree: Worktree) {
   const options = useMemo<TurnOptions>(() => ({ autonomy, model, effort }), [autonomy, model, effort])
   const turn = useAgentTurn(worktree.id, ref, fresh, worktree.path, options)
   busyRef.current = turn.busy
+  // What this provider can do in this checkout: the `/` and `@` menus, the model list, the details sheet.
+  const capabilities = useAgentCapabilities(worktree.id, selected?.provider ?? fresh, selected?.sessionId)
+
+  // A knob moved mid-turn is meant for the turn on screen, so it goes to the running one as well.
+  const chooseModel = (next: string): void => {
+    setModel(next)
+    if (turn.busy) void turn.setLiveControls({ model: next })
+  }
+  const chooseAutonomy = (next: Autonomy): void => {
+    setAutonomy(next)
+    if (turn.busy) void turn.setLiveControls({ autonomy: next })
+  }
 
   // The new session exists once its first turn ends: list it, then make it the selection.
   const createdId = fresh && !turn.busy ? turn.sessionId : null
@@ -69,7 +81,24 @@ export function useWorktreeAgent(worktree: Worktree) {
     void sessions.refetch().then(() => select({ provider: fresh, sessionId: createdId }))
   }, [createdId])
 
-  return { sessions: list, selected, select, fresh, startSession, history, autonomy, setAutonomy, model, setModel, effort, setEffort, loading: sessions.isPending, error: sessions.error, turn }
+  return {
+    sessions: list,
+    selected,
+    select,
+    fresh,
+    startSession,
+    history,
+    capabilities: capabilities.data,
+    autonomy,
+    setAutonomy: chooseAutonomy,
+    model,
+    setModel: chooseModel,
+    effort,
+    setEffort,
+    loading: sessions.isPending,
+    error: sessions.error,
+    turn
+  }
 }
 
 export type WorktreeAgent = ReturnType<typeof useWorktreeAgent>

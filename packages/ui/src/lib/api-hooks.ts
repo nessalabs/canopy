@@ -4,6 +4,7 @@ import { type UseMutationOptions, useInfiniteQuery, useIsMutating, useMutation, 
 import type {
   AddCommentInput,
   AddProjectInput,
+  AgentProvider,
   AdoptWorktreeInput,
   AppSettingsPatch,
   ChangesResponse,
@@ -20,6 +21,7 @@ import type {
   OpenInput,
   ProjectSettingsPatch,
   ProvisionInput,
+  RewindInput,
   ServiceAction,
   SessionRef,
   UpdateProjectInput
@@ -178,6 +180,23 @@ export const useAgentEdits = (ref: SessionRef | undefined) => {
     enabled: ref !== undefined,
     refetchInterval: 5_000,
     refetchIntervalInBackground: false
+  })
+}
+
+/**
+ * What the provider says a session in this checkout can do: slash commands, skills, subagents,
+ * models, MCP servers, hooks. The daemon probes the CLI for this, so it is read once and kept —
+ * a finished turn invalidates it, because a live turn's own advertisement is fresher than a probe.
+ */
+export const useAgentCapabilities = (worktreeId: string, provider: AgentProvider | undefined, sessionId?: string) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.capabilities(worktreeId, provider ?? 'none', sessionId),
+    queryFn: () => api.agentCapabilities(worktreeId, provider as AgentProvider, { sessionId }),
+    enabled: provider !== undefined,
+    staleTime: 5 * 60_000,
+    // A daemon that cannot reach the CLI will not answer on a second try either.
+    retry: 1
   })
 }
 
@@ -537,6 +556,20 @@ export const useMergeWorktree = (worktreeId: string) => {
     keys.worktree(worktreeId),
     keys.worktrees
   ])
+}
+
+/**
+ * Puts the files a turn changed back to how they were before it ran. A dry run only reports, so it
+ * invalidates nothing; a real one rewrites the checkout, which every diff read of that worktree —
+ * the Git Diff tab's and the turn panel's tree diff alike — has to be told about. The transcript
+ * is deliberately left alone: the conversation still happened.
+ */
+export const useRewindFiles = (worktreeId: string, ref: SessionRef | undefined) => {
+  const api = useApi()
+  return useInvalidating(
+    (input: RewindInput) => (ref ? api.rewindFiles(ref, input) : Promise.reject(new Error('No agent session to rewind.'))),
+    (input) => (input.dryRun ? [] : [['diff-files', worktreeId], keys.worktree(worktreeId), keys.worktrees])
+  )
 }
 
 /** Locally hidden paths — its own read, so the changes poll never pays for it. */

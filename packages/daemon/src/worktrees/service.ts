@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 
 import type { Database } from 'better-sqlite3'
 
@@ -100,8 +100,11 @@ export class WorktreesService {
 
   /** The worktree whose checkout holds `cwd` (deepest match), or undefined when Canopy does not manage it. */
   containing(cwd: string): WorktreeRow | undefined {
+    // Lexically canonical first: `<worktree>/../elsewhere` starts with the worktree's path and is
+    // not inside it. Callers that go on to use the path must use the canonical form too.
+    const target = resolve(cwd)
     const rows = this.db.prepare('SELECT * FROM worktrees WHERE missing = 0 ORDER BY length(path) DESC').all() as WorktreeRow[]
-    return rows.find((row) => cwd === row.path || cwd.startsWith(`${row.path}/`))
+    return rows.find((row) => target === row.path || target.startsWith(`${row.path}/`))
   }
 
   /**

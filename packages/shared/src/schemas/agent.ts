@@ -60,6 +60,17 @@ export const TurnAttachment = z.object({ kind: z.string(), label: z.string(), te
 export type TurnAttachment = z.infer<typeof TurnAttachment>
 
 /**
+ * What Canopy knows about an event beyond its payload, keyed by the event's id: the images a user
+ * turn carried, and the provider's own id for a user message — what a file rewind is addressed by.
+ */
+export const TurnExtras = z.object({
+  images: z.array(TurnImage).optional(),
+  /** The provider's uuid for this `user_message`, as the session file stores it. */
+  messageId: z.string().optional()
+})
+export type TurnExtras = z.infer<typeof TurnExtras>
+
+/**
  * One normalized agent-stream event as it crosses the wire. Only the envelope is validated; the
  * payload is a 28-arm union owned by the vendored parser, and a daemon newer than this client may
  * emit payload kinds it has never heard of — the fold renders those as nothing rather than failing
@@ -87,8 +98,8 @@ export const TranscriptResponse = z.object({
   events: z.array(AgentEventFrame),
   /** Absolute paths each tool call wrote, by `callId` — edit-tool inputs or shell write targets. */
   files: z.record(z.string(), z.array(z.string())),
-  /** Canopy-only data hung off an event: the images a user turn carried. */
-  extras: z.record(z.string(), z.object({ images: z.array(TurnImage) })),
+  /** Canopy-only data hung off an event, by event id (see `TurnExtras`). */
+  extras: z.record(z.string(), TurnExtras),
   /** Model id of the last assistant turn (e.g. `claude-opus-5`). */
   model: z.string().optional(),
   effort: Effort.optional(),
@@ -111,6 +122,22 @@ export const AgentStreamEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('files'), callId: z.string(), files: z.array(z.string()) }),
   /** Output tokens produced so far this turn; drives the live status line. */
   z.object({ type: z.literal('progress'), tokens: z.number() }),
+  /** The provider's own id for a `user_message` event of this turn — what a rewind names. */
+  z.object({ type: z.literal('message_id'), eventId: z.string(), messageId: z.string() }),
+  /**
+   * What the turn cost, from the SDK's result: an estimate in USD (absent on subscription
+   * sessions where the CLI reports none), and how full the context window was on the last call.
+   */
+  z.object({
+    type: z.literal('usage'),
+    costUsd: z.number().nonnegative().optional(),
+    inputTokens: z.number().int().nonnegative().optional(),
+    outputTokens: z.number().int().nonnegative().optional(),
+    /** Tokens the last model call carried as context: input plus cache reads and writes. */
+    contextTokens: z.number().int().nonnegative().optional(),
+    contextWindow: z.number().int().positive().optional(),
+    durationMs: z.number().int().nonnegative().optional()
+  }),
   z.object({ type: z.literal('done'), sessionId: z.string() }),
   z.object({ type: z.literal('error'), message: z.string() })
 ])
@@ -140,6 +167,162 @@ export type PermissionDecisionInput = z.infer<typeof PermissionDecisionInput>
 /** First turn of a brand-new session; it runs in the worktree's checkout. */
 export const NewSessionInput = SendMessageInput.omit({ cwd: true }).extend({ provider: AgentProvider })
 export type NewSessionInput = z.infer<typeof NewSessionInput>
+
+// ---- what a session can do ----
+
+/**
+ * Where a slash command comes from, which is what the composer groups by.
+ * `builtin` — Claude Code's own (`/compact`, `/context`, `/model`, …); `custom` — a `.claude/commands`
+ * prompt of the user or project; `skill` — a SKILL.md; `plugin` — a `plugin:command`; `terminal` —
+ * bound to a terminal's UX (`/color`, `/exit`), which a remote UI hides.
+ */
+export const CommandSource = z.enum(['builtin', 'custom', 'skill', 'plugin', 'terminal'])
+export type CommandSource = z.infer<typeof CommandSource>
+
+export const AgentCommand = z.object({
+  /** As typed, without the leading slash. */
+  name: z.string(),
+  description: z.string(),
+  /** Placeholder for what follows the name, e.g. `<file>`; empty when the command takes nothing. */
+  argumentHint: z.string().optional(),
+  aliases: z.array(z.string()).optional(),
+  source: CommandSource,
+  /** The plugin supplying a `plugin:command`. */
+  plugin: z.string().optional()
+})
+export type AgentCommand = z.infer<typeof AgentCommand>
+
+export const AgentSkill = z.object({ name: z.string(), description: z.string().optional() })
+export type AgentSkill = z.infer<typeof AgentSkill>
+
+/** A subagent the session can delegate to, by `@agent-<name>` in a prompt or by the model's own choice. */
+export const AgentSubagent = z.object({ name: z.string(), description: z.string(), model: z.string().optional() })
+export type AgentSubagent = z.infer<typeof AgentSubagent>
+
+export const AgentModel = z.object({
+  /** What `model` accepts: an alias (`opus`) or a full id. */
+  id: z.string(),
+  label: z.string(),
+  description: z.string().optional(),
+  /** The wire id the alias resolves to, so a session's detected model can be matched to its row. */
+  resolvedModel: z.string().optional(),
+  /** Empty when the model takes no effort parameter. */
+  effortLevels: z.array(Effort)
+})
+export type AgentModel = z.infer<typeof AgentModel>
+
+export const AgentMcpServer = z.object({ name: z.string(), status: z.string() })
+export type AgentMcpServer = z.infer<typeof AgentMcpServer>
+
+/** One hook as configured in settings: which event, an optional tool matcher, and what runs. */
+export const AgentHook = z.object({
+  event: z.string(),
+  matcher: z.string().optional(),
+  /** `command`, `http`, `prompt`, `agent`, `mcp_tool`, … */
+  kind: z.string(),
+  /** The command line or URL, for the kinds that have one. */
+  target: z.string().optional(),
+  /** Which settings file supplied it: `user`, `project`, `local`, `managed`, `flag`. */
+  source: z.string().optional()
+})
+export type AgentHook = z.infer<typeof AgentHook>
+
+export const AgentPlugin = z.object({ name: z.string(), version: z.string().optional(), path: z.string().optional() })
+export type AgentPlugin = z.infer<typeof AgentPlugin>
+
+export const AgentAccount = z.object({ email: z.string().optional(), organization: z.string().optional(), subscriptionType: z.string().optional() })
+export type AgentAccount = z.infer<typeof AgentAccount>
+
+/**
+ * Everything a provider advertises about what a session in this checkout can do: the same lists
+ * a terminal's `/` and `@` menus, `/model`, `/mcp`, `/agents` and `/hooks` show. Read lazily and
+ * cached per checkout by the daemon; a live turn's own advertisement refreshes it.
+ */
+export const AgentCapabilities = z.object({
+  provider: AgentProvider,
+  cwd: z.string(),
+  /** Provider version, e.g. the Claude Code CLI's. */
+  version: z.string().optional(),
+  model: z.string().optional(),
+  permissionMode: z.string().optional(),
+  outputStyle: z.string().optional(),
+  outputStyles: z.array(z.string()),
+  account: AgentAccount.optional(),
+  commands: z.array(AgentCommand),
+  skills: z.array(AgentSkill),
+  agents: z.array(AgentSubagent),
+  models: z.array(AgentModel),
+  mcpServers: z.array(AgentMcpServer),
+  tools: z.array(z.string()),
+  plugins: z.array(AgentPlugin),
+  hooks: z.array(AgentHook),
+  readAt: Millis
+})
+export type AgentCapabilities = z.infer<typeof AgentCapabilities>
+
+export const CapabilitiesQuery = z.object({
+  provider: AgentProvider,
+  /** Read as of this session where the provider can; otherwise the checkout's defaults. */
+  session: z.string().optional(),
+  /** `1` / `true` bypasses the daemon's cache. */
+  refresh: z
+    .enum(['1', 'true', '0', 'false'])
+    .transform((value) => value === '1' || value === 'true')
+    .optional()
+})
+export type CapabilitiesQuery = z.infer<typeof CapabilitiesQuery>
+
+// ---- controlling a running turn ----
+
+/** A prompt typed while a turn is running; the provider folds it into that turn. */
+export const QueueMessageInput = z.object({
+  text: z.string().min(1),
+  images: z.array(TurnImage.omit({ label: true })).optional()
+})
+export type QueueMessageInput = z.infer<typeof QueueMessageInput>
+
+/** Knobs that take effect mid-turn on the session's next model call. */
+export const LiveControlsInput = z
+  .object({
+    model: z.string().min(1).optional(),
+    autonomy: Autonomy.optional()
+  })
+  .refine((input) => input.model !== undefined || input.autonomy !== undefined, { message: 'nothing to change: give a model or an autonomy' })
+export type LiveControlsInput = z.infer<typeof LiveControlsInput>
+
+// ---- rewinding files ----
+
+/**
+ * Puts the worktree's files back to how they were before a user message was answered.
+ *
+ * Two mechanisms, and the caller picks by what it knows. With `tree` — the worktree tree Canopy's
+ * hooks snapshotted before the turn's first write — every path that differs today is restored
+ * from that tree, shell side effects included. Without it, the provider's own checkpoint is used
+ * (Claude Code's `/rewind`), which covers only what its file tools wrote. `dryRun` reports what
+ * would change and touches nothing.
+ */
+export const RewindInput = z.object({
+  /** The `messageId` of the turn's `user_message` (see `TurnExtras`). */
+  messageId: z.string().min(1),
+  /** The worktree checkout the session ran in. */
+  cwd: z.string().min(1),
+  dryRun: z.boolean().optional(),
+  /** Canopy's snapshot of the worktree before the turn wrote anything, when hooks recorded one. */
+  tree: z.string().regex(/^[0-9a-f]{40,64}$/).optional()
+})
+export type RewindInput = z.infer<typeof RewindInput>
+
+export const RewindResult = z.object({
+  source: z.enum(['snapshot', 'checkpoint']),
+  canRewind: z.boolean(),
+  /** Why not, when `canRewind` is false. */
+  error: z.string().optional(),
+  /** Paths relative to the checkout that were (or, on a dry run, would be) restored or removed. */
+  filesChanged: z.array(z.string()),
+  insertions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional()
+})
+export type RewindResult = z.infer<typeof RewindResult>
 
 /**
  * One file a tool call changed, as recorded by Canopy's hooks: the worktree trees before and
