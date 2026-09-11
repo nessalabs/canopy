@@ -110,11 +110,18 @@ function CopyAction({ text }: { text: string }): React.JSX.Element {
   )
 }
 
+/** What one turn wrote, for the pill under its prompt: how many files and, when they are in another checkout, which. */
+export interface TurnWrites {
+  count: number
+  /** The branch (or name) of the checkout the files are in, when it is not the one on screen. */
+  location?: string
+}
+
 /** A user turn: image previews, the typed text (image refs clickable), and on hover the files it changed. */
-function UserTurn({ text, images, files, turnKey, onReviewTurn, onRewindTurn }: {
+function UserTurn({ text, images, writes, turnKey, onReviewTurn, onRewindTurn }: {
   text: string
   images: TurnImage[]
-  files?: string[]
+  writes?: TurnWrites
   turnKey: string
   onReviewTurn: (key: string) => void
   /** Offered only for a turn the daemon can address — one whose provider message id is known. */
@@ -130,14 +137,16 @@ function UserTurn({ text, images, files, turnKey, onReviewTurn, onRewindTurn }: 
             <TextWithImageRefs text={text} images={images} onOpen={setViewer} />
           </MessageBubble>
         ) : null}
-        {text || files?.length ? (
+        {text || writes?.count ? (
           <MessageActions className="self-end">
-            {files?.length ? (
+            {writes?.count ? (
               <>
-                <span>{plural(files.length, 'file')} changed</span>
+                <span>
+                  {plural(writes.count, 'file')} changed{writes.location ? ` in ${writes.location}` : ''}
+                </span>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <MessageAction aria-label={`Show the ${plural(files.length, 'file')} this turn changed`} onClick={() => onReviewTurn(turnKey)}>
+                    <MessageAction aria-label={`Show the ${plural(writes.count, 'file')} this turn changed`} onClick={() => onReviewTurn(turnKey)}>
                       <FileDiff />
                     </MessageAction>
                   </TooltipTrigger>
@@ -572,7 +581,7 @@ export function TranscriptView({
   avatarSeed,
   capabilities,
   emptyMessage,
-  filesByTurn,
+  writesByTurn,
   openInTerminal,
   onReviewTurn,
   onRewindTurn,
@@ -599,8 +608,8 @@ export function TranscriptView({
   /** What the provider advertises for this checkout; names a session that has not run yet. */
   capabilities?: AgentCapabilities
   emptyMessage: React.ReactNode
-  /** Files each turn wrote, by turn key. */
-  filesByTurn: ReadonlyMap<string, string[]>
+  /** What each turn wrote, by turn key. */
+  writesByTurn: ReadonlyMap<string, TurnWrites>
   openInTerminal?: boolean
   onReviewTurn: (turnKey: string) => void
   /** Pins a turn and asks to put its files back; absent while no session can be addressed. */
@@ -698,7 +707,7 @@ export function TranscriptView({
                       <UserTurn
                         text={prompt.payload.text}
                         images={extras[prompt.id]?.images ?? []}
-                        files={filesByTurn.get(turn.key)}
+                        writes={writesByTurn.get(turn.key)}
                         turnKey={turn.key}
                         onReviewTurn={onReviewTurn}
                         {...(onRewindTurn && extras[prompt.id]?.messageId ? { onRewindTurn } : {})}

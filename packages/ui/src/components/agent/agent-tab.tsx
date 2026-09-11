@@ -9,10 +9,10 @@ import { ErrorNote } from '@/components/error-note'
 import { PanelShell, type PanelDef, type PanelRequest } from '@/components/panel-shell'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useIsMobile } from '@/components/ui/sidebar/sidebar-provider'
-import { useAgentEdits, useDiffFiles, useProviders } from '@/lib/api-hooks'
+import { useAgentEdits, useDiffFiles, useProviders, useWorktrees } from '@/lib/api-hooks'
 import { PaneSplitDirection, createAppShellLayout, setSplitWeights, splitPane, type AppShellLayout } from '@/lib/app-shell-layout'
 import { NO_MESSAGE_ID, rewindInputFor } from '@/lib/rewind'
-import { filesByTurn, mergeTurns, resolveTurn, snapshotsByTurn, type TurnEntry, type TurnPick } from '@/lib/turn-changes'
+import { filesByTurn, mergeTurns, resolveTurn, snapshotsByTurn, type Checkout, type TurnEntry, type TurnPick } from '@/lib/turn-changes'
 import { useTranscriptModel } from '@/lib/use-transcript-model'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
@@ -20,7 +20,7 @@ import { AgentComposer } from './composer'
 import { NewSessionButton } from './new-session-button'
 import { RewindDialog } from './rewind-dialog'
 import { SessionRail } from './session-rail'
-import { TranscriptView } from './transcript'
+import { TranscriptView, type TurnWrites } from './transcript'
 import { TurnChanges, type TurnReview } from './turn-changes'
 
 const LAYOUT_KEY = 'canopy-agent-layout-v3'
@@ -45,10 +45,15 @@ function emptyMessage(agent: WorktreeAgent, worktree: Worktree): string {
 const promptOf = (turn: Turn | undefined): string =>
   turn?.prompt && isEvent(turn.prompt, AgentEventType.UserMessage) ? turn.prompt.payload.text.trim() : ''
 
-const toReview = (entry: TurnEntry | undefined, turn: Turn | undefined): TurnReview => ({
+/** How a checkout is named on the pill and in the panel header: its branch, or its name without one. */
+const labelOf = (worktree: Worktree): string => worktree.branch ?? worktree.name
+
+const toReview = (entry: TurnEntry | undefined, turn: Turn | undefined, location: string | undefined): TurnReview => ({
   prompt: promptOf(turn),
   files: entry?.files ?? [],
-  ...(entry?.snapshot ? { snapshot: entry.snapshot } : {})
+  ...(entry?.snapshot ? { snapshot: entry.snapshot } : {}),
+  ...(location ? { location } : {}),
+  elsewhere: entry?.elsewhere ?? 0
 })
 
 export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: WorktreeAgent }): React.JSX.Element {
@@ -61,25 +66,47 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     [agent.selected?.provider, agent.selected?.sessionId]
   )
   const edits = useAgentEdits(sessionRef)
+  // A session is listed under the worktree it runs in, but a turn may write anywhere Canopy
+  // manages — a session run from the main checkout typically works in a worktree of its own — so
+  // writes are attributed to whichever checkout holds them. This one comes first: it is the one
+  // on screen, and what a relative path is relative to.
+  const worktrees = useWorktrees()
+  const checkouts = useMemo<Checkout[]>(
+    () => [worktree, ...(worktrees.data ?? []).filter((other) => other.id !== worktree.id)].map(({ id, path }) => ({ id, path })),
+    [worktree.id, worktree.path, worktrees.data]
+  )
+  const checkoutById = (id: string): Worktree => (id === worktree.id ? worktree : (worktrees.data?.find((other) => other.id === id) ?? worktree))
   // Exact snapshots (hooks) win; the transcript's named files fill in for turns without them.
   const byTurn = useMemo(
-    () => mergeTurns(filesByTurn(turns, model.filesByCall, worktree.path), snapshotsByTurn(turns, edits.data ?? [])),
-    [turns, model.filesByCall, worktree.path, edits.data]
+    () => mergeTurns(filesByTurn(turns, model.filesByCall, checkouts), snapshotsByTurn(turns, edits.data ?? []), worktree.id),
+    [turns, model.filesByCall, checkouts, edits.data, worktree.id]
   )
-  const filesOnly = useMemo(() => new Map([...byTurn].map(([key, entry]) => [key, entry.files])), [byTurn])
+  const writesByTurn = useMemo<ReadonlyMap<string, TurnWrites>>(
+    () =>
+      new Map(
+        [...byTurn].map(([key, entry]) => [
+          key,
+          { count: entry.files.length + entry.elsewhere, ...(entry.worktreeId === worktree.id ? {} : { location: labelOf(checkoutById(entry.worktreeId)) }) }
+        ])
+      ),
+    [byTurn, worktree.id, worktrees.data]
+  )
 
   // The changes panel follows the newest turn until a specific one is picked.
   const [pick, setPick] = useState<TurnPick>('latest')
   const turnKey = resolveTurn(pick, byTurn)
   const pickedTurn = turnKey ? turns.find((turn) => turn.key === turnKey) : undefined
-  const review = turnKey ? toReview(byTurn.get(turnKey), pickedTurn) : undefined
-  const latestCount = byTurn.get(resolveTurn('latest', byTurn) ?? '')?.files.length ?? 0
+  const pickedEntry = turnKey ? byTurn.get(turnKey) : undefined
+  // The checkout the picked turn's diff is read against — and rewound in — which need not be this one.
+  const target = pickedEntry ? checkoutById(pickedEntry.worktreeId) : worktree
+  const review = turnKey ? toReview(pickedEntry, pickedTurn, target.id === worktree.id ? undefined : labelOf(target)) : undefined
+  const latestCount = writesByTurn.get(resolveTurn('latest', byTurn) ?? '')?.count ?? 0
 
   // Rewinding the picked turn: addressed by the provider's id for its prompt, and restored from the
   // hook snapshot when one was recorded. Null means this turn cannot be rewound at all.
   const rewindInput = useMemo(
-    () => rewindInputFor(pickedTurn, model.extras, turnKey ? byTurn.get(turnKey)?.snapshot : undefined, worktree.path),
-    [pickedTurn, model.extras, byTurn, turnKey, worktree.path]
+    () => rewindInputFor(pickedTurn, model.extras, pickedEntry?.snapshot, target.path),
+    [pickedTurn, model.extras, pickedEntry, target.path]
   )
   const [rewindOpen, setRewindOpen] = useState(false)
   // Kept with the turn it ran on, so picking another turn does not inherit its confirmation line.
@@ -145,7 +172,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             avatarSeed={agent.selected?.sessionId ?? worktree.id}
             capabilities={agent.capabilities}
             emptyMessage={emptyMessage(agent, worktree)}
-            filesByTurn={filesOnly}
+            writesByTurn={writesByTurn}
             openInTerminal={agent.history.data?.openInTerminal}
             onReviewTurn={show}
             onRewindTurn={sessionRef ? askRewind : undefined}
@@ -173,7 +200,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
       render: () =>
         review ? (
           <TurnChanges
-            worktree={worktree}
+            worktree={target}
             review={review}
             rewind={{
               onRewind: () => setRewindOpen(true),
@@ -190,7 +217,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
 
   const rewindDialog = (
     <RewindDialog
-      worktreeId={worktree.id}
+      worktreeId={target.id}
       session={sessionRef}
       input={rewindInput}
       prompt={review?.prompt ?? ''}
