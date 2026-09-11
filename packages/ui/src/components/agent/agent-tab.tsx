@@ -84,6 +84,10 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     showChanges('open')
   }
 
+  // Text quoted out of the transcript, on its way to the composer, which clears it once it is a chip.
+  // The id makes a repeat quote of the same passage its own request rather than a no-op.
+  const [quote, setQuote] = useState<{ id: number; text: string }>()
+
   const panels: PanelDef[] = [
     {
       id: 'sessions',
@@ -120,6 +124,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             openInTerminal={agent.history.data?.openInTerminal}
             onReviewTurn={show}
             onAnswerPermission={agent.turn.answerPermission}
+            onQuote={(text) => setQuote({ id: Date.now(), text })}
             className="min-h-0 flex-1"
           />
           <AgentComposer
@@ -127,6 +132,8 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             changedFiles={changes.data?.files ?? []}
             placeholder={`Ask the agent about ${worktree.branch ?? worktree.name}`}
             latestChanges={{ count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }}
+            quote={quote}
+            onQuoteStaged={() => setQuote(undefined)}
           />
         </div>
       )

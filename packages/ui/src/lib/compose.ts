@@ -33,7 +33,7 @@ export const SLASH_COMMANDS: SlashCommand[] = [
 const RENDER: Record<ChatComposerAttachmentKind, (a: Attachment) => string> = {
   file: (a) => `- File: ${a.text}`,
   mention: (a) => `- File: ${a.text}`,
-  'pasted-text': (a) => `- Pasted text:\n\`\`\`\n${a.text}\n\`\`\``,
+  'pasted-text': (a) => `- ${a.label}:\n\`\`\`\n${a.text}\n\`\`\``,
   skill: (a) => `- ${a.text}`,
   plugin: (a) => `- ${a.text}`
 }

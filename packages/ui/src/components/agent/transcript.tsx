@@ -1,5 +1,5 @@
-import { useId, useMemo, useRef, useState } from 'react'
-import { FileDiff, FileText, Globe, Info, Pencil, Puzzle, Search, Terminal, Users, Wrench } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Check, Copy, FileDiff, FileText, Globe, Info, Pencil, Puzzle, Search, Terminal, Users, Wrench } from 'lucide-react'
 
 import type { PermissionDecisionInput, TurnImage } from '@canopy/shared'
 import { isHarnessText } from '@canopy/shared'
@@ -39,6 +39,7 @@ import type { Activity } from './activity-orb'
 import type { PendingPrompt } from '../../lib/use-agent-turn'
 import { TurnStatus } from './turn-status'
 import { ImageTiles, ImageViewer, TextWithImageRefs } from './image-strip'
+import { SelectionActions } from './selection-actions'
 
 const TOOL_ICON: Record<ToolKind, React.ReactNode> = {
   shell: <Terminal />,
@@ -67,6 +68,34 @@ const prettyInput = (input: unknown): string => {
 /** Which details the sheet is showing. Keys, not objects: the transcript is rebuilt per event and the sheet must follow. */
 type SheetTarget = { kind: 'beat'; key: string } | { kind: 'run'; callId: string } | { kind: 'session' }
 
+/** Puts a message's own text on the clipboard, flipping to a check for a moment as feedback. */
+function CopyAction({ text }: { text: string }): React.JSX.Element {
+  const [copied, setCopied] = useState(false)
+  const timer = useRef<number>(undefined)
+  useEffect(() => () => window.clearTimeout(timer.current), [])
+  const copy = (): void => {
+    // Clipboard access is absent in insecure contexts and writes can be denied.
+    navigator.clipboard
+      ?.writeText(text)
+      .then(() => {
+        setCopied(true)
+        window.clearTimeout(timer.current)
+        timer.current = window.setTimeout(() => setCopied(false), 2000)
+      })
+      .catch(() => {})
+  }
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <MessageAction aria-label={copied ? 'Copied' : 'Copy this message'} onClick={copy}>
+          {copied ? <Check /> : <Copy />}
+        </MessageAction>
+      </TooltipTrigger>
+      <TooltipContent>{copied ? 'Copied' : 'Copy this message'}</TooltipContent>
+    </Tooltip>
+  )
+}
+
 /** A user turn: image previews, the typed text (image refs clickable), and on hover the files it changed. */
 function UserTurn({ text, images, files, turnKey, onReviewTurn }: {
   text: string
@@ -85,17 +114,22 @@ function UserTurn({ text, images, files, turnKey, onReviewTurn }: {
             <TextWithImageRefs text={text} images={images} onOpen={setViewer} />
           </MessageBubble>
         ) : null}
-        {files?.length ? (
+        {text || files?.length ? (
           <MessageActions className="self-end">
-            <span>{plural(files.length, 'file')} changed</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <MessageAction aria-label={`Show the ${plural(files.length, 'file')} this turn changed`} onClick={() => onReviewTurn(turnKey)}>
-                  <FileDiff />
-                </MessageAction>
-              </TooltipTrigger>
-              <TooltipContent>Show code changes</TooltipContent>
-            </Tooltip>
+            {files?.length ? (
+              <>
+                <span>{plural(files.length, 'file')} changed</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <MessageAction aria-label={`Show the ${plural(files.length, 'file')} this turn changed`} onClick={() => onReviewTurn(turnKey)}>
+                      <FileDiff />
+                    </MessageAction>
+                  </TooltipTrigger>
+                  <TooltipContent>Show code changes</TooltipContent>
+                </Tooltip>
+              </>
+            ) : null}
+            {text ? <CopyAction text={text} /> : null}
           </MessageActions>
         ) : null}
         {images.length > 0 ? <ImageViewer images={images} index={viewer} onClose={() => setViewer(null)} /> : null}
@@ -113,6 +147,12 @@ function AssistantTurn({ text, avatarSeed, streaming }: { text: string; avatarSe
         <MessageBubble variant="muted" className="min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto">
           <MessageMarkdown className="text-sm" streaming={streaming}>{text}</MessageMarkdown>
         </MessageBubble>
+        {/* Copying half-arrived text would hand over a truncated answer, so the action waits for the end. */}
+        {streaming ? null : (
+          <MessageActions>
+            <CopyAction text={text} />
+          </MessageActions>
+        )}
       </MessageContent>
     </Message>
   )
@@ -402,6 +442,7 @@ export function TranscriptView({
   openInTerminal,
   onReviewTurn,
   onAnswerPermission,
+  onQuote,
   className
 }: {
   transcript: FoldedTranscript
@@ -422,6 +463,8 @@ export function TranscriptView({
   onReviewTurn: (turnKey: string) => void
   /** Answers a tool-permission ask of the running turn. */
   onAnswerPermission?: (input: PermissionDecisionInput) => void
+  /** Stages transcript text the reader selected as context on the composer. */
+  onQuote?: (text: string) => void
   className?: string
 }): React.JSX.Element {
   const turns = transcript.turns
@@ -432,6 +475,8 @@ export function TranscriptView({
   const [sheet, setSheet] = useState<SheetTarget | null>(null)
   const sheetId = useId()
   const rowRefs = useRef(new Map<string, HTMLElement>())
+  // Only text inside the conversation itself gets the selection popover.
+  const conversation = useRef<HTMLDivElement>(null)
   // Each turn's beats, with the closing text the fold lifted into `finalText` put back in place.
   const beatsByTurn = useMemo(() => {
     const rows = rowsByTurn(transcript)
@@ -482,7 +527,7 @@ export function TranscriptView({
       <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <MessageScroller className="min-h-0 min-w-0 flex-1">
           <MessageScrollerViewport>
-            <MessageScrollerContent aria-label="Agent conversation" className="max-w-full overflow-x-hidden">
+            <MessageScrollerContent ref={conversation} aria-label="Agent conversation" className="max-w-full overflow-x-hidden">
               <SessionLine session={transcript.session} openInTerminal={openInTerminal} open={sheet} sheetId={sheetId} onOpen={setSheet} />
               {empty ? <div className="rounded-xl border border-border py-10 text-center text-sm text-muted-foreground">{emptyMessage}</div> : null}
               {turns.map((turn) => {
@@ -518,6 +563,7 @@ export function TranscriptView({
             </MessageScrollerContent>
           </MessageScrollerViewport>
         </MessageScroller>
+        <SelectionActions host={conversation} onAsk={onQuote} />
         {sheet && sheetTitle !== null ? (
           <Sheet id={sheetId} label={sheetTitle} modal={false} onClose={() => setSheet(null)}>
             <SheetHandle />

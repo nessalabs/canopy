@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AtSign, Brain, FileDiff, Plus, Square } from 'lucide-react'
 
 import { ImageMediaType, type ChangedFile, type Effort } from '@canopy/shared'
@@ -55,13 +55,19 @@ export function AgentComposer({
   agent,
   changedFiles,
   placeholder,
-  latestChanges
+  latestChanges,
+  quote,
+  onQuoteStaged
 }: {
   agent: WorktreeAgent
   changedFiles: ChangedFile[]
   placeholder: string
   /** The changes panel: how many files the newest turn wrote, whether the panel is open, and the toggle. */
   latestChanges: { count: number; shown: boolean; onToggle: () => void }
+  /** Transcript text to stage as context. `id` changes per request, so the same text can be quoted twice. */
+  quote?: { id: number; text: string }
+  /** Fires once the quote is a chip, so the owner can drop it rather than hand it over again. */
+  onQuoteStaged?: () => void
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -74,6 +80,17 @@ export function AgentComposer({
   const remove = (id: string): void => setAttachments((current) => current.filter((a) => a.id !== id))
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
+
+  // A quote from the transcript arrives as a chip, with the cursor left in the input to ask about it.
+  // The id guard covers a repeat effect run; the owner dropping the quote covers a remount.
+  const staged = useRef<number>(undefined)
+  useEffect(() => {
+    if (!quote || staged.current === quote.id) return
+    staged.current = quote.id
+    add(attach('pasted-text', `Quoted from the transcript (${plural(quote.text.split('\n').length, 'line')})`, quote.text))
+    inputRef.current?.focus()
+    onQuoteStaged?.()
+  }, [quote, onQuoteStaged])
 
   const submit = (): void => {
     if (!canSend) return

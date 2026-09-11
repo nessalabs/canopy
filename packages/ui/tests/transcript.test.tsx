@@ -38,6 +38,17 @@ function stubBrowser(): void {
   Element.prototype.animate = (() => ({ cancel: () => undefined, finished: Promise.resolve(), onfinish: null })) as unknown as typeof Element.prototype.animate
   Element.prototype.scrollIntoView = () => undefined
   Element.prototype.scrollTo = () => undefined
+  // jsdom lays nothing out, so a Range has no box; the selection popover asks every one for its.
+  Range.prototype.getBoundingClientRect = (() => new DOMRect(10, 200, 80, 16)) as unknown as typeof Range.prototype.getBoundingClientRect
+}
+
+/** Selects a text node end to end, the way dragging across it would. */
+function select(node: Node): void {
+  const range = document.createRange()
+  range.selectNodeContents(node)
+  const selection = document.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
 }
 
 describe('TranscriptView', () => {
@@ -115,6 +126,47 @@ describe('TranscriptView', () => {
     ])
     expect(host.textContent).not.toContain('task-notification')
     expect(host.textContent).toContain('Noted.')
+  })
+
+  it('offers to copy what was said, on the prompt and the answer alike', async () => {
+    const writeText = vi.fn(() => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    render([prompt('look'), said('Found it.'), result('Found it.')])
+    const copies = [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Copy this message"]')]
+    expect(copies).toHaveLength(2)
+    act(() => copies[1]?.click())
+    expect(writeText).toHaveBeenCalledWith('Found it.')
+    await act(async () => undefined)
+    expect(copies[1]?.getAttribute('aria-label')).toBe('Copied')
+  })
+
+  it('offers the selected text to the composer, and only for a selection inside the conversation', () => {
+    const onQuote = vi.fn()
+    render([prompt('look'), said('Found it.'), result('Found it.')], { onQuote })
+    const pill = '[data-slot="selection-actions"]'
+    expect(document.querySelector(pill)).toBeNull()
+
+    const outside = document.createElement('p')
+    outside.textContent = 'not the conversation'
+    document.body.appendChild(outside)
+    act(() => {
+      select(outside.firstChild!)
+      document.dispatchEvent(new Event('pointerup', { bubbles: true }))
+    })
+    expect(document.querySelector(pill)).toBeNull()
+    outside.remove()
+
+    const answer = [...host.querySelectorAll('[data-testid="markdown"]')].at(-1)
+    act(() => {
+      select(answer!.firstChild!)
+      document.dispatchEvent(new Event('pointerup', { bubbles: true }))
+    })
+    const ask = document.querySelector<HTMLButtonElement>(`${pill} [aria-label="Ask the agent about the selected text"]`)
+    expect(ask).not.toBeNull()
+    act(() => ask?.click())
+    expect(onQuote).toHaveBeenCalledWith('Found it.')
+    // Acting on the selection puts the pill away.
+    expect(document.querySelector(pill)).toBeNull()
   })
 
   it('asks the user about a tool the agent may not run, and reports the answer', () => {
