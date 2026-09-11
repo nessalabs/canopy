@@ -35,7 +35,7 @@ import { beatLabel, beatsOf, type ActivityBeat, type Beat, type BeatCall } from 
 import { rowsByTurn } from '@/lib/turn-rows'
 import { cn } from '@/lib/utils'
 
-import type { Activity } from './activity-orb'
+import type { Activity } from './agent-avatar'
 import type { PendingPrompt } from '../../lib/use-agent-turn'
 import { TurnStatus } from './turn-status'
 import { ImageTiles, ImageViewer, TextWithImageRefs } from './image-strip'
@@ -558,7 +558,7 @@ export function TranscriptView({
               })}
               {pending ? <UserTurn text={pending.display.trim()} images={pending.images} turnKey="pending" onReviewTurn={() => {}} /> : null}
               {onAnswerPermission ? asks.map((ask) => <AskCard key={ask.id} ask={ask} onAnswer={onAnswerPermission} />) : null}
-              {activity && startedAt !== null && !streamingText && asks.length === 0 ? <TurnStatus activity={activity} startedAt={startedAt} tokens={tokens} /> : null}
+              {activity && startedAt !== null && !streamingText && asks.length === 0 ? <TurnStatus activity={activity} startedAt={startedAt} tokens={tokens} avatarSeed={avatarSeed} /> : null}
               {streamingText ? <AssistantTurn text={streamingText} avatarSeed={avatarSeed} streaming /> : null}
             </MessageScrollerContent>
           </MessageScrollerViewport>

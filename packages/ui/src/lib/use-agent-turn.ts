@@ -4,7 +4,7 @@ import { useCallback, useEffect, useReducer, useRef } from 'react'
 import type { AgentProvider, AgentStreamEvent, PermissionDecisionInput, ReviewRequest, SessionRef, TranscriptResponse, TurnAttachment, TurnImage, TurnOptions } from '@canopy/shared'
 import type { AgentEvent, AgentEventPayload } from '@canopy/shared/agent-stream'
 
-import type { Activity } from '../components/agent/activity-orb'
+import type { Activity } from '../components/agent/agent-avatar'
 
 import { useApi } from '../providers/api'
 import { keys } from './query-keys'
