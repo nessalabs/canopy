@@ -32,7 +32,7 @@ afterEach(() => {
 })
 
 const render = (node: React.ReactNode): void => act(() => root.render(node))
-const avatar = (): HTMLElement => host.querySelector('[data-slot=agent-avatar]') as HTMLElement
+const avatar = (): HTMLElement => host.querySelector('[data-slot=random-avatar]') as HTMLElement
 
 describe('AgentAvatar', () => {
   it("is nessa's painting at rest when the agent is idle", () => {
@@ -56,10 +56,14 @@ describe('AgentAvatar', () => {
 })
 
 describe('TurnStatus', () => {
-  it("shows the agent's own avatar in the avatar column, working", () => {
-    render(<TurnStatus activity="thinking" startedAt={Date.now()} tokens={0} avatarSeed="session-1" />)
+  it('is a running cue: small working avatar, shimmering verb, elapsed beside it', () => {
+    render(<TurnStatus activity="thinking" startedAt={Date.now() - 9000} tokens={242} avatarSeed="session-1" />)
+    const cue = host.querySelector('[data-slot=agent-activity-cue]') as HTMLElement
+    expect(cue.dataset['status']).toBe('running')
     expect(avatar().dataset['activity']).toBe('thinking')
     expect(avatar().getAttribute('aria-busy')).toBe('true')
-    expect(host.textContent).toContain('Thinking…')
+    // Nine seconds in, the verb has already rotated once.
+    expect(host.textContent).toContain('Pondering…')
+    expect(host.textContent).toContain('9s · 242 tokens')
   })
 })
