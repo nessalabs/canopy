@@ -61,10 +61,10 @@ function WindowRow({ window }: { window: UsageWindow }): React.JSX.Element {
 }
 
 /** A ranked list as a two-column table: the name in mono, its share right-aligned so the column reads at a glance. */
-function Ranking({ icon, label, shares }: { icon: React.ReactNode; label: string; shares: UsageShare[] }): React.JSX.Element | null {
+function Ranking({ icon, label, shares, className }: { icon: React.ReactNode; label: string; shares: UsageShare[]; className?: string }): React.JSX.Element | null {
   if (shares.length === 0) return null
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className={cn('flex min-w-0 flex-col gap-1', className)}>
       <div className="flex items-center gap-1.5 nessa-text-1 uppercase tracking-wide text-muted-foreground">
         <span className="[&>svg]:size-3" aria-hidden="true">
           {icon}
@@ -108,7 +108,8 @@ function PeriodCard({ period }: { period: UsagePeriod }): React.JSX.Element {
       <div className="grid gap-3 @md:grid-cols-2">
         <Ranking icon={<Puzzle />} label="Skills" shares={period.skills} />
         <Ranking icon={<Users />} label="Subagents" shares={period.subagents} />
-        <Ranking icon={<Webhook />} label="MCP servers" shares={period.mcpServers} />
+        {/* Server names are long (`plugin:playwright:playwright`), so this list gets the whole row. */}
+        <Ranking icon={<Webhook />} label="MCP servers" shares={period.mcpServers} className="@md:col-span-2" />
       </div>
     </section>
   )
