@@ -46,6 +46,14 @@ export const routes = {
   agentEdits: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/edits`,
   /** Answers a `permission_requested` event of a turn running in this session. */
   permissions: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/permissions`,
+  /** What a session in this worktree can do: commands, skills, subagents, models, MCP servers, hooks. */
+  agentCapabilities: (id: string) => `${API_PREFIX}/worktrees/${id}/agent/capabilities`,
+  /** Stops the turn running in this session the way Esc does in a terminal; the stream then ends normally. */
+  interrupt: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/interrupt`,
+  /** Hands a prompt to the running turn, the way typing while the agent works does in a terminal. */
+  queue: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/queue`,
+  /** Changes the model or access mode of the running turn for its next model call. */
+  liveControls: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/controls`,
   /** Claude Code PreToolUse/PostToolUse hook receiver (see bin/canopy-hook.mjs). */
   hooksClaude: () => `${API_PREFIX}/hooks/claude`,
 
