@@ -40,14 +40,21 @@ export function useContextWindow(usage: ContextUsage | null, model: string | und
   return model ? (readStored<Record<string, number>>(WINDOWS_KEY)?.[model] ?? null) : null
 }
 
-const RADIUS = 6
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS
+/**
+ * The wedge is a stroke as wide as its radius on a circle half the size of the disc: dashing that
+ * stroke fills the disc from the centre out, which is how a `<circle>` draws a pie without a path
+ * per fraction. The outline is a separate, thinner ring so the wedge reads against an empty disc.
+ */
+const DISC = 7
+const WEDGE = DISC / 2
+const WEDGE_LENGTH = 2 * Math.PI * WEDGE
 
 /**
  * How full the agent's context window is, as a small ring in the composer footer — the glance
- * that says whether to keep going, start fresh, or expect Claude Code to compact soon. Grey
- * while there is room, amber from 70%, red from 85%. Without a known window it shows the token
- * count alone and an empty ring, rather than a fraction of a guess.
+ * that says whether to keep going, start fresh, or expect Claude Code to compact soon. The disc
+ * fills clockwise with the share used — grey while there is room, amber from 70%, red from
+ * 85%. Without a known window it shows the token count alone and an empty disc, rather than a
+ * fraction of a guess.
  */
 export function ContextMeter({ usage, model, className }: { usage: ContextUsage | null; model?: string; className?: string }): React.JSX.Element | null {
   const window = useContextWindow(usage, model)
@@ -76,17 +83,17 @@ export function ContextMeter({ usage, model, className }: { usage: ContextUsage 
           )}
         >
           <svg viewBox="0 0 16 16" className="size-4 shrink-0 -rotate-90" aria-hidden="true">
-            <circle cx="8" cy="8" r={RADIUS} fill="none" stroke="currentColor" strokeWidth="2" className="opacity-20" />
+            <circle cx="8" cy="8" r={DISC} fill="currentColor" className="opacity-10" />
+            <circle cx="8" cy="8" r={DISC} fill="none" stroke="currentColor" strokeWidth="1" className="opacity-40" />
             <circle
               cx="8"
               cy="8"
-              r={RADIUS}
+              r={WEDGE}
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeDasharray={CIRCUMFERENCE}
-              strokeDashoffset={CIRCUMFERENCE * (1 - fraction)}
+              strokeWidth={DISC}
+              strokeDasharray={WEDGE_LENGTH}
+              strokeDashoffset={WEDGE_LENGTH * (1 - fraction)}
               className="transition-[stroke-dashoffset] duration-500 ease-out motion-reduce:transition-none"
             />
           </svg>
