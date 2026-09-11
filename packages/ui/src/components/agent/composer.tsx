@@ -50,7 +50,7 @@ const dataUrl = (image: NonNullable<Attachment['image']>): string => `data:${ima
 /** One `/` row: the command, what it does, what it takes, and which list it came from. */
 function CommandRow({ item }: { item: CommandItem }): React.JSX.Element {
   return (
-    <span className="flex min-w-0 flex-1 items-baseline gap-2">
+    <span className="flex w-full min-w-0 items-baseline gap-2">
       <span className="shrink-0 font-mono text-sm text-foreground">/{item.name}</span>
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{item.description}</span>
       {item.argumentHint ? <span className="shrink-0 font-mono text-[11px] text-muted-foreground">{item.argumentHint}</span> : null}
@@ -63,7 +63,7 @@ function CommandRow({ item }: { item: CommandItem }): React.JSX.Element {
 function MentionRow({ item }: { item: MentionItem }): React.JSX.Element {
   if (item.kind === 'file') return <span className="min-w-0 truncate font-mono text-sm">{item.path}</span>
   return (
-    <span className="flex min-w-0 flex-1 items-baseline gap-2">
+    <span className="flex w-full min-w-0 items-baseline gap-2">
       <Users aria-hidden="true" className="size-3.5 shrink-0 self-center text-muted-foreground" />
       <span className="shrink-0 font-mono text-sm text-foreground">@agent-{item.agent.name}</span>
       <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">{item.agent.description}</span>
