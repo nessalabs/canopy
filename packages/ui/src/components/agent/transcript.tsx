@@ -42,12 +42,14 @@ import { answerFor, answeredInput, parseAskQuestions, type AskQuestion } from '@
 import { plural } from '@/lib/format'
 import { beatLabel, beatsOf, type ActivityBeat, type Beat, type BeatCall } from '@/lib/turn-beats'
 import { rowsByTurn } from '@/lib/turn-rows'
+import { parseUsageReport } from '@/lib/usage-report'
 import { cn } from '@/lib/utils'
 
 import type { Activity } from './activity-orb'
 import type { PendingPrompt, TurnUsage } from '../../lib/use-agent-turn'
 import { SessionLine, SessionSheetBody } from './session-details'
 import { TurnStatus } from './turn-status'
+import { UsageCard } from './usage-card'
 import { ImageTiles, ImageViewer, TextWithImageRefs } from './image-strip'
 import { SelectionActions } from './selection-actions'
 
@@ -160,14 +162,15 @@ function UserTurn({ text, images, files, turnKey, onReviewTurn, onRewindTurn }: 
   )
 }
 
-/** An agent bubble; `streaming` marks text still arriving. */
+/** An agent bubble; `streaming` marks text still arriving. A finished `/usage` answer draws as its meters. */
 function AssistantTurn({ text, avatarSeed, streaming }: { text: string; avatarSeed: string; streaming?: boolean }): React.JSX.Element {
+  const usage = streaming ? null : parseUsageReport(text)
   return (
     <Message from="assistant">
       <RandomAvatar seed={avatarSeed} name="Agent" className="size-8 shrink-0 self-end rounded-full" />
-      <MessageContent>
-        <MessageBubble variant="muted" className="min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto">
-          <MessageMarkdown className="text-sm" streaming={streaming}>{text}</MessageMarkdown>
+      <MessageContent className={usage ? 'w-full max-w-full' : undefined}>
+        <MessageBubble variant="muted" className={cn('min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto', usage && 'w-full')}>
+          {usage ? <UsageCard report={usage} /> : <MessageMarkdown className="text-sm" streaming={streaming}>{text}</MessageMarkdown>}
         </MessageBubble>
         {/* Copying half-arrived text would hand over a truncated answer, so the action waits for the end. */}
         {streaming ? null : (
