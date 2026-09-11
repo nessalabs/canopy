@@ -89,6 +89,33 @@ function normalizeUsage(usage: JsonValue | undefined, costUsd: number | null): U
   }
 }
 
+/**
+ * The prompt size of one model call: what the model was given, so what the
+ * window holds. Null when the block reports none of the three input counters —
+ * the CLI's synthetic messages carry a usage block of zeros-and-nulls, and a
+ * confident zero there would show the window as empty mid-conversation.
+ */
+function promptTokens(usage: JsonValue | undefined): number | null {
+  const fields = asObject(usage)
+  if (fields === null) return null
+  const parts = [fields.input_tokens, fields.cache_read_input_tokens, fields.cache_creation_input_tokens]
+    .map(asNumber)
+    .filter((count): count is number => count !== null)
+  return parts.length === 0 ? null : parts.reduce((sum, count) => sum + count, 0)
+}
+
+/** The largest window any model on the result was given; null when the result names none. */
+function contextWindowOf(modelUsage: JsonValue | undefined): number | null {
+  const byModel = asObject(modelUsage)
+  if (byModel === null) return null
+  let widest: number | null = null
+  for (const entry of Object.values(byModel)) {
+    const window = asNumber(asRecord(entry).contextWindow)
+    if (window !== null && (widest === null || window > widest)) widest = window
+  }
+  return widest
+}
+
 /** Flattens either tool-result shape to text, and collects any images as `data:` URLs. */
 function readToolResult(block: Record<string, JsonValue>, sidecar: JsonValue | undefined): ToolResult {
   const content = block.content
@@ -190,6 +217,12 @@ export class ClaudeStreamMapper implements AgentStreamMapper {
    * the work this layer exists to do once.
    */
   private planSteps: PlanStep[] = []
+  /**
+   * Messages whose usage has been reported. Claude Code commits one `assistant`
+   * line per content block, every one carrying the same message-level usage,
+   * so a three-block message would otherwise report its context three times.
+   */
+  private readonly usageReported = new Set<string>()
   /** `TaskCreate` calls whose id has not come back yet, keyed by call id. */
   private readonly pendingPlanSteps = new Map<string, PlanStep>()
   private lastSession: SessionInfo | null = null
@@ -675,6 +708,16 @@ export class ClaudeStreamMapper implements AgentStreamMapper {
     const blocks = Array.isArray(message.content) ? message.content : []
     const events: AgentEvent[] = []
 
+    // The message's usage is the prompt this call was given, and so how full
+    // the window is right now — reported once per message, ahead of its blocks.
+    if (!this.usageReported.has(messageId)) {
+      const contextTokens = promptTokens(message.usage)
+      if (contextTokens !== null) {
+        this.usageReported.add(messageId)
+        events.push(this.build({ type: "context_usage", contextTokens, contextWindow: null }, sessionId, path, ts, raw))
+      }
+    }
+
     for (const entry of blocks) {
       const block = asRecord(entry)
       // Committed lines carry no index; it is derived by counting blocks per
@@ -777,7 +820,18 @@ export class ClaudeStreamMapper implements AgentStreamMapper {
     const terminalReason = asString(line.terminal_reason)
     const isError = line.is_error === true
     const status = isError ? "error" : terminalReason === "interrupted" ? "interrupted" : "completed"
-    return this.wrap(
+    const events: AgentEvent[] = []
+    // The result is the only line that says how wide the window is, and its
+    // per-request `iterations` end with the call the turn finished on. Either
+    // alone is worth reporting; a consumer keeps the latest of each.
+    const contextWindow = contextWindowOf(line.modelUsage)
+    const iterations = asArray(asObject(line.usage)?.iterations)
+    const contextTokens = promptTokens(iterations.at(-1))
+    if (contextWindow !== null || contextTokens !== null) {
+      events.push(this.build({ type: "context_usage", contextTokens, contextWindow }, sessionId, path, ts, raw))
+    }
+    events.push(
+      this.build(
       {
         type: "turn_completed",
         status,
@@ -800,7 +854,9 @@ export class ClaudeStreamMapper implements AgentStreamMapper {
       path,
       ts,
       raw,
+      ),
     )
+    return events
   }
 
   /**

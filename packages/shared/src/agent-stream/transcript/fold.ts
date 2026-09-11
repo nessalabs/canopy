@@ -374,3 +374,33 @@ export function isCompacting(events: readonly AgentEvent[]): boolean {
   }
   return compacting
 }
+
+/** How full the model's window is, as far as the stream has said. */
+export interface ContextUsage {
+  /** The prompt of the latest model call, or what a compaction left; null until a call reports one. */
+  readonly tokens: number | null
+  /** The model's window; null until a result states it. */
+  readonly window: number | null
+}
+
+/**
+ * The latest word on the window: the newest reported prompt size and the
+ * newest stated window, read independently because they arrive on different
+ * lines. A compaction boundary's `postTokens` counts as a fresh reading — the
+ * next model call will confirm it, but until then the old figure is exactly
+ * what compaction just made untrue. Null when nothing has been said at all.
+ */
+export function contextUsage(events: readonly AgentEvent[]): ContextUsage | null {
+  let tokens: number | null = null
+  let window: number | null = null
+  for (const event of events) {
+    const payload = event.payload
+    if (payload.type === "context_usage") {
+      if (payload.contextTokens !== null) tokens = payload.contextTokens
+      if (payload.contextWindow !== null) window = payload.contextWindow
+    } else if (payload.type === "context_compacted" && payload.postTokens !== null) {
+      tokens = payload.postTokens
+    }
+  }
+  return tokens === null && window === null ? null : { tokens, window }
+}
