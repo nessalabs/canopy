@@ -60,6 +60,17 @@ export const TurnAttachment = z.object({ kind: z.string(), label: z.string(), te
 export type TurnAttachment = z.infer<typeof TurnAttachment>
 
 /**
+ * What Canopy knows about an event beyond its payload, keyed by the event's id: the images a user
+ * turn carried, and the provider's own id for a user message — what a file rewind is addressed by.
+ */
+export const TurnExtras = z.object({
+  images: z.array(TurnImage).optional(),
+  /** The provider's uuid for this `user_message`, as the session file stores it. */
+  messageId: z.string().optional()
+})
+export type TurnExtras = z.infer<typeof TurnExtras>
+
+/**
  * One normalized agent-stream event as it crosses the wire. Only the envelope is validated; the
  * payload is a 28-arm union owned by the vendored parser, and a daemon newer than this client may
  * emit payload kinds it has never heard of — the fold renders those as nothing rather than failing
@@ -87,8 +98,8 @@ export const TranscriptResponse = z.object({
   events: z.array(AgentEventFrame),
   /** Absolute paths each tool call wrote, by `callId` — edit-tool inputs or shell write targets. */
   files: z.record(z.string(), z.array(z.string())),
-  /** Canopy-only data hung off an event: the images a user turn carried. */
-  extras: z.record(z.string(), z.object({ images: z.array(TurnImage) })),
+  /** Canopy-only data hung off an event, by event id (see `TurnExtras`). */
+  extras: z.record(z.string(), TurnExtras),
   /** Model id of the last assistant turn (e.g. `claude-opus-5`). */
   model: z.string().optional(),
   effort: Effort.optional(),
@@ -111,6 +122,8 @@ export const AgentStreamEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('files'), callId: z.string(), files: z.array(z.string()) }),
   /** Output tokens produced so far this turn; drives the live status line. */
   z.object({ type: z.literal('progress'), tokens: z.number() }),
+  /** The provider's own id for a `user_message` event of this turn — what a rewind names. */
+  z.object({ type: z.literal('message_id'), eventId: z.string(), messageId: z.string() }),
   /**
    * What the turn cost, from the SDK's result: an estimate in USD (absent on subscription
    * sessions where the CLI reports none), and how full the context window was on the last call.
@@ -276,6 +289,40 @@ export const LiveControlsInput = z
   })
   .refine((input) => input.model !== undefined || input.autonomy !== undefined, { message: 'nothing to change: give a model or an autonomy' })
 export type LiveControlsInput = z.infer<typeof LiveControlsInput>
+
+// ---- rewinding files ----
+
+/**
+ * Puts the worktree's files back to how they were before a user message was answered.
+ *
+ * Two mechanisms, and the caller picks by what it knows. With `tree` — the worktree tree Canopy's
+ * hooks snapshotted before the turn's first write — every path that differs today is restored
+ * from that tree, shell side effects included. Without it, the provider's own checkpoint is used
+ * (Claude Code's `/rewind`), which covers only what its file tools wrote. `dryRun` reports what
+ * would change and touches nothing.
+ */
+export const RewindInput = z.object({
+  /** The `messageId` of the turn's `user_message` (see `TurnExtras`). */
+  messageId: z.string().min(1),
+  /** The worktree checkout the session ran in. */
+  cwd: z.string().min(1),
+  dryRun: z.boolean().optional(),
+  /** Canopy's snapshot of the worktree before the turn wrote anything, when hooks recorded one. */
+  tree: z.string().regex(/^[0-9a-f]{40,64}$/).optional()
+})
+export type RewindInput = z.infer<typeof RewindInput>
+
+export const RewindResult = z.object({
+  source: z.enum(['snapshot', 'checkpoint']),
+  canRewind: z.boolean(),
+  /** Why not, when `canRewind` is false. */
+  error: z.string().optional(),
+  /** Paths relative to the checkout that were (or, on a dry run, would be) restored or removed. */
+  filesChanged: z.array(z.string()),
+  insertions: z.number().int().nonnegative().optional(),
+  deletions: z.number().int().nonnegative().optional()
+})
+export type RewindResult = z.infer<typeof RewindResult>
 
 /**
  * One file a tool call changed, as recorded by Canopy's hooks: the worktree trees before and

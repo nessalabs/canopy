@@ -52,6 +52,8 @@ export const routes = {
   interrupt: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/interrupt`,
   /** Hands a prompt to the running turn, the way typing while the agent works does in a terminal. */
   queue: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/queue`,
+  /** Restores the worktree's files to how they were before one of this session's user messages. */
+  rewind: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/rewind`,
   /** Changes the model or access mode of the running turn for its next model call. */
   liveControls: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/controls`,
   /** Claude Code PreToolUse/PostToolUse hook receiver (see bin/canopy-hook.mjs). */

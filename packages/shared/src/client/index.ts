@@ -21,6 +21,8 @@ import type {
   ProvisionInput,
   QueueMessageInput,
   ResourcesResponse,
+  RewindInput,
+  RewindResult,
   ServiceAction,
   WorktreeEnvironment,
   TreesResponse,
@@ -219,6 +221,8 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     interruptTurn: (ref: SessionRef) => post<void>(routes.interrupt(ref.provider, ref.sessionId), {}),
     /** Queues a prompt into the turn running in `ref`. 404 when nothing is running. */
     queueMessage: (ref: SessionRef, input: QueueMessageInput) => post<void>(routes.queue(ref.provider, ref.sessionId), input),
+    /** Restores files to before a user message of `ref`; `dryRun` only reports what would change. */
+    rewindFiles: (ref: SessionRef, input: RewindInput) => post<RewindResult>(routes.rewind(ref.provider, ref.sessionId), input),
     /** Changes the running turn's model / access mode from its next model call on. 404 when nothing is running. */
     updateLiveControls: (ref: SessionRef, input: LiveControlsInput) => request<void>('PATCH', routes.liveControls(ref.provider, ref.sessionId), input),
 
