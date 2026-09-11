@@ -1,20 +1,20 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Moon, Pause, Play, Shuffle, Sun } from 'lucide-react'
 
-import { ACTIVITY_MOTIONS, AVATAR_MOTIONS, AgentAvatar, type Activity, type AvatarMotion } from '@/components/agent/agent-avatar'
+import { ACTIVITY_TUNING, AgentAvatar, type Activity } from '@/components/agent/agent-avatar'
 import { TurnStatus } from '@/components/agent/turn-status'
 import { AgentActivity, AgentActivityTrigger } from '@/components/ui/agent-activity'
 import { Button } from '@/components/ui/button'
-import { RandomAvatar } from '@/components/ui/random-avatar'
+import { RandomAvatar, type RandomAvatarGround } from '@/components/ui/random-avatar'
 import { useTheme } from '@/lib/use-theme'
 import { cn } from '@/lib/utils'
 
 const ACTIVITIES: Activity[] = ['thinking', 'working', 'solving']
-const SIZES = [16, 20, 32, 48, 64, 96] as const
 const SEEDS = ['nessa', 'canopy', 'worktree-7', 'session-a1', 'claude', 'codex', 'birch', 'juniper']
-
-/** Literal classes, not a template: Tailwind only emits what it can read in the source. */
-const SIZE_CLASS: Record<number, string> = { 16: 'size-4', 20: 'size-5', 32: 'size-8', 48: 'size-12', 64: 'size-16', 96: 'size-24' }
+/** The rows nessa's own Tuning story uses, so the bench and the storybook agree. */
+const FLOODS = [0.25, 0.6, 1]
+const SPEEDS = [0.4, 1, 2.5]
+const BLEEDS = [0, 0.5, 1, 2]
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }): React.JSX.Element {
   return (
@@ -37,34 +37,40 @@ function Control({ label, children }: { label: string; children: React.ReactNode
   )
 }
 
+function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-5">
+      <span className="w-24 font-mono text-[11px] text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  )
+}
+
 const field = 'h-7 rounded-md border bg-background px-2 text-xs text-foreground'
 
 /**
- * A standalone bench for the agent avatar's motion: every motion alone, the activity presets
- * as the transcript renders them, and a composer for trying combinations across sizes, seeds
- * and both themes. Served at `/lab.html` by the web client's dev server; not part of the app.
+ * A standalone bench for the agent avatar: nessa's own working flood as each activity tunes it,
+ * the knobs behind it row by row, and the paint-on bloom — across seeds, both grounds and both
+ * themes. Served at `/lab.html` by the web client's dev server; not part of the app.
  */
 export function AvatarLab(): React.JSX.Element {
   const { theme, toggleTheme } = useTheme()
   const [seed, setSeed] = useState('nessa')
-  const [size, setSize] = useState<number>(64)
-  const [ground, setGround] = useState<'paper' | 'ink'>('paper')
+  const [ground, setGround] = useState<RandomAvatarGround>('paper')
   const [playing, setPlaying] = useState(true)
-  const [picked, setPicked] = useState<AvatarMotion[]>(['breathe', 'glow'])
-  const [cycleMs, setCycleMs] = useState(3200)
-  const [tideSpeed, setTideSpeed] = useState(1)
+  const [speed, setSpeed] = useState(1)
+  const [flood, setFlood] = useState(1)
+  const [bleed, setBleed] = useState(1)
+  const [take, setTake] = useState(0)
   const [startedAt] = useState(() => Date.now())
-  const composed = useMemo(() => (playing ? picked : []), [playing, picked])
-
-  const toggle = (motion: AvatarMotion): void =>
-    setPicked((current) => (current.includes(motion) ? current.filter((entry) => entry !== motion) : [...current, motion]))
+  const shown = SEEDS.slice(0, 6)
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-10 px-6 py-8 font-sans text-foreground">
       <header className="flex flex-wrap items-center gap-4">
         <div className="mr-auto">
-          <h1 className="text-lg font-semibold tracking-tight">Agent avatar motion</h1>
-          <p className="text-xs text-muted-foreground">The same seeded painting the transcript uses, given something to do while the agent works.</p>
+          <h1 className="text-lg font-semibold tracking-tight">Agent avatar</h1>
+          <p className="text-xs text-muted-foreground">Nessa's painting in its own working state, tuned per activity.</p>
         </div>
         <Control label="Seed">
           <input className={cn(field, 'w-32')} value={seed} onChange={(event) => setSeed(event.target.value)} />
@@ -72,17 +78,8 @@ export function AvatarLab(): React.JSX.Element {
             <Shuffle />
           </Button>
         </Control>
-        <Control label="Size">
-          <select className={field} value={size} onChange={(event) => setSize(Number(event.target.value))}>
-            {SIZES.map((option) => (
-              <option key={option} value={option}>
-                {option}px
-              </option>
-            ))}
-          </select>
-        </Control>
         <Control label="Ground">
-          <select className={field} value={ground} onChange={(event) => setGround(event.target.value as 'paper' | 'ink')}>
+          <select className={field} value={ground} onChange={(event) => setGround(event.target.value as RandomAvatarGround)}>
             <option value="paper">paper</option>
             <option value="ink">ink</option>
           </select>
@@ -109,7 +106,7 @@ export function AvatarLab(): React.JSX.Element {
         </div>
       </Section>
 
-      <Section title="Activity presets" hint="What each activity plays by default, at the sizes the transcript uses.">
+      <Section title="Per activity" hint="The speed and flood each activity sets, at the sizes the transcript uses and across seeds.">
         <div className="grid gap-4 sm:grid-cols-3">
           {ACTIVITIES.map((activity) => (
             <div key={activity} className="flex flex-col gap-4 rounded-xl border bg-card p-5">
@@ -118,64 +115,77 @@ export function AvatarLab(): React.JSX.Element {
                 <AgentAvatar seed={seed} ground={ground} activity={playing ? activity : null} className="size-8" />
                 <AgentAvatar seed={seed} ground={ground} activity={playing ? activity : null} className="size-4" />
               </div>
+              <div className="flex items-center gap-2">
+                {shown.map((entry) => (
+                  <AgentAvatar key={entry} seed={entry} ground={ground} activity={playing ? activity : null} className="size-6" />
+                ))}
+              </div>
               <div>
                 <div className="text-sm font-medium capitalize">{activity}</div>
-                <div className="font-mono text-[11px] text-muted-foreground">{ACTIVITY_MOTIONS[activity].join(' + ')}</div>
+                <div className="font-mono text-[11px] text-muted-foreground">
+                  speed {ACTIVITY_TUNING[activity].speed} · flood {ACTIVITY_TUNING[activity].flood}
+                </div>
               </div>
             </div>
           ))}
         </div>
       </Section>
 
-      <Section title="Each motion alone" hint="Click a card to add or remove it from the composition below.">
-        <div className="grid gap-4 sm:grid-cols-3">
-          {AVATAR_MOTIONS.map(({ motion, label, description }) => {
-            const on = picked.includes(motion)
-            return (
-              <button
-                key={motion}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggle(motion)}
-                className={cn(
-                  'flex flex-col items-start gap-4 rounded-xl border bg-card p-5 text-left transition-colors hover:bg-accent/40',
-                  on && 'border-ring ring-2 ring-ring/30'
-                )}
-              >
-                <div className="flex h-24 w-full items-center justify-center">
-                  <AgentAvatar seed={seed} ground={ground} motions={playing ? [motion] : []} cycleMs={cycleMs} tideSpeed={tideSpeed} className={SIZE_CLASS[size]} />
-                </div>
-                <div>
-                  <div className="text-sm font-medium">{label}</div>
-                  <div className="text-xs text-muted-foreground">{description}</div>
-                </div>
-              </button>
-            )
-          })}
+      <Section title="Tuning" hint="Nessa's own knobs, one per row, over the same six seeds. flood is how far a wash reaches; speed multiplies the cycle; bleed is how far pigment creeps at the edges.">
+        <div className="flex flex-col gap-5 rounded-xl border bg-card p-5">
+          {FLOODS.map((value) => (
+            <Row key={`flood-${value}`} label={`flood ${value}`}>
+              {shown.map((entry) => (
+                <RandomAvatar key={entry} seed={entry} ground={ground} flood={value} busy={playing} className="size-14" />
+              ))}
+            </Row>
+          ))}
+          {SPEEDS.map((value) => (
+            <Row key={`speed-${value}`} label={`speed ${value}`}>
+              {shown.map((entry) => (
+                <RandomAvatar key={entry} seed={entry} ground={ground} speed={value} busy={playing} className="size-14" />
+              ))}
+            </Row>
+          ))}
+          {BLEEDS.map((value) => (
+            <Row key={`bleed-${value}`} label={`bleed ${value}`}>
+              {shown.map((entry) => (
+                <RandomAvatar key={entry} seed={entry} ground={ground} bleed={value} busy={playing} className="size-14" />
+              ))}
+            </Row>
+          ))}
         </div>
       </Section>
 
-      <Section title="Compose" hint="The picked motions together, across sizes and seeds.">
+      <Section title="Dial it in" hint="Any combination, on the chosen seed, at every transcript size.">
         <div className="flex flex-col gap-6 rounded-xl border bg-card p-5">
           <div className="flex flex-wrap items-center gap-6">
-            <span className="font-mono text-[11px] text-muted-foreground">{picked.length > 0 ? picked.join(' + ') : 'nothing picked'}</span>
-            <Control label={`Cycle ${cycleMs}ms`}>
-              <input type="range" min={1000} max={6000} step={100} value={cycleMs} onChange={(event) => setCycleMs(Number(event.target.value))} />
+            <Control label={`speed ×${speed.toFixed(1)}`}>
+              <input type="range" min={0.3} max={2.5} step={0.1} value={speed} onChange={(event) => setSpeed(Number(event.target.value))} />
             </Control>
-            <Control label={`Tide ×${tideSpeed.toFixed(1)}`}>
-              <input type="range" min={0.4} max={2.4} step={0.1} value={tideSpeed} onChange={(event) => setTideSpeed(Number(event.target.value))} />
+            <Control label={`flood ${flood.toFixed(2)}`}>
+              <input type="range" min={0} max={1} step={0.05} value={flood} onChange={(event) => setFlood(Number(event.target.value))} />
+            </Control>
+            <Control label={`bleed ${bleed.toFixed(1)}`}>
+              <input type="range" min={0} max={2.5} step={0.1} value={bleed} onChange={(event) => setBleed(Number(event.target.value))} />
             </Control>
           </div>
           <div className="flex items-end gap-8">
-            {[96, 64, 32, 20, 16].map((px) => (
-              <AgentAvatar key={px} seed={seed} ground={ground} motions={composed} cycleMs={cycleMs} tideSpeed={tideSpeed} className={SIZE_CLASS[px]} />
+            {['size-24', 'size-16', 'size-8', 'size-5', 'size-4'].map((size) => (
+              <RandomAvatar key={size} seed={seed} ground={ground} speed={speed} flood={flood} bleed={bleed} busy={playing} className={size} />
             ))}
           </div>
-          <div className="flex flex-wrap items-center gap-6">
-            {SEEDS.map((entry) => (
-              <AgentAvatar key={entry} seed={entry} ground={ground} motions={composed} cycleMs={cycleMs} tideSpeed={tideSpeed} className="size-10" />
-            ))}
-          </div>
+        </div>
+      </Section>
+
+      <Section title="Paint on" hint="animateOnMount: the pools bloom in one after another, for when an agent first appears.">
+        <div className="flex items-center gap-6 rounded-xl border bg-card p-5">
+          {SEEDS.slice(0, 4).map((entry) => (
+            <RandomAvatar key={`${entry}-${take}`} seed={entry} ground={ground} animateOnMount className="size-16" />
+          ))}
+          <Button variant="secondary" onClick={() => setTake((count) => count + 1)}>
+            Paint again
+          </Button>
         </div>
       </Section>
     </main>
