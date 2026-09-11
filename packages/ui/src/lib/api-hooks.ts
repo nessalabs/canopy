@@ -4,6 +4,7 @@ import { type UseMutationOptions, useInfiniteQuery, useIsMutating, useMutation, 
 import type {
   AddCommentInput,
   AddProjectInput,
+  AgentProvider,
   AdoptWorktreeInput,
   AppSettingsPatch,
   ChangesResponse,
@@ -172,6 +173,23 @@ export const useAgentEdits = (ref: SessionRef | undefined) => {
     enabled: ref !== undefined,
     refetchInterval: 5_000,
     refetchIntervalInBackground: false
+  })
+}
+
+/**
+ * What the provider says a session in this checkout can do: slash commands, skills, subagents,
+ * models, MCP servers, hooks. The daemon probes the CLI for this, so it is read once and kept —
+ * a finished turn invalidates it, because a live turn's own advertisement is fresher than a probe.
+ */
+export const useAgentCapabilities = (worktreeId: string, provider: AgentProvider | undefined, sessionId?: string) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.capabilities(worktreeId, provider ?? 'none', sessionId),
+    queryFn: () => api.agentCapabilities(worktreeId, provider as AgentProvider, { sessionId }),
+    enabled: provider !== undefined,
+    staleTime: 5 * 60_000,
+    // A daemon that cannot reach the CLI will not answer on a second try either.
+    retry: 1
   })
 }
 

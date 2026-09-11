@@ -114,11 +114,14 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             previews={model.previews}
             extras={model.extras}
             pending={agent.turn.pending}
+            queued={agent.turn.queued}
             streamingText={agent.turn.streamingText}
             activity={agent.turn.activity}
             startedAt={agent.turn.startedAt}
             tokens={agent.turn.tokens}
+            usage={agent.turn.usage}
             avatarSeed={agent.selected?.sessionId ?? worktree.id}
+            capabilities={agent.capabilities}
             emptyMessage={emptyMessage(agent, worktree)}
             filesByTurn={filesOnly}
             openInTerminal={agent.history.data?.openInTerminal}

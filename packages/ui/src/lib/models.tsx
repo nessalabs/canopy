@@ -1,4 +1,4 @@
-import type { AgentProvider, Effort } from '@canopy/shared'
+import type { AgentModel, AgentProvider, Effort } from '@canopy/shared'
 
 import type { ModelPickerGroup } from '@/components/ui/model-picker'
 import { ProviderIcon } from '@/components/agent/provider-icon'
@@ -37,17 +37,47 @@ export function modelAlias(modelId: string | undefined): string | undefined {
   return ALIASES.find(([pattern]) => pattern.test(modelId))?.[1] ?? modelId
 }
 
-/** The provider's catalog, extended with the session's own model when it is not listed. */
-export function modelGroupFor(provider: AgentProvider, detected: string | undefined): ModelPickerGroup {
-  const group = MODEL_GROUPS[provider]
+/**
+ * What the model picker lists: the catalog the provider advertises when it has one (it knows
+ * which models this account may actually use), else the built-in aliases — either way extended
+ * with the session's own model when that is not among them.
+ */
+export function modelGroupFor(provider: AgentProvider, detected: string | undefined, advertised?: readonly AgentModel[]): ModelPickerGroup {
+  const base = MODEL_GROUPS[provider]
+  const group: ModelPickerGroup =
+    advertised && advertised.length > 0
+      ? { ...base, models: advertised.map((model) => ({ id: model.id, label: model.label, description: model.description, icon: base.icon })) }
+      : base
   if (!detected || group.models.some((m) => m.id === detected)) return group
   return { ...group, models: [{ id: detected, label: detected, description: 'Model of this session', icon: group.icon }, ...group.models] }
 }
 
-/** Effort levels as the SDK names them, labelled for the thinking slider. */
-export const EFFORT_LEVELS: Array<{ value: Effort; label: string; description: string }> = [
-  { value: 'low', label: 'Low', description: 'Quick, focused reasoning' },
-  { value: 'medium', label: 'Medium', description: 'Balanced speed and depth' },
-  { value: 'high', label: 'High', description: 'More deliberate reasoning' },
-  { value: 'xhigh', label: 'Extra high', description: 'Deep, extended reasoning' }
-]
+/** Every effort the SDK names, labelled for the thinking slider. */
+const EFFORT_LABELS: Record<Effort, { label: string; description: string }> = {
+  low: { label: 'Low', description: 'Quick, focused reasoning' },
+  medium: { label: 'Medium', description: 'Balanced speed and depth' },
+  high: { label: 'High', description: 'More deliberate reasoning' },
+  xhigh: { label: 'Extra high', description: 'Deep, extended reasoning' },
+  max: { label: 'Max', description: 'Everything the model has' }
+}
+
+export interface EffortLevel {
+  value: Effort
+  label: string
+  description: string
+}
+
+const level = (value: Effort): EffortLevel => ({ value, ...EFFORT_LABELS[value] })
+
+/** The levels a session offers when the provider has not said otherwise. */
+export const EFFORT_LEVELS: EffortLevel[] = [level('low'), level('medium'), level('high'), level('xhigh')]
+
+/**
+ * The thinking slider's stops for one model. A model the provider described carries its own list —
+ * empty when it takes no effort parameter at all, which leaves the slider with nothing to offer.
+ */
+export function effortLevelsFor(modelId: string | undefined, advertised?: readonly AgentModel[]): EffortLevel[] {
+  const model = advertised?.find((candidate) => candidate.id === modelId)
+  if (!model) return EFFORT_LEVELS
+  return model.effortLevels.map(level)
+}

@@ -1,18 +1,26 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, Copy, FileDiff, FileText, Globe, Info, Pencil, Puzzle, Search, Terminal, Users, Wrench } from 'lucide-react'
+import { Check, Copy, FileDiff, FileText, Globe, Pencil, Puzzle, Search, Terminal, Users, Webhook, Wrench } from 'lucide-react'
 
-import type { PermissionDecisionInput, TurnImage } from '@canopy/shared'
+import type { AgentCapabilities, PermissionDecisionInput, TurnImage } from '@canopy/shared'
 import { isHarnessText } from '@canopy/shared'
-import type { AgentEvent, DeltaBuffers, SessionInfo, ToolKind, Transcript as FoldedTranscript, Turn } from '@canopy/shared/agent-stream'
+import type { AgentEvent, DeltaBuffers, ToolKind, Transcript as FoldedTranscript, Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent, previewOf, toolKind, toolTitle, toolVerb } from '@canopy/shared/agent-stream'
 
 import { AgentActivity, AgentActivityCard, AgentActivityContent, AgentActivityCue, AgentActivityTrigger } from '@/components/ui/agent-activity'
-import { AgentDetails, AgentDetailsField, AgentDetailsProject, AgentDetailsSection } from '@/components/ui/agent-details'
 import { Button } from '@/components/ui/button'
 import { ConversationRail, ConversationRailItem, ConversationRailPreview, ConversationRailTrigger } from '@/components/ui/conversation-rail'
 import { Message, MessageAction, MessageActions, MessageBubble, MessageContent } from '@/components/ui/message'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { MessageScroller, MessageScrollerContent, MessageScrollerViewport } from '@/components/ui/message-scroller'
+import {
+  Questionnaire,
+  QuestionnaireActions,
+  QuestionnaireChoice,
+  QuestionnaireChoices,
+  QuestionnaireInput,
+  QuestionnaireItem,
+  QuestionnaireTitle
+} from '@/components/ui/questionnaire'
 import { RandomAvatar } from '@/components/ui/random-avatar'
 import { Sheet, SheetAction, SheetBody, SheetExpand, SheetHandle, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import {
@@ -30,13 +38,15 @@ import {
 import { ToolCall, ToolCallContent, ToolCallTabs, ToolCallTrigger } from '@/components/ui/tool-call'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TranscriptDivider } from '@/components/ui/transcript-divider'
+import { answerFor, answeredInput, parseAskQuestions, type AskQuestion } from '@/lib/ask-questions'
 import { plural } from '@/lib/format'
 import { beatLabel, beatsOf, type ActivityBeat, type Beat, type BeatCall } from '@/lib/turn-beats'
 import { rowsByTurn } from '@/lib/turn-rows'
 import { cn } from '@/lib/utils'
 
 import type { Activity } from './activity-orb'
-import type { PendingPrompt } from '../../lib/use-agent-turn'
+import type { PendingPrompt, TurnUsage } from '../../lib/use-agent-turn'
+import { SessionLine, SessionSheetBody } from './session-details'
 import { TurnStatus } from './turn-status'
 import { ImageTiles, ImageViewer, TextWithImageRefs } from './image-strip'
 import { SelectionActions } from './selection-actions'
@@ -232,6 +242,24 @@ function CallRow({ call }: { call: BeatCall }): React.JSX.Element {
   )
 }
 
+/** One hook run in the details sheet: which hook, on which event, and how it went. */
+function HookRow({ event }: { event: AgentEvent }): React.JSX.Element | null {
+  if (!isEvent(event, AgentEventType.Hook)) return null
+  const { name, phase, outcome, exitCode } = event.payload
+  const failed = exitCode !== null && exitCode !== 0
+  const detail = outcome ?? (phase === 'started' ? 'running' : failed ? `exit ${exitCode}` : 'ok')
+  return (
+    <ToolCall status={phase === 'started' ? 'running' : failed ? 'error' : 'complete'} className="w-full">
+      <ToolCallTrigger icon={<Webhook />} meta={event.payload.event}>
+        {name}
+      </ToolCallTrigger>
+      <ToolCallContent>
+        <p className="m-0 nessa-text-2 text-muted-foreground">{detail}</p>
+      </ToolCallContent>
+    </ToolCall>
+  )
+}
+
 /** The thinking and tool calls behind one cue. */
 function BeatSheetBody({ beat }: { beat: ActivityBeat }): React.JSX.Element {
   return (
@@ -254,6 +282,16 @@ function BeatSheetBody({ beat }: { beat: ActivityBeat }): React.JSX.Element {
             <CallRow key={call.callId} call={call} />
           ))}
         </AgentActivityContent>
+      ) : null}
+      {beat.hooks.length > 0 ? (
+        <div className="flex w-full flex-col gap-1.5">
+          <AgentActivityCue>Hooks</AgentActivityCue>
+          <AgentActivityContent className="w-full">
+            {beat.hooks.map((hook) => (
+              <HookRow key={hook.id} event={hook} />
+            ))}
+          </AgentActivityContent>
+        </div>
       ) : null}
     </>
   )
@@ -307,57 +345,76 @@ function RunSheetBody({ call, transcript }: { call: BeatCall; transcript: Folded
   )
 }
 
-/** The session's identity, for the details sheet. */
-function SessionSheetBody({ session, openInTerminal }: { session: SessionInfo | null; openInTerminal?: boolean }): React.JSX.Element {
-  return (
-    <>
-      <AgentDetails title={session?.model ?? 'Agent session'}>
-        {session?.cwd ? <AgentDetailsProject path={session.cwd} branch={undefined} /> : null}
-        <AgentDetailsSection title="Session">
-          {session?.model ? <AgentDetailsField label="Model" value={session.model} /> : null}
-          {session?.permissionMode ? <AgentDetailsField label="Mode" value={session.permissionMode} /> : null}
-          {session?.version ? <AgentDetailsField label="Version" value={session.version} /> : null}
-          {session ? <AgentDetailsField label="Tools" value={String(session.tools.length)} /> : null}
-        </AgentDetailsSection>
-      </AgentDetails>
-      {openInTerminal ? (
-        <p className="m-0 rounded-lg border border-border bg-muted/40 px-3 py-2 nessa-text-2 text-muted-foreground">
-          A terminal has this session open. Turns sent from here run against it, but that terminal will not show them until it resumes.
-        </p>
-      ) : null}
-    </>
-  )
-}
+/**
+ * `AskUserQuestion` is the agent asking the user something, not asking to run a tool. It arrives
+ * as a permission ask, and drawing it as one would put a multiple-choice question on screen as
+ * JSON. The answer goes back as the tool's rewritten input.
+ */
+function QuestionCard({ requestId, input, questions, onAnswer }: {
+  requestId: string
+  input: unknown
+  questions: AskQuestion[]
+  onAnswer: (decision: PermissionDecisionInput) => void
+}): React.JSX.Element {
+  const [picks, setPicks] = useState<Record<string, string[]>>({})
+  const [others, setOthers] = useState<Record<string, string>>({})
+  const [answered, setAnswered] = useState(false)
+  const answers = Object.fromEntries(questions.map((q) => [q.question, answerFor(picks[q.question] ?? [], others[q.question] ?? '')]))
+  const complete = questions.every((q) => answers[q.question])
 
-/** One line naming the session, with the way into its details. */
-function SessionLine({ session, openInTerminal, open, sheetId, onOpen }: {
-  session: SessionInfo | null
-  openInTerminal?: boolean
-  open: SheetTarget | null
-  sheetId: string
-  onOpen: (target: SheetTarget) => void
-}): React.JSX.Element | null {
-  if (!session && !openInTerminal) return null
-  const isOpen = open?.kind === 'session'
-  const where = session?.cwd ? session.cwd.split('/').filter(Boolean).at(-1) : null
+  const send = (): void => {
+    setAnswered(true)
+    onAnswer({ requestId, behavior: 'allow', updatedInput: answeredInput(input, answers) })
+  }
+  const skip = (): void => {
+    setAnswered(true)
+    onAnswer({ requestId, behavior: 'deny', message: 'The user skipped the question.' })
+  }
+
   return (
-    <div className="mb-1 flex items-center gap-1 nessa-text-2 text-muted-foreground">
-      <span className="min-w-0 truncate">
-        {[session?.model, where].filter(Boolean).join(' · ') || 'Agent session'}
-        {openInTerminal ? ' · open in a terminal' : ''}
-      </span>
-      <Button
-        variant="ghost"
-        size="icon"
-        className="size-6 shrink-0 text-muted-foreground"
-        aria-label="Session details"
-        aria-haspopup="dialog"
-        aria-expanded={isOpen}
-        aria-controls={isOpen ? sheetId : undefined}
-        onClick={() => onOpen({ kind: 'session' })}
-      >
-        <Info className="size-3.5" />
-      </Button>
+    <div
+      aria-label="Answer the agent's question"
+      data-answered={answered ? 'true' : undefined}
+      className="ml-10 max-w-[92%] rounded-xl border border-border bg-card p-4 data-[answered=true]:pointer-events-none data-[answered=true]:opacity-60"
+    >
+      <Questionnaire>
+        {questions.map((question) => (
+          <QuestionnaireItem key={question.question} name={question.question}>
+            {question.header ? <p className="m-0 nessa-text-1 uppercase text-muted-foreground">{question.header}</p> : null}
+            <QuestionnaireTitle>{question.question}</QuestionnaireTitle>
+            <QuestionnaireChoices
+              multiple={question.multiSelect}
+              value={picks[question.question] ?? []}
+              onValueChange={(value) => setPicks((current) => ({ ...current, [question.question]: value }))}
+            >
+              {question.options.map((option) => (
+                <QuestionnaireChoice key={option.label} value={option.label} disabled={answered}>
+                  <span className="flex flex-col gap-0.5">
+                    <span>{option.label}</span>
+                    {option.description ? <span className="nessa-text-2 text-muted-foreground">{option.description}</span> : null}
+                  </span>
+                </QuestionnaireChoice>
+              ))}
+            </QuestionnaireChoices>
+            <QuestionnaireInput
+              name={`${question.question}:other`}
+              aria-label={`Another answer to: ${question.question}`}
+              placeholder="Something else…"
+              value={others[question.question] ?? ''}
+              disabled={answered}
+              onChange={(event) => setOthers((current) => ({ ...current, [question.question]: event.target.value }))}
+            />
+          </QuestionnaireItem>
+        ))}
+        <QuestionnaireActions>
+          <Button variant="ghost" size="sm" type="button" onClick={skip} disabled={answered}>
+            Skip
+          </Button>
+          <Button size="sm" type="button" onClick={send} disabled={answered || !complete}>
+            Answer
+          </Button>
+        </QuestionnaireActions>
+      </Questionnaire>
     </div>
   )
 }
@@ -367,6 +424,8 @@ function AskCard({ ask, onAnswer }: { ask: AgentEvent; onAnswer: (input: Permiss
   const [resolution, setResolution] = useState<ToolApprovalResolution | null>(null)
   if (!isEvent(ask, AgentEventType.PermissionRequested)) return null
   const { requestId, toolName, input, displayName, description, reason } = ask.payload
+  const questions = toolName === 'AskUserQuestion' ? parseAskQuestions(input) : null
+  if (questions) return <QuestionCard requestId={requestId} input={input} questions={questions} onAnswer={onAnswer} />
   const kind = toolKind(toolName)
   const name = displayName ?? toolName
   const what = toolTitle(toolName, input)
@@ -395,6 +454,23 @@ function AskCard({ ask, onAnswer }: { ask: AgentEvent; onAnswer: (input: Permiss
       </ToolApprovalActions>
     </ToolApproval>
   )
+}
+
+const compactTokens = (count: number): string =>
+  count >= 1_000_000 ? `${+(count / 1_000_000).toFixed(1)}m` : count >= 1000 ? `${Math.round(count / 1000)}k` : String(count)
+
+const money = (usd: number): string => `$${usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)}`
+
+const elapsed = (ms: number): string => (ms >= 60_000 ? `${Math.floor(ms / 60_000)}m ${Math.round((ms % 60_000) / 1000)}s` : `${Math.round(ms / 1000)}s`)
+
+/** What the turn that just ended cost, in one quiet line: only the numbers the daemon reported. */
+function UsageLine({ usage }: { usage: TurnUsage }): React.JSX.Element | null {
+  const bits: string[] = []
+  if (usage.costUsd !== undefined) bits.push(money(usage.costUsd))
+  if (usage.contextTokens !== undefined) bits.push(`${compactTokens(usage.contextTokens)}${usage.contextWindow ? ` / ${compactTokens(usage.contextWindow)}` : ''} context`)
+  if (usage.durationMs !== undefined) bits.push(elapsed(usage.durationMs))
+  if (bits.length === 0) return null
+  return <p className="m-0 ml-10 nessa-text-2 text-muted-foreground">{bits.join(' · ')}</p>
 }
 
 function BeatRow({ beat, avatarSeed, previews, open, sheetId, onOpen }: {
@@ -432,11 +508,14 @@ export function TranscriptView({
   previews,
   extras,
   pending,
+  queued,
   streamingText,
   activity,
   startedAt,
   tokens,
+  usage,
   avatarSeed,
+  capabilities,
   emptyMessage,
   filesByTurn,
   openInTerminal,
@@ -451,11 +530,17 @@ export function TranscriptView({
   extras: Record<string, { images: TurnImage[] }>
   /** The just-sent prompt, shown until its echo arrives. */
   pending: PendingPrompt | null
+  /** Prompts typed into the running turn, shown until the agent echoes each of them. */
+  queued?: PendingPrompt[]
   streamingText: string
   activity: Activity | null
   startedAt: number | null
   tokens: number
+  /** What the turn that just ended cost. */
+  usage?: TurnUsage | null
   avatarSeed: string
+  /** What the provider advertises for this checkout; names a session that has not run yet. */
+  capabilities?: AgentCapabilities
   emptyMessage: React.ReactNode
   /** Files each turn wrote, by turn key. */
   filesByTurn: ReadonlyMap<string, string[]>
@@ -528,7 +613,14 @@ export function TranscriptView({
         <MessageScroller className="min-h-0 min-w-0 flex-1">
           <MessageScrollerViewport>
             <MessageScrollerContent ref={conversation} aria-label="Agent conversation" className="max-w-full overflow-x-hidden">
-              <SessionLine session={transcript.session} openInTerminal={openInTerminal} open={sheet} sheetId={sheetId} onOpen={setSheet} />
+              <SessionLine
+                session={transcript.session}
+                capabilities={capabilities}
+                openInTerminal={openInTerminal}
+                open={sheet?.kind === 'session'}
+                sheetId={sheetId}
+                onOpen={() => setSheet({ kind: 'session' })}
+              />
               {empty ? <div className="rounded-xl border border-border py-10 text-center text-sm text-muted-foreground">{emptyMessage}</div> : null}
               {turns.map((turn) => {
                 const prompt = turn.prompt && isEvent(turn.prompt, AgentEventType.UserMessage) && !turn.prompt.payload.synthetic && !isHarnessText(turn.prompt.payload.text) ? turn.prompt : null
@@ -556,7 +648,11 @@ export function TranscriptView({
                   </div>
                 )
               })}
+              {usage && !pending && activity === null ? <UsageLine usage={usage} /> : null}
               {pending ? <UserTurn text={pending.display.trim()} images={pending.images} turnKey="pending" onReviewTurn={() => {}} /> : null}
+              {(queued ?? []).map((prompt, index) => (
+                <UserTurn key={`queued-${index}`} text={prompt.display.trim()} images={prompt.images} turnKey="queued" onReviewTurn={() => {}} />
+              ))}
               {onAnswerPermission ? asks.map((ask) => <AskCard key={ask.id} ask={ask} onAnswer={onAnswerPermission} />) : null}
               {activity && startedAt !== null && !streamingText && asks.length === 0 ? <TurnStatus activity={activity} startedAt={startedAt} tokens={tokens} /> : null}
               {streamingText ? <AssistantTurn text={streamingText} avatarSeed={avatarSeed} streaming /> : null}
@@ -573,7 +669,7 @@ export function TranscriptView({
               <SheetAction>Done</SheetAction>
             </SheetHeader>
             <SheetBody>
-              {sheet.kind === 'session' ? <SessionSheetBody session={transcript.session} openInTerminal={openInTerminal} /> : null}
+              {sheet.kind === 'session' ? <SessionSheetBody session={transcript.session} capabilities={capabilities} openInTerminal={openInTerminal} /> : null}
               {shown ? <BeatSheetBody beat={shown} /> : null}
               {shownRun ? <RunSheetBody call={shownRun} transcript={transcript} /> : null}
             </SheetBody>

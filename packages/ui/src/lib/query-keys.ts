@@ -19,6 +19,10 @@ export const keys = {
   sessions: (worktreeId: string) => ['agent-sessions', worktreeId] as const,
   transcript: (ref: SessionRef) => ['transcript', ref.provider, ref.sessionId] as const,
   edits: (ref: SessionRef) => ['agent-edits', ref.provider, ref.sessionId] as const,
+  /** What a provider advertises for this checkout: commands, skills, subagents, models, hooks. */
+  capabilities: (worktreeId: string, provider: string, sessionId?: string) => ['agent-capabilities', worktreeId, provider, sessionId ?? 'checkout'] as const,
+  /** Every capability read of one worktree — the prefix a finished turn invalidates. */
+  capabilitiesOf: (worktreeId: string) => ['agent-capabilities', worktreeId] as const,
   providers: ['providers'] as const,
   // ---- environment & resources ----
   host: ['host'] as const,

@@ -41,6 +41,8 @@ export interface ActivityBeat {
   readonly thoughts: readonly AgentEvent[]
   readonly calls: readonly BeatCall[]
   readonly runs: readonly BeatCall[]
+  /** Hooks that fired in this stretch — one row per run: the finish where there is one, else the start. */
+  readonly hooks: readonly AgentEvent[]
   readonly counts: BeatCounts
   readonly status: BeatStatus
   /** Calls that returned an error. The cue stays quiet about them; the sheet shows which. */
@@ -79,9 +81,35 @@ function countsOf(calls: readonly BeatCall[]): BeatCounts {
   return { files: files.size, searches, commands, other }
 }
 
+/**
+ * One row per hook run: a `finished` event replaces the `started` it closes, so a hook that ran
+ * once is counted once and the row carries its outcome. A start still waiting keeps its own row.
+ */
+function pairHooks(events: readonly AgentEvent[]): AgentEvent[] {
+  const open = new Map<string, AgentEvent[]>()
+  const rows: AgentEvent[] = []
+  for (const event of events) {
+    if (!isEvent(event, AgentEventType.Hook)) continue
+    const key = `${event.payload.name}|${event.payload.event}`
+    const waiting = open.get(key) ?? []
+    if (event.payload.phase === 'started') {
+      waiting.push(event)
+      open.set(key, waiting)
+      rows.push(event)
+      continue
+    }
+    const started = waiting.pop()
+    open.set(key, waiting)
+    const at = started ? rows.indexOf(started) : -1
+    if (at === -1) rows.push(event)
+    else rows[at] = event
+  }
+  return rows
+}
+
 /** Closes a beat in progress, or nothing when it never collected anything. */
-function finish(key: string, thoughts: AgentEvent[], all: BeatCall[]): ActivityBeat | null {
-  if (thoughts.length === 0 && all.length === 0) return null
+function finish(key: string, thoughts: AgentEvent[], all: BeatCall[], hooks: AgentEvent[]): ActivityBeat | null {
+  if (thoughts.length === 0 && all.length === 0 && hooks.length === 0) return null
   const runs = all.filter((call) => call.run !== null || isDelegating(call.kind))
   const calls = all.filter((call) => !runs.includes(call))
   const running = all.some((call) => call.status === 'running' || (call.run !== null && !call.run.done))
@@ -91,6 +119,7 @@ function finish(key: string, thoughts: AgentEvent[], all: BeatCall[]): ActivityB
     thoughts,
     calls,
     runs,
+    hooks: pairHooks(hooks),
     counts: countsOf(calls),
     status: running ? 'running' : 'complete',
     failed: calls.filter((call) => call.status === 'error').length
@@ -107,19 +136,27 @@ export function beatsOf(rows: readonly WorkItem[], transcript: Transcript): read
   const beats: Beat[] = []
   let thoughts: AgentEvent[] = []
   let calls: BeatCall[] = []
+  let hooks: AgentEvent[] = []
   let key: string | null = null
 
   const close = (): void => {
-    const beat = key === null ? null : finish(key, thoughts, calls)
+    const beat = key === null ? null : finish(key, thoughts, calls, hooks)
     if (beat) beats.push(beat)
     thoughts = []
     calls = []
+    hooks = []
     key = null
   }
   const collect = (event: AgentEvent): void => {
     key ??= `beat:${event.id}`
     if (isEvent(event, AgentEventType.Reasoning)) {
       if (event.payload.text.trim() !== '') thoughts.push(event)
+      return
+    }
+    // A hook is the harness acting, not the agent: it belongs in the count and the sheet, never
+    // as a row of its own in the conversation.
+    if (isEvent(event, AgentEventType.Hook)) {
+      hooks.push(event)
       return
     }
     const call = callOf(event, transcript)
@@ -131,7 +168,7 @@ export function beatsOf(rows: readonly WorkItem[], transcript: Transcript): read
       for (const call of item.calls) collect(call)
       continue
     }
-    if (isEvent(item, AgentEventType.Reasoning) || isEvent(item, AgentEventType.ToolCallStarted)) {
+    if (isEvent(item, AgentEventType.Reasoning) || isEvent(item, AgentEventType.ToolCallStarted) || isEvent(item, AgentEventType.Hook)) {
       collect(item)
       continue
     }
@@ -189,10 +226,15 @@ export function describeCounts(counts: BeatCounts): string {
  * one still running reads in the present tense so the shimmer has something to say.
  */
 export function beatLabel(beat: ActivityBeat): string {
-  if (beat.calls.length === 0) return beat.thoughts.length > 0 ? 'Thought for a moment' : 'Delegated'
-  const detail = describeCounts(beat.counts)
+  const hooks = beat.hooks.length
+  const hookBit = hooks === 0 ? '' : `${hooks} hook${hooks === 1 ? '' : 's'}`
+  if (beat.calls.length === 0) {
+    if (hookBit) return beat.status === 'running' ? `Running ${hookBit}…` : `Ran ${hookBit}`
+    return beat.thoughts.length > 0 ? 'Thought for a moment' : 'Delegated'
+  }
+  const detail = [describeCounts(beat.counts), hookBit].filter(Boolean).join(', ')
   const { files, searches, other } = beat.counts
-  const onlyCommands = files === 0 && searches === 0 && other === 0
+  const onlyCommands = files === 0 && searches === 0 && other === 0 && hooks === 0
   if (beat.status === 'running') return onlyCommands ? `Running ${detail}…` : detail ? `Exploring ${detail}…` : 'Exploring…'
   return onlyCommands ? `Ran ${detail}` : detail ? `Explored ${detail}` : 'Explored'
 }
