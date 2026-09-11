@@ -142,11 +142,11 @@ describe('environment end to end (host runtime, git fallback)', () => {
     expect(secondWt.environment.state).toBe('stopped')
     expect(secondWt.environment.ports['web']).not.toBe(port)
 
-    expect((await server.call('DELETE', routes.worktree(id))).status).toBe(204)
+    expect((await server.call('DELETE', routes.worktree(id))).status).toBe(200)
     expect(existsSync(worktree.path)).toBe(false)
     expect((await server.call('GET', routes.worktree(id))).status).toBe(404)
     await expect(fetch(`http://127.0.0.1:${port}/`)).rejects.toBeTruthy()
-    expect((await server.call('DELETE', routes.worktree(secondWt.id))).status).toBe(204)
+    expect((await server.call('DELETE', routes.worktree(secondWt.id))).status).toBe(200)
   }, 60_000)
 
   it('keeps a failed setup resumable and rejects starting without canopy.yaml', async () => {
@@ -166,6 +166,6 @@ describe('environment end to end (host runtime, git fallback)', () => {
     const fixed = await waitFor<Worktree>(async () => (await server.call('GET', routes.worktree(id))).body.worktree, (wt) => ['stopped', 'error'].includes(wt.environment.state))
     expect(fixed.environment.state).toBe('stopped')
     expect(fixed.environment.provisioning?.steps.map((s) => s.status)).not.toContain('failed')
-    expect((await server.call('DELETE', `${routes.worktree(id)}?force=true`)).status).toBe(204)
+    expect((await server.call('DELETE', `${routes.worktree(id)}?force=true`)).status).toBe(200)
   }, 60_000)
 })

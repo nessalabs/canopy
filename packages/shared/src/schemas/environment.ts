@@ -609,6 +609,16 @@ export const ProjectEnvironmentPreview = z.object({
 })
 export type ProjectEnvironmentPreview = z.infer<typeof ProjectEnvironmentPreview>
 
+/**
+ * The commit a destroy left behind. Forcing past the dirty check discards work that was never
+ * committed anywhere, so the daemon saves it under a ref first and says where it went.
+ */
+export const Salvage = z.object({ ref: z.string(), sha: z.string(), files: z.number().int() })
+export type Salvage = z.infer<typeof Salvage>
+
+export const DestroyResult = z.object({ salvaged: Salvage.nullable() })
+export type DestroyResult = z.infer<typeof DestroyResult>
+
 export const DestroyAllInput = z.object({ force: z.boolean().optional(), deleteBranch: z.boolean().optional() })
 export type DestroyAllInput = z.infer<typeof DestroyAllInput>
 

@@ -2,7 +2,9 @@
  * Read/write operations on a git checkout. Thin: each function is one git command
  * plus a parser from parse.ts. `run` is injected so tests can observe or stub calls.
  */
-import { resolve } from 'node:path'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { dirname, join, resolve } from 'node:path'
 
 import type { Branch, Commit } from '@canopy/shared'
 
@@ -53,6 +55,8 @@ export interface Repo {
   showFile(cwd: string, rev: string, path: string): Promise<string | null>
   worktreeAdd(repo: string, path: string, branch: { mode: 'new'; name: string; base: string } | { mode: 'existing'; name: string }): Promise<void>
   worktreeRemove(repo: string, path: string, force: boolean): Promise<void>
+  /** Everything in a working tree, tracked and untracked, saved as one commit under `ref`. */
+  snapshotWorkingTree(cwd: string, ref: string, message: string): Promise<{ sha: string; files: number } | null>
 
   // ---- the index: everything the commit panel's checkboxes drive ----
   /** Every path git has something to say about, plus the branch, from one `status` call. */
@@ -287,6 +291,35 @@ export function createRepo(run: GitRunner): Repo {
     async worktreeRemove(repo, path, force) {
       await run(repo, ['worktree', 'remove', ...(force ? ['--force'] : []), path])
       await run(repo, ['worktree', 'prune'])
+    },
+
+    async snapshotWorkingTree(cwd, ref, message) {
+      // A throwaway index, so the real one is untouched: seed it from HEAD and add everything
+      // the working tree has. `add -A` takes modifications, deletions and untracked files and
+      // leaves what git ignores, which is exactly what would be lost with the checkout.
+      const index = join(await mkdtemp(join(tmpdir(), 'canopy-salvage-')), 'index')
+      const env = { GIT_INDEX_FILE: index }
+      try {
+        const head = await this.resolveCommit(cwd, 'HEAD')
+        if (head) await run(cwd, ['read-tree', head], { env })
+        await run(cwd, ['add', '-A'], { env })
+        const tree = (await run(cwd, ['write-tree'], { env })).trim()
+        // Nothing to save: the working tree is the commit it is sitting on.
+        if (head && tree === (await run(cwd, ['rev-parse', `${head}^{tree}`])).trim()) return null
+        const files = splitNul(await run(cwd, ['diff', '--name-only', '-z', ...(head ? [head] : ['--cached']), '--', '.'], { env })).length
+        // An identity of our own: a repository with none configured must still be able to save.
+        const sha = (
+          await run(cwd, ['commit-tree', tree, ...(head ? ['-p', head] : []), '-m', message], {
+            env: { ...env, GIT_AUTHOR_NAME: 'Canopy', GIT_AUTHOR_EMAIL: 'canopy@localhost', GIT_COMMITTER_NAME: 'Canopy', GIT_COMMITTER_EMAIL: 'canopy@localhost' }
+          })
+        ).trim()
+        // The ref lives in the repository, not the worktree, so it outlives the checkout and
+        // keeps the commit from being collected.
+        await run(cwd, ['update-ref', ref, sha])
+        return { sha, files }
+      } finally {
+        await rm(dirname(index), { recursive: true, force: true }).catch(() => undefined)
+      }
     }
   }
 }
