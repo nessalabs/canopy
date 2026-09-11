@@ -14,6 +14,8 @@ const ev = (payload: AgentEventPayload, agentPath: string[] = []): AgentEvent =>
 const prompt = (text: string) => ev({ type: 'user_message', text, synthetic: false })
 const said = (text: string) => ev({ type: 'assistant_text', text, block: null })
 const thought = (text: string) => ev({ type: 'reasoning', text, block: null })
+const hook = (name: string, event: string, phase: 'started' | 'finished', outcome: string | null = null) =>
+  ev({ type: 'hook', phase, name, event, outcome, exitCode: phase === 'finished' ? 0 : null })
 const call = (callId: string, name: string, kind: ToolKind, title = callId) => ev({ type: 'tool_call_started', callId, name, kind, input: { title }, title })
 const done = (callId: string, isError = false) => ev({ type: 'tool_call_completed', callId, result: { text: isError ? 'boom' : 'ok', isError, structured: null, images: [] } })
 const result = (finalText: string | null) =>
@@ -111,6 +113,33 @@ describe('beatsOf', () => {
     const beat = activity(turn?.[0])
     expect(beatLabel(beat)).toBe('Ran 5 commands')
     expect(beat.calls.map((c) => c.title)).toEqual(titles)
+  })
+
+  it('counts hooks into the cue and keeps them out of the conversation', () => {
+    const events = [
+      prompt('go'),
+      hook('format', 'PostToolUse', 'started'),
+      call('c1', 'Edit', 'file_edit', 'a.ts'),
+      done('c1'),
+      hook('format', 'PostToolUse', 'finished', 'formatted'),
+      hook('notify', 'Stop', 'finished', 'sent'),
+      said('Done.'),
+      result('Done.')
+    ]
+    const [turn] = beatsFor(events)
+    expect(turn?.map((beat) => beat.kind)).toEqual(['activity', 'text'])
+    const beat = activity(turn?.[0])
+    // A hook's start and its finish are one row, carrying the outcome.
+    expect(beat.hooks).toHaveLength(2)
+    expect(beat.hooks.map((event) => (event.payload.type === 'hook' ? event.payload.outcome : null))).toEqual(['formatted', 'sent'])
+    expect(beatLabel(beat)).toBe('Explored 1 file, 2 hooks')
+  })
+
+  it('says so when a beat was nothing but hooks', () => {
+    const events = [prompt('go'), hook('guard', 'PreToolUse', 'finished', 'ok'), said('Done.'), result('Done.')]
+    const beat = activity(beatsFor(events)[0]?.[0])
+    expect(beat.calls).toHaveLength(0)
+    expect(beatLabel(beat)).toBe('Ran 1 hook')
   })
 
   it('reads a thinking-only beat as a thought', () => {

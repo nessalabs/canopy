@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDiff, MessageSquare, Users } from 'lucide-react'
 
-import type { Worktree } from '@canopy/shared'
+import type { RewindResult, SessionRef, Worktree } from '@canopy/shared'
 import type { Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
@@ -11,12 +11,14 @@ import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmen
 import { useIsMobile } from '@/components/ui/sidebar/sidebar-provider'
 import { useAgentEdits, useDiffFiles, useProviders } from '@/lib/api-hooks'
 import { PaneSplitDirection, createAppShellLayout, setSplitWeights, splitPane, type AppShellLayout } from '@/lib/app-shell-layout'
+import { NO_MESSAGE_ID, rewindInputFor } from '@/lib/rewind'
 import { filesByTurn, mergeTurns, resolveTurn, snapshotsByTurn, type TurnEntry, type TurnPick } from '@/lib/turn-changes'
 import { useTranscriptModel } from '@/lib/use-transcript-model'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
 import { AgentComposer } from './composer'
 import { NewSessionButton } from './new-session-button'
+import { RewindDialog } from './rewind-dialog'
 import { SessionRail } from './session-rail'
 import { TranscriptView } from './transcript'
 import { TurnChanges, type TurnReview } from './turn-changes'
@@ -54,7 +56,11 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   const providers = useProviders()
   const model = useTranscriptModel(agent.history.data, agent.turn)
   const turns = model.transcript.turns
-  const edits = useAgentEdits(agent.selected ? { provider: agent.selected.provider, sessionId: agent.selected.sessionId } : undefined)
+  const sessionRef: SessionRef | undefined = useMemo(
+    () => (agent.selected ? { provider: agent.selected.provider, sessionId: agent.selected.sessionId } : undefined),
+    [agent.selected?.provider, agent.selected?.sessionId]
+  )
+  const edits = useAgentEdits(sessionRef)
   // Exact snapshots (hooks) win; the transcript's named files fill in for turns without them.
   const byTurn = useMemo(
     () => mergeTurns(filesByTurn(turns, model.filesByCall, worktree.path), snapshotsByTurn(turns, edits.data ?? [])),
@@ -65,8 +71,19 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   // The changes panel follows the newest turn until a specific one is picked.
   const [pick, setPick] = useState<TurnPick>('latest')
   const turnKey = resolveTurn(pick, byTurn)
-  const review = turnKey ? toReview(byTurn.get(turnKey), turns.find((turn) => turn.key === turnKey)) : undefined
+  const pickedTurn = turnKey ? turns.find((turn) => turn.key === turnKey) : undefined
+  const review = turnKey ? toReview(byTurn.get(turnKey), pickedTurn) : undefined
   const latestCount = byTurn.get(resolveTurn('latest', byTurn) ?? '')?.files.length ?? 0
+
+  // Rewinding the picked turn: addressed by the provider's id for its prompt, and restored from the
+  // hook snapshot when one was recorded. Null means this turn cannot be rewound at all.
+  const rewindInput = useMemo(
+    () => rewindInputFor(pickedTurn, model.extras, turnKey ? byTurn.get(turnKey)?.snapshot : undefined, worktree.path),
+    [pickedTurn, model.extras, byTurn, turnKey, worktree.path]
+  )
+  const [rewindOpen, setRewindOpen] = useState(false)
+  // Kept with the turn it ran on, so picking another turn does not inherit its confirmation line.
+  const [rewound, setRewound] = useState<{ turnKey: string; result: RewindResult }>()
 
   // Picking a turn must show it: the changes panel reopens if closed (desktop) or becomes the shown panel (phone).
   const [request, setRequest] = useState<PanelRequest>()
@@ -82,6 +99,11 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   const show = (next: TurnPick): void => {
     setPick(next)
     showChanges('open')
+  }
+  /** The transcript's rewind action: same pin, same panel, and the confirm dialog straight away. */
+  const askRewind = (next: TurnPick): void => {
+    show(next)
+    setRewindOpen(true)
   }
 
   // Text quoted out of the transcript, on its way to the composer, which clears it once it is a chip.
@@ -114,16 +136,21 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             previews={model.previews}
             extras={model.extras}
             pending={agent.turn.pending}
+            queued={agent.turn.queued}
             streamingText={agent.turn.streamingText}
             activity={agent.turn.activity}
             startedAt={agent.turn.startedAt}
             tokens={agent.turn.tokens}
+            usage={agent.turn.usage}
             avatarSeed={agent.selected?.sessionId ?? worktree.id}
+            capabilities={agent.capabilities}
             emptyMessage={emptyMessage(agent, worktree)}
             filesByTurn={filesOnly}
             openInTerminal={agent.history.data?.openInTerminal}
             onReviewTurn={show}
+            onRewindTurn={sessionRef ? askRewind : undefined}
             onAnswerPermission={agent.turn.answerPermission}
+            onPickModel={agent.setModel}
             onQuote={(text) => setQuote({ id: Date.now(), text })}
             className="min-h-0 flex-1"
           />
@@ -134,6 +161,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             latestChanges={{ count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }}
             quote={quote}
             onQuoteStaged={() => setQuote(undefined)}
+            context={model.context}
           />
         </div>
       )
@@ -144,17 +172,39 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
       icon: FileDiff,
       render: () =>
         review ? (
-          <TurnChanges worktree={worktree} review={review} className="h-full" />
+          <TurnChanges
+            worktree={worktree}
+            review={review}
+            rewind={{
+              onRewind: () => setRewindOpen(true),
+              ...(rewindInput ? {} : { disabledReason: NO_MESSAGE_ID }),
+              ...(rewound && rewound.turnKey === turnKey ? { done: rewound.result } : {})
+            }}
+            className="h-full"
+          />
         ) : (
           <p className="p-4 text-xs text-muted-foreground">No turn has changed files yet. Each user message that made the agent write files gets its diff here.</p>
         )
     }
   ]
 
+  const rewindDialog = (
+    <RewindDialog
+      worktreeId={worktree.id}
+      session={sessionRef}
+      input={rewindInput}
+      prompt={review?.prompt ?? ''}
+      open={rewindOpen && rewindInput !== null}
+      onOpenChange={setRewindOpen}
+      onRewound={(result) => setRewound(turnKey ? { turnKey, result } : undefined)}
+    />
+  )
+
   if (mobile) {
     const current = panels.find((panel) => panel.id === mobilePanel) ?? panels[1]
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-2">
+        {rewindDialog}
         <SegmentedControl value={mobilePanel} onValueChange={(value) => setMobilePanel(value as PanelId)} aria-label="Agent panel" className="w-full">
           {panels.map((panel) => (
             <SegmentedControlOption key={panel.id} value={panel.id} className="flex-1">
@@ -167,5 +217,10 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     )
   }
 
-  return <PanelShell storageKey={LAYOUT_KEY} buildDefaultLayout={buildAgentLayout} panels={panels} request={request} onVisibleChange={setVisible} className="min-h-0 flex-1" />
+  return (
+    <>
+      {rewindDialog}
+      <PanelShell storageKey={LAYOUT_KEY} buildDefaultLayout={buildAgentLayout} panels={panels} request={request} onVisibleChange={setVisible} className="min-h-0 flex-1" />
+    </>
+  )
 }

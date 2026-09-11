@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
-import type { AgentProvider, AgentStreamEvent, PermissionDecisionInput, ReviewRequest, SessionRef, TranscriptResponse, TurnAttachment, TurnImage, TurnOptions } from '@canopy/shared'
+import type { AgentProvider, AgentStreamEvent, LiveControlsInput, PermissionDecisionInput, ReviewRequest, SessionRef, TranscriptResponse, TurnAttachment, TurnExtras, TurnImage, TurnOptions } from '@canopy/shared'
 import type { AgentEvent, AgentEventPayload } from '@canopy/shared/agent-stream'
 
 import type { Activity } from '../components/agent/agent-avatar'
@@ -20,15 +20,20 @@ export interface PendingPrompt {
   images: TurnImage[]
 }
 
+/** What the turn cost, as the daemon reports it after the agent's result. */
+export type TurnUsage = Omit<Extract<AgentStreamEvent, { type: 'usage' }>, 'type'>
+
 export interface TurnState {
   /** Events produced during this browser session (appended after the replayed log). */
   events: AgentEvent[]
   /** Written paths by `callId` from this turn's `files` frames. */
   filesByCall: Record<string, string[]>
-  /** Images a user turn carried, by the echoed `user_message` event id. */
-  extras: Record<string, { images: TurnImage[] }>
+  /** Canopy-only data by event id: the images a user turn carried and the provider's id for it. */
+  extras: Record<string, TurnExtras>
   /** The turn just sent, until its echo arrives; rendered so the user sees it immediately. */
   pending: PendingPrompt | null
+  /** Prompts typed into the running turn, until the agent echoes each as a `user_message`. */
+  queued: PendingPrompt[]
   /** Assistant text still arriving as deltas, ahead of the committed block. */
   streamingText: string
   busy: boolean
@@ -40,12 +45,18 @@ export interface TurnState {
   tokens: number
   /** The session the last turn ran in — for a new session, the id the agent assigned. */
   sessionId: string | null
+  /** What the last finished turn cost; outlives the turn so the summary line can render. */
+  usage: TurnUsage | null
   error: string | null
 }
 
 type Action =
   | { type: 'reset' }
+  /** Everything this turn held is in the session file now — keep only what still has to be shown. */
+  | { type: 'settle' }
   | { type: 'start'; pending: PendingPrompt }
+  | { type: 'queue'; pending: PendingPrompt }
+  | { type: 'unqueue'; pending: PendingPrompt; error?: string }
   | { type: 'event'; event: AgentStreamEvent }
   | { type: 'finish'; error?: string }
 
@@ -54,12 +65,14 @@ export const initialTurnState: TurnState = {
   filesByCall: {},
   extras: {},
   pending: null,
+  queued: [],
   streamingText: '',
   busy: false,
   activity: null,
   startedAt: null,
   tokens: 0,
   sessionId: null,
+  usage: null,
   error: null
 }
 
@@ -84,6 +97,15 @@ export function onEvent(state: TurnState, event: AgentStreamEvent): TurnState {
   if (event.type === 'session') return { ...state, sessionId: event.sessionId }
   if (event.type === 'progress') return { ...state, tokens: event.tokens }
   if (event.type === 'files') return { ...state, filesByCall: { ...state.filesByCall, [event.callId]: event.files } }
+  if (event.type === 'usage') {
+    const { type: _type, ...usage } = event
+    return { ...state, usage }
+  }
+  // The provider's own id for a prompt of this turn — what a file rewind is addressed by. Merged,
+  // never assigned: the echo may already have hung the turn's images off the same event.
+  if (event.type === 'message_id') {
+    return { ...state, extras: { ...state.extras, [event.eventId]: { ...state.extras[event.eventId], messageId: event.messageId } } }
+  }
   if (event.type === 'done') return { ...state, streamingText: '', activity: null }
   if (event.type === 'error') return { ...state, streamingText: '', activity: null, error: event.message }
   if (event.type !== 'event') return state // exhaustive: every other arm is handled above
@@ -94,11 +116,17 @@ export function onEvent(state: TurnState, event: AgentStreamEvent): TurnState {
   if (payload.type === 'assistant_text') next.streamingText = ''
   const activity = activityFor(payload)
   if (activity) next.activity = activity
-  // The daemon's echo of the prompt we just sent: fold its images onto that event and stop showing
-  // the local pending copy.
-  if (payload.type === 'user_message' && !payload.synthetic && event.event.agentPath.length === 0 && state.pending) {
-    if (state.pending.images.length > 0) next.extras = { ...state.extras, [event.event.id]: { images: state.pending.images } }
-    next.pending = null
+  // The daemon's echo of a prompt we sent: fold its images onto that event and stop showing the
+  // local copy — the one just sent, else the oldest one the running turn had queued.
+  if (payload.type === 'user_message' && !payload.synthetic && event.event.agentPath.length === 0) {
+    const local = state.pending ?? state.queued[0]
+    if (local) {
+      if (local.images.length > 0) {
+        next.extras = { ...state.extras, [event.event.id]: { ...state.extras[event.event.id], images: local.images } }
+      }
+      if (state.pending) next.pending = null
+      else next.queued = state.queued.slice(1)
+    }
   }
   return next
 }
@@ -107,8 +135,15 @@ function reducer(state: TurnState, action: Action): TurnState {
   switch (action.type) {
     case 'reset':
       return initialTurnState
+    case 'settle':
+      // The transcript re-read holds the conversation now; only the cost of what just ran is ours.
+      return { ...initialTurnState, usage: state.usage }
     case 'start':
       return { ...initialTurnState, pending: action.pending, busy: true, activity: 'thinking', startedAt: Date.now() }
+    case 'queue':
+      return { ...state, queued: [...state.queued, action.pending] }
+    case 'unqueue':
+      return { ...state, queued: state.queued.filter((prompt) => prompt !== action.pending), error: action.error ?? state.error }
     case 'event':
       return onEvent(state, action.event)
     case 'finish':
@@ -155,14 +190,16 @@ export function useAgentTurn(worktreeId: string, ref: SessionRef | undefined, fr
         // transcript stays the single source and nothing renders twice.
         if (ref) {
           await queryClient.invalidateQueries({ queryKey: keys.transcript(ref) })
-          dispatch({ type: 'reset' })
+          dispatch({ type: 'settle' })
         }
       } catch (error) {
         if (!controller.signal.aborted) dispatch({ type: 'finish', error: error instanceof Error ? error.message : String(error) })
       } finally {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: keys.sessions(worktreeId) }),
-          queryClient.invalidateQueries({ queryKey: keys.comments(worktreeId) })
+          queryClient.invalidateQueries({ queryKey: keys.comments(worktreeId) }),
+          // The turn just advertised its own commands, skills and models; that beats a stale probe.
+          queryClient.invalidateQueries({ queryKey: keys.capabilitiesOf(worktreeId) })
         ])
       }
     },
@@ -193,8 +230,14 @@ export function useAgentTurn(worktreeId: string, ref: SessionRef | undefined, fr
     [api, options, run, worktreeId, nextSeqFor]
   )
 
-  /** Ends the running turn: closing the stream is what makes the daemon abort the agent. */
-  const stop = useCallback((): void => {
+  /**
+   * The session a control request goes to. A new session has no `ref` yet, but its id arrived in
+   * the `session` frame before the agent could ask, queue or be interrupted.
+   */
+  const target = ref ?? (fresh && state.sessionId ? { provider: fresh, sessionId: state.sessionId } : undefined)
+
+  /** Drops the stream, which is what makes the daemon abort an agent no interrupt could reach. */
+  const abort = useCallback((): void => {
     if (!abortRef.current || abortRef.current.signal.aborted) return
     abortRef.current.abort()
     dispatch({ type: 'finish' })
@@ -203,21 +246,61 @@ export function useAgentTurn(worktreeId: string, ref: SessionRef | undefined, fr
   }, [queryClient, ref])
 
   /**
-   * Answers a `permission_requested` ask of the running turn. A new session has no `ref` yet, but
-   * its id arrived in the `session` frame before the agent could ask anything.
+   * Ends the running turn. An interrupt is the clean stop — the agent stops where it is and still
+   * reports what it got done, so the turn keeps streaming until the daemon's `done` and `busy`
+   * stays true until then. With no live turn to interrupt (404) or no daemon to ask, the stream
+   * is dropped instead.
    */
+  const stop = useCallback((): void => {
+    if (!target) {
+      abort()
+      return
+    }
+    void api.interruptTurn(target).catch(() => abort())
+  }, [abort, api, target?.provider, target?.sessionId])
+
+  /**
+   * A prompt typed while the agent works: the daemon folds it into the running turn. Shown as a
+   * pending bubble straight away, and taken back down if the daemon says nothing is running.
+   */
+  const queueMessage = useCallback(
+    (text: string, shown?: { display: string; attachments: TurnAttachment[]; images: TurnImage[] }): Promise<void> => {
+      const pending: PendingPrompt = { text, display: shown?.display ?? text, attachments: shown?.attachments ?? [], images: shown?.images ?? [] }
+      const images = shown?.images.map(({ mediaType, data }) => ({ mediaType, data }))
+      dispatch({ type: 'queue', pending })
+      // A brand-new session has no id to queue against until the agent names it.
+      if (!target) {
+        dispatch({ type: 'unqueue', pending, error: 'There is no running turn to queue this into yet.' })
+        return Promise.resolve()
+      }
+      return api.queueMessage(target, { text, ...(images?.length ? { images } : {}) }).catch((error: unknown) => {
+        dispatch({ type: 'unqueue', pending, error: error instanceof Error ? error.message : String(error) })
+      })
+    },
+    [api, target?.provider, target?.sessionId]
+  )
+
+  /** Model or access mode for the running turn, from its next model call on. Nothing running: nothing to do. */
+  const setLiveControls = useCallback(
+    (input: LiveControlsInput): Promise<void> => {
+      if (!target) return Promise.resolve()
+      return api.updateLiveControls(target, input).catch(() => {})
+    },
+    [api, target?.provider, target?.sessionId]
+  )
+
+  /** Answers a `permission_requested` ask of the running turn. */
   const answerPermission = useCallback(
     (input: PermissionDecisionInput): Promise<void> => {
-      const target = ref ?? (fresh && state.sessionId ? { provider: fresh, sessionId: state.sessionId } : undefined)
       if (!target) return Promise.resolve()
       return api.answerPermission(target, input).catch((error: unknown) => {
         dispatch({ type: 'finish', error: error instanceof Error ? error.message : String(error) })
       })
     },
-    [api, fresh, ref, state.sessionId]
+    [api, target?.provider, target?.sessionId]
   )
 
-  return { ...state, sendMessage, sendReview, answerPermission, stop }
+  return { ...state, sendMessage, sendReview, queueMessage, answerPermission, setLiveControls, stop }
 }
 
 export type AgentTurn = ReturnType<typeof useAgentTurn>

@@ -101,7 +101,7 @@ export class WorktreesService {
   /** The worktree whose checkout holds `cwd` (deepest match), or undefined when Canopy does not manage it. */
   containing(cwd: string): WorktreeRow | undefined {
     // Lexically canonical first: `<worktree>/../elsewhere` starts with the worktree's path and is
-    // not inside it.
+    // not inside it. Callers that go on to use the path must use the canonical form too.
     const target = resolve(cwd)
     return this.present().find((row) => target === row.path || target.startsWith(`${row.path}/`))
   }

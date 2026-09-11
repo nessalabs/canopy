@@ -60,18 +60,51 @@ export function queuedPrompts(jsonl: string): QueuedPrompt[] {
   return prompts
 }
 
+/** What a local slash command (`/context`, `/usage`) printed, which the CLI drew as the assistant's. */
+export interface LocalCommandOutput {
+  uuid: string
+  /** The `<command-name>` user line it answered. */
+  parentUuid: string
+  text: string
+}
+
+const LOCAL_OUTPUT = /^\s*<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>\s*$/
+
+/**
+ * Local slash commands never reach the model, so their answers are stored as `system` rows of
+ * subtype `local_command` — which the SDK's getSessionMessages drops along with every other
+ * system row. Read them from the file so `/usage` shows what it said, not an empty turn. The bare
+ * echo of the command name (also a `local_command` row) is skipped: the prompt line carries it.
+ */
+export function localCommandOutputs(jsonl: string): LocalCommandOutput[] {
+  const outputs: LocalCommandOutput[] = []
+  for (const line of jsonl.split('\n')) {
+    if (!line.includes('"local_command"')) continue
+    try {
+      const entry = JSON.parse(line) as { type?: string; subtype?: string; uuid?: string; parentUuid?: string; content?: string }
+      if (entry.type !== 'system' || entry.subtype !== 'local_command' || !entry.uuid || !entry.parentUuid || typeof entry.content !== 'string') continue
+      const output = LOCAL_OUTPUT.exec(entry.content)
+      if (output) outputs.push({ uuid: entry.uuid, parentUuid: entry.parentUuid, text: output[2] ?? '' })
+    } catch {
+      // partial or foreign line; keep scanning
+    }
+  }
+  return outputs
+}
+
 /** What the session file records beyond the messages the SDK replays. */
 export interface SessionExtras {
   effort?: Effort
   queued: QueuedPrompt[]
+  localOutputs: LocalCommandOutput[]
 }
 
 export async function readSessionExtras(cwd: string | undefined, sessionId: string): Promise<SessionExtras> {
-  if (!cwd) return { queued: [] }
+  if (!cwd) return { queued: [], localOutputs: [] }
   try {
     const jsonl = await readFile(sessionFilePath(cwd, sessionId), 'utf8')
-    return { effort: lastAssistantEffort(jsonl), queued: queuedPrompts(jsonl) }
+    return { effort: lastAssistantEffort(jsonl), queued: queuedPrompts(jsonl), localOutputs: localCommandOutputs(jsonl) }
   } catch {
-    return { queued: [] }
+    return { queued: [], localOutputs: [] }
   }
 }
