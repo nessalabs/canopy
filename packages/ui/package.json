@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./tray": "./src/components/tray/tray-panel.tsx",
-    "./styles/globals.css": "./src/styles/globals.css"
+    "./styles/globals.css": "./src/styles/globals.css",
+    "./lab/avatar": "./src/lab/avatar-lab.tsx"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
@@ -27,7 +28,6 @@
     "remark-gfm": "^4.0.1",
     "remark-math": "^6.0.0",
     "tailwind-merge": "^3.6.0",
-    "thinking-orbs": "^0.3.1",
     "wouter": "^3.10.0"
   },
   "peerDependencies": {

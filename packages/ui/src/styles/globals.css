@@ -434,3 +434,56 @@
         }
     }
 }
+/* The agent avatar's motions (components/agent/agent-avatar.tsx). One clock, `--avatar-cycle`,
+   set per activity on the wrapper; every layer derives its timing from it so the parts stay in
+   step. Sinusoidal easing with the crest at 40% is the 4-in/6-out breath that keeps a loop from
+   reading as a pulse. Sizes are in container-query units so the same classes fit a 16px cue and
+   a 64px portrait. */
+@keyframes agent-avatar-breathe {
+  0%, 100% { scale: 1; }
+  40% { scale: 1.08; }
+}
+@keyframes agent-avatar-wobble {
+  0%, 100% { rotate: -6deg; }
+  50% { rotate: 6deg; }
+}
+@keyframes agent-avatar-turn {
+  to { rotate: 360deg; }
+}
+@keyframes agent-avatar-glow {
+  0%, 100% { opacity: 0.3; scale: 1.02; }
+  40% { opacity: 0.75; scale: 1.34; }
+}
+@keyframes agent-avatar-ripple {
+  from { scale: 1; opacity: 0.65; }
+  to { scale: 1.85; opacity: 0; }
+}
+@keyframes agent-avatar-shimmer {
+  0% { translate: -100% 0; }
+  55%, 100% { translate: 350% 0; }
+}
+@layer components {
+  .agent-avatar-breathe { animation: agent-avatar-breathe var(--avatar-cycle) cubic-bezier(0.37, 0, 0.63, 1) infinite; }
+  .agent-avatar-wobble { animation: agent-avatar-wobble calc(var(--avatar-cycle) * 1.2) cubic-bezier(0.37, 0, 0.63, 1) infinite; }
+  .agent-avatar-spin { animation: agent-avatar-turn calc(var(--avatar-cycle) * 4) linear infinite; }
+  .agent-avatar-glow {
+    filter: blur(10cqi);
+    animation: agent-avatar-glow var(--avatar-cycle) cubic-bezier(0.37, 0, 0.63, 1) infinite;
+  }
+  .agent-avatar-ripple {
+    mask-image: radial-gradient(closest-side, transparent 78%, black 83%, black 95%, transparent 100%);
+    animation: agent-avatar-ripple var(--avatar-cycle) cubic-bezier(0.2, 0, 0, 1) infinite;
+  }
+  .agent-avatar-halo {
+    /* Two masks intersected: the ring, and a comet-tailed arc of it. Rotating the element rotates
+       the arc; the ring is symmetric, so it does not matter that it turns too. */
+    mask-image: conic-gradient(from 0deg, black 0deg 80deg, transparent 170deg 360deg), radial-gradient(closest-side, transparent 80%, black 84%, black 96%, transparent 100%);
+    mask-composite: intersect;
+    animation: agent-avatar-turn var(--avatar-cycle) linear infinite;
+  }
+  .agent-avatar-shimmer { animation: agent-avatar-shimmer calc(var(--avatar-cycle) * 1.5) cubic-bezier(0.37, 0, 0.63, 1) infinite; }
+  .agent-avatar-moon { animation: agent-avatar-turn calc(var(--avatar-cycle) * 1.6) linear infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="agent-avatar"], [data-slot="agent-avatar"] * { animation: none !important; }
+  }
+}
