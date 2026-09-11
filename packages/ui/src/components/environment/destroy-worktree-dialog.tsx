@@ -59,7 +59,7 @@ export function DestroyWorktreeDialog({
                 {deleteBranch ? ' will be deleted and its commits discarded.' : ' is kept unless you delete it below.'}
               </span>
             ) : null}
-            {merged?.disposable ? <span className="mt-2 block text-muted-foreground">{merged.label} — nothing here is lost by removing it.</span> : null}
+            {merged?.disposable ? <span className="mt-2 block text-muted-foreground">{merged.label}.</span> : null}
           </DialogDescription>
         </DialogHeader>
         <label className="flex items-center gap-2 text-sm">

@@ -65,12 +65,12 @@ export function mergedLabel(worktree: Pick<Worktree, 'isMain' | 'baseBranch' | '
     const aheadBy = ahead !== null && ahead > 0 ? ` (${plural(ahead, 'commit')} ahead)` : ''
     return { merged, disposable: false, label: `Not merged into ${worktree.baseBranch}${aheadBy}` }
   }
-  // A branch that never committed anything has not "merged" in any sense a reader would
-  // recognise; it simply has nothing of its own. Both are safe to let go, and saying so
-  // accurately is the difference between a tick that can be trusted and one that cannot.
-  const landed = ahead === 0 ? `Nothing of its own to land on ${worktree.baseBranch}` : `Merged into ${worktree.baseBranch}`
-  if (dirty === 0) return { merged, disposable: true, label: landed }
-  return { merged, disposable: false, label: `${landed}, but ${plural(dirty, 'uncommitted change')} here would be lost` }
+  // Said as the thing the reader wants to know — is this safe to delete — rather than as a
+  // fact about merging they then have to reason from. It also covers, without lying about it,
+  // the branch that never committed anything: nothing of its own to land is still everything
+  // it has being in the base already.
+  if (dirty === 0) return { merged, disposable: true, label: `Everything here is already in ${worktree.baseBranch} — safe to delete` }
+  return { merged, disposable: false, label: `Everything committed here is already in ${worktree.baseBranch}, but ${plural(dirty, 'uncommitted change')} would be lost` }
 }
 
 /** The merge button's state: whether to offer it, whether it can be pressed, and why not. */

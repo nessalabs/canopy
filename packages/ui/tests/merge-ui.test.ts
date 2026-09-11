@@ -39,21 +39,21 @@ describe('mergedLabel', () => {
     expect(mergedLabel(wt({ status: status({ merged: false, ahead: 1 }) }))?.label).toBe('Not merged into main (1 commit ahead)')
   })
 
-  it('calls a landed branch with a clean checkout disposable', () => {
-    expect(mergedLabel(wt({ status: status({ merged: true, ahead: 3, behind: 1 }) }))).toEqual({ merged: true, disposable: true, label: 'Merged into main' })
+  it('answers the question being asked: is this safe to delete', () => {
+    expect(mergedLabel(wt({ status: status({ merged: true, ahead: 3, behind: 1 }) }))).toEqual({ merged: true, disposable: true, label: 'Everything here is already in main — safe to delete' })
   })
 
-  it('does not call a branch with no commits of its own "merged"', () => {
-    // Ahead 0 and behind: the base moved on and this branch never landed anything, which is
-    // safe to remove but is not the same sentence as work that landed.
-    expect(mergedLabel(wt({ status: status({ merged: true, ahead: 0, behind: 4 }) }))).toEqual({ merged: true, disposable: true, label: 'Nothing of its own to land on main' })
+  it('says the same of a branch with no commits of its own, without calling it merged', () => {
+    // Ahead 0 and behind: the base moved on and this branch never landed anything. Naming it
+    // "merged" would be a fiction, but everything it has really is in the base already.
+    expect(mergedLabel(wt({ status: status({ merged: true, ahead: 0, behind: 4 }) }))).toEqual({ merged: true, disposable: true, label: 'Everything here is already in main — safe to delete' })
   })
 
   it('withholds disposable while uncommitted work sits in the checkout', () => {
     // The merge carried the commits; it carried none of this, so the worktree still holds the
     // only copy. Merged stays true — it is a fact about the branch — but the tick has to go.
     const verdict = mergedLabel(wt({ status: status({ merged: true, ahead: 2, dirtyTotal: 11, unstaged: 11 }) }))
-    expect(verdict).toEqual({ merged: true, disposable: false, label: 'Merged into main, but 11 uncommitted changes here would be lost' })
+    expect(verdict).toEqual({ merged: true, disposable: false, label: 'Everything committed here is already in main, but 11 uncommitted changes would be lost' })
   })
 })
 
