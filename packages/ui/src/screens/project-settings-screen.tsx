@@ -1,22 +1,21 @@
-/** Project settings: a left nav over one tab per concern, plus this machine's app preferences. */
+/** Project settings: a left nav over one tab per concern. This machine's preferences have their own screen. */
 import { useEffect, useState } from 'react'
-import { Boxes, FileCode, Files, FolderGit2, GitMerge, Monitor, Settings, Trash2, TriangleAlert } from 'lucide-react'
+import { Boxes, FileCode, Files, FolderGit2, GitMerge, Settings, Trash2, TriangleAlert } from 'lucide-react'
+import { useLocation } from 'wouter'
 
 import type { Project } from '@canopy/shared'
 
-import { AppTab } from '@/components/settings/app-tab'
 import { CachesTab } from '@/components/settings/caches-tab'
 import { CleanupTab } from '@/components/settings/cleanup-tab'
 import { DangerTab } from '@/components/settings/danger-tab'
 import { DefaultsTab } from '@/components/settings/defaults-tab'
 import { GeneralTab } from '@/components/settings/general-tab'
+import { NavButton } from '@/components/settings/settings-chrome'
 import { useDraftSettings } from '@/components/settings/use-draft-settings'
 import { WorktrunkTab } from '@/components/settings/worktrunk-tab'
 import { YamlTab } from '@/components/settings/yaml-tab'
-import { Button } from '@/components/ui/button'
 import { useProjects } from '@/lib/api-hooks'
 import { SETTINGS_TAB_LABEL, parseSettingsTab, settingsHref, type SettingsTabId } from '@/lib/settings-ui'
-import { cn } from '@/lib/utils'
 
 type TabIcon = React.ComponentType<{ className?: string }>
 
@@ -30,21 +29,16 @@ const PROJECT_TABS: Array<{ id: SettingsTabId; icon: TabIcon }> = [
   { id: 'danger', icon: TriangleAlert }
 ]
 
-const MACHINE_TABS: Array<{ id: SettingsTabId; icon: TabIcon }> = [{ id: 'app', icon: Monitor }]
-
-function NavButton({ active, danger, icon: Icon, label, onClick }: { active: boolean; danger?: boolean; icon: TabIcon; label: string; onClick: () => void }): React.JSX.Element {
-  return (
-    <Button variant={active ? 'secondary' : 'ghost'} size="sm" className={cn('justify-start', danger && 'text-destructive')} aria-current={active ? 'page' : undefined} onClick={onClick}>
-      <Icon className="size-3.5" />
-      {label}
-    </Button>
-  )
-}
-
 /** Mounted under a key of the project id, so every project gets a clean draft and tab. */
 function ProjectSettings({ project }: { project: Project }): React.JSX.Element {
   const draft = useDraftSettings(project.id)
+  const [, navigate] = useLocation()
   const [tab, setTab] = useState<SettingsTabId>(() => parseSettingsTab(window.location.hash, window.location.search))
+
+  // App preferences used to be a tab here; an old deep link still lands on the new screen.
+  useEffect(() => {
+    if (tab === 'app') navigate('/settings', { replace: true })
+  }, [tab, navigate])
 
   // Deep links land here through the hash router; follow them when the URL changes under us.
   useEffect(() => {
@@ -79,10 +73,6 @@ function ProjectSettings({ project }: { project: Project }): React.JSX.Element {
           {PROJECT_TABS.map((entry) => (
             <NavButton key={entry.id} active={tab === entry.id} danger={entry.id === 'danger'} icon={entry.icon} label={SETTINGS_TAB_LABEL[entry.id]} onClick={() => select(entry.id)} />
           ))}
-          <p className="hidden px-3 pt-4 pb-1 text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase sm:block">this machine</p>
-          {MACHINE_TABS.map((entry) => (
-            <NavButton key={entry.id} active={tab === entry.id} icon={entry.icon} label={SETTINGS_TAB_LABEL[entry.id]} onClick={() => select(entry.id)} />
-          ))}
         </nav>
 
         <div className="min-w-0 flex-1">
@@ -93,7 +83,6 @@ function ProjectSettings({ project }: { project: Project }): React.JSX.Element {
           {tab === 'defaults' ? <DefaultsTab draft={draft} /> : null}
           {tab === 'cleanup' ? <CleanupTab draft={draft} /> : null}
           {tab === 'danger' ? <DangerTab project={project} /> : null}
-          {tab === 'app' ? <AppTab /> : null}
         </div>
       </div>
     </div>

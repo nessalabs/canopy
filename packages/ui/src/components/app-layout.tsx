@@ -212,10 +212,18 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
                 <StatusDot status={connection === 'live' ? 'success' : 'running'} />
                 <span className="truncate">canopyd · {connection === 'live' ? 'live' : 'reconnecting…'}</span>
               </span>
-              <Link href="/docs" className="shrink-0 underline-offset-2 hover:text-foreground hover:underline">
-                api
-              </Link>
+              <span className="flex shrink-0 items-center gap-1">
+                <Link href="/docs" className="underline-offset-2 hover:text-foreground hover:underline">
+                  api
+                </Link>
+                <HoverAction label="Preferences" onClick={() => navigate('/settings')}>
+                  <Settings2 className={cn('size-3.5', location === '/settings' && 'text-foreground')} />
+                </HoverAction>
+              </span>
             </p>
+            <Button variant="ghost" size="icon" aria-label="Preferences" className="mx-auto hidden size-8 group-data-[state=collapsed]/sidebar:inline-flex" onClick={() => navigate('/settings')}>
+              <Settings2 />
+            </Button>
           </SidebarFooter>
           <SidebarRail />
         </Sidebar>

@@ -40,7 +40,7 @@ export function parseSettingsTab(hash: string, search = ''): SettingsTabId {
 }
 
 /** The same absolute URL with `?tab=` pointed at another section; the hash (the route) is kept. */
-export function settingsHref(href: string, tab: SettingsTabId): string {
+export function settingsHref(href: string, tab: string): string {
   const url = new URL(href)
   url.searchParams.set('tab', tab)
   return url.toString()

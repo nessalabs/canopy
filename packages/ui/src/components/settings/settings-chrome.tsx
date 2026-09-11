@@ -6,6 +6,18 @@ import { cn } from '@/lib/utils'
 
 import type { SaveStatus } from './use-draft-settings'
 
+type NavIcon = React.ComponentType<{ className?: string }>
+
+/** One entry of a settings screen's left nav. */
+export function NavButton({ active, danger, icon: Icon, label, onClick }: { active: boolean; danger?: boolean; icon: NavIcon; label: string; onClick: () => void }): React.JSX.Element {
+  return (
+    <Button variant={active ? 'secondary' : 'ghost'} size="sm" className={cn('justify-start', danger && 'text-destructive')} aria-current={active ? 'page' : undefined} onClick={onClick}>
+      <Icon className="size-3.5" />
+      {label}
+    </Button>
+  )
+}
+
 /** A labelled control with an optional hint above it. */
 export function Row({ label, hint, children, className }: { label: string; hint?: string; children: React.ReactNode; className?: string }): React.JSX.Element {
   return (

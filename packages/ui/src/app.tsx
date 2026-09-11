@@ -12,6 +12,7 @@ import { CanopyEventsProvider } from './lib/events-provider'
 import { diagramWindowHash, fileWindowParams, stashDiagram } from './lib/pop-out'
 import { ApiProvider } from './providers/api'
 import { PlatformProvider, openAppWindow, type DaemonConnection, type Platform } from './providers/platform'
+import { AppSettingsScreen } from './screens/app-settings-screen'
 import { CommandCenterScreen } from './screens/command-center-screen'
 import { ConnectScreen } from './screens/connect-screen'
 import { DiagramWindowScreen } from './screens/diagram-window-screen'
@@ -57,6 +58,7 @@ function Routes(): React.JSX.Element {
             <Route path="/projects/:id/new">{(params) => <WorktreeCreateScreen projectId={params.id} />}</Route>
             <Route path="/projects/:id/settings">{(params) => <ProjectSettingsScreen projectId={params.id} />}</Route>
             <Route path="/docs" component={DocsScreen} />
+            <Route path="/settings" component={AppSettingsScreen} />
             <Route component={CommandCenterScreen} />
           </Switch>
         </AppLayout>
