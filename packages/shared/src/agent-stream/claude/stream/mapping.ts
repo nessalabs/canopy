@@ -56,22 +56,22 @@ export const CLAUDE_EVENT_MAPPING: Readonly<Record<ClaudeWireKind, ClaudeMapping
     note: "one per turn, not per session; a model change is derived from two of them",
   },
   [ClaudeWireType.Result]: {
-    emits: [AgentEventType.TurnCompleted],
-    note: "the turn terminator, carrying usage, cost and stop reason",
+    emits: [AgentEventType.ContextUsage, AgentEventType.TurnCompleted],
+    note: "the turn terminator, carrying usage, cost and stop reason — and the model's window, which nothing else states",
   },
 
   // ---------- conversation ----------
   [`${ClaudeWireType.Assistant}/${ClaudeContentBlockType.Text}`]: {
-    emits: [AgentEventType.AssistantText],
-    note: "committed prose; supersedes whatever the deltas previewed",
+    emits: [AgentEventType.ContextUsage, AgentEventType.AssistantText],
+    note: "committed prose; supersedes whatever the deltas previewed. The message's usage says how full the window is",
   },
   [`${ClaudeWireType.Assistant}/${ClaudeContentBlockType.Thinking}`]: {
-    emits: [AgentEventType.Reasoning],
-    note: "committed reasoning",
+    emits: [AgentEventType.ContextUsage, AgentEventType.Reasoning],
+    note: "committed reasoning; the message's usage says how full the window is",
   },
   [`${ClaudeWireType.Assistant}/${ClaudeContentBlockType.ToolUse}`]: {
-    emits: [AgentEventType.ToolCallStarted, AgentEventType.PlanUpdated],
-    note: "a call, plus a plan update when the call is TodoWrite or TaskCreate/TaskUpdate",
+    emits: [AgentEventType.ContextUsage, AgentEventType.ToolCallStarted, AgentEventType.PlanUpdated],
+    note: "a call, plus a plan update when the call is TodoWrite or TaskCreate/TaskUpdate; the message's usage says how full the window is",
   },
   [`${ClaudeWireType.User}/text`]: {
     emits: [AgentEventType.UserMessage, AgentEventType.Error],

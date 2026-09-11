@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { AtSign, Brain, FileDiff, Plus, Square } from 'lucide-react'
 
 import { ImageMediaType, type ChangedFile, type Effort } from '@canopy/shared'
+import type { ContextUsage } from '@canopy/shared/agent-stream'
 
 import {
   ChatComposer,
@@ -18,6 +19,7 @@ import { ComposerAccessMode } from '@/components/ui/composer-access-mode'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ModelThinkingControl } from '@/components/ui/model-capability-controls'
 import { ModelPicker } from '@/components/ui/model-picker'
+
 import { SearchableListbox } from '@/components/ui/searchable-listbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ACCESS_TO_AUTONOMY, AUTONOMY_TO_ACCESS } from '@/lib/autonomy'
@@ -25,6 +27,8 @@ import { SLASH_COMMANDS, composeMessage, type Attachment } from '@/lib/compose'
 import { plural } from '@/lib/format'
 import { EFFORT_LEVELS, modelGroupFor } from '@/lib/models'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
+
+import { ContextMeter } from './context-meter'
 
 
 let nextAttachmentId = 0
@@ -57,7 +61,8 @@ export function AgentComposer({
   placeholder,
   latestChanges,
   quote,
-  onQuoteStaged
+  onQuoteStaged,
+  context = null
 }: {
   agent: WorktreeAgent
   changedFiles: ChangedFile[]
@@ -68,6 +73,8 @@ export function AgentComposer({
   quote?: { id: number; text: string }
   /** Fires once the quote is a chip, so the owner can drop it rather than hand it over again. */
   onQuoteStaged?: () => void
+  /** How full the session's context window is, for the meter beside the model picker. */
+  context?: ContextUsage | null
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -225,6 +232,7 @@ export function AgentComposer({
               {latestChanges.shown ? 'Hide the changes panel' : latestChanges.count === 0 ? 'Changes panel (no turn has changed files yet)' : `Show changes · latest turn wrote ${plural(latestChanges.count, 'file')}`}
             </TooltipContent>
           </Tooltip>
+          <ContextMeter usage={context} model={agent.history.data?.model} />
           <ModelPicker
             groups={[modelGroupFor(provider, agent.model)]}
             value={agent.model ? { providerId: provider, modelId: agent.model } : undefined}

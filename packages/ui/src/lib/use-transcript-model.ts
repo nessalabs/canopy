@@ -1,8 +1,8 @@
 import { useMemo, useRef } from 'react'
 
 import type { TranscriptResponse, TurnImage } from '@canopy/shared'
-import type { DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
-import { TranscriptBuilder, applyDeltas } from '@canopy/shared/agent-stream'
+import type { ContextUsage, DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
+import { TranscriptBuilder, applyDeltas, contextUsage } from '@canopy/shared/agent-stream'
 
 import type { AgentTurn } from './use-agent-turn'
 
@@ -14,6 +14,8 @@ export interface TranscriptModel {
   filesByCall: Record<string, string[]>
   /** Images by user-message event id, replay plus this turn. */
   extras: Record<string, { images: TurnImage[] }>
+  /** How full the model's window is, as of the latest call the stream reported; null before any. */
+  context: ContextUsage | null
 }
 
 /** The fold in progress: which replay it started from and how much of the live turn it has absorbed. */
@@ -49,8 +51,16 @@ export function useTranscriptModel(history: TranscriptResponse | undefined, turn
   }, [history, turn.events, turn.busy])
   // Only a live turn streams deltas; a replay stores committed blocks alone.
   const previews = useMemo(() => applyDeltas(turn.events), [turn.events])
+  // Replay and live turn are folded separately, so a streaming turn re-walks its own events and
+  // not the whole session; the live reading wins wherever it has one.
+  const replayed = useMemo(() => contextUsage(history?.events ?? []), [history])
+  const live = useMemo(() => contextUsage(turn.events), [turn.events])
+  const context = useMemo<ContextUsage | null>(() => {
+    if (!replayed && !live) return null
+    return { tokens: live?.tokens ?? replayed?.tokens ?? null, window: live?.window ?? replayed?.window ?? null }
+  }, [replayed, live])
   const filesByCall = useMemo(() => ({ ...(history?.files ?? {}), ...turn.filesByCall }), [history, turn.filesByCall])
   const extras = useMemo(() => ({ ...(history?.extras ?? {}), ...turn.extras }), [history, turn.extras])
-  return { transcript, previews, filesByCall, extras }
+  return { transcript, previews, filesByCall, extras, context }
 }
 

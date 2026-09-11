@@ -395,6 +395,18 @@ export type AgentEventPayload =
   /** A one-line gloss of what the agent is doing, emitted alongside a tool call. */
   | { readonly type: "activity"; readonly detail: string }
   | { readonly type: "thinking_progress"; readonly tokens: number }
+  /**
+   * How full the model's window is, read off the wire rather than summed.
+   *
+   * `contextTokens` is the prompt of the latest model call — input, cache
+   * reads and cache writes together — which is exactly what the model saw and
+   * so exactly how much of its window is spent. A turn's `usage` cannot say
+   * this: it sums every call in the turn. Claude reports it on each committed
+   * `assistant` message and, per request, on the result's `iterations`; the
+   * window itself only arrives on the result (`modelUsage`), so the two fields
+   * are independently nullable and a consumer keeps the latest of each.
+   */
+  | { readonly type: "context_usage"; readonly contextTokens: number | null; readonly contextWindow: number | null }
   | {
       readonly type: "hook"
       readonly phase: "started" | "finished"
@@ -504,6 +516,7 @@ export const AgentEventType = Object.freeze({
   StatusChanged: "status_changed",
   Activity: "activity",
   ThinkingProgress: "thinking_progress",
+  ContextUsage: "context_usage",
   Hook: "hook",
   PostTurnSummary: "post_turn_summary",
   RateLimited: "rate_limited",

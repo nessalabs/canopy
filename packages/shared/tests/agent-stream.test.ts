@@ -6,6 +6,7 @@ import {
   applyDeltas,
   buildTranscript,
   ClaudeStreamMapper,
+  contextUsage,
   isEvent,
   mapClaudeStream,
   previewOf,
@@ -68,6 +69,25 @@ describe('vendored agent-stream', () => {
     expect(final).toBeDefined()
     // The deltas for that block concatenate to exactly the committed text.
     expect(previewOf(buffers, final?.payload.block ?? null)).toBe(final?.payload.text)
+  })
+
+  it('reports how full the window is: once per committed message, and the window itself on the result', () => {
+    const readings = events.filter((event) => isEvent(event, AgentEventType.ContextUsage))
+    // Two model calls in the capture, each reported once however many blocks it committed, then the result.
+    expect(readings.map((event) => [event.payload.contextTokens, event.payload.contextWindow])).toEqual([
+      [31037, null],
+      [31444, null],
+      [31444, 1000000]
+    ])
+    const assistantLines = capture.split('\n').filter((row) => row.includes('"type":"assistant"')).length
+    expect(assistantLines).toBeGreaterThan(readings.length - 1)
+    expect(contextUsage(events)).toEqual({ tokens: 31444, window: 1000000 })
+  })
+
+  it('takes a compaction at its word until the next call reports', () => {
+    const compacted = { ...events[0]!, payload: { type: 'context_compacted', trigger: 'auto', preTokens: 31444, postTokens: 4200, droppedTokens: 27244, durationMs: 20000 } } as (typeof events)[number]
+    expect(contextUsage([...events, compacted])).toEqual({ tokens: 4200, window: 1000000 })
+    expect(contextUsage([])).toBeNull()
   })
 
   it('carries a persisted log forward: a mapper resumed at the stored tail mints new ids', () => {
