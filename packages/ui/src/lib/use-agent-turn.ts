@@ -258,10 +258,14 @@ export function useAgentTurn(worktreeId: string, ref: SessionRef | undefined, fr
    */
   const queueMessage = useCallback(
     (text: string, shown?: { display: string; attachments: TurnAttachment[]; images: TurnImage[] }): Promise<void> => {
-      if (!target) return Promise.resolve()
       const pending: PendingPrompt = { text, display: shown?.display ?? text, attachments: shown?.attachments ?? [], images: shown?.images ?? [] }
       const images = shown?.images.map(({ mediaType, data }) => ({ mediaType, data }))
       dispatch({ type: 'queue', pending })
+      // A brand-new session has no id to queue against until the agent names it.
+      if (!target) {
+        dispatch({ type: 'unqueue', pending, error: 'There is no running turn to queue this into yet.' })
+        return Promise.resolve()
+      }
       return api.queueMessage(target, { text, ...(images?.length ? { images } : {}) }).catch((error: unknown) => {
         dispatch({ type: 'unqueue', pending, error: error instanceof Error ? error.message : String(error) })
       })
