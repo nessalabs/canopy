@@ -193,7 +193,9 @@ export function beatsOf(rows: readonly WorkItem[], transcript: Transcript): read
     }
     if (isEvent(item, AgentEventType.Error)) {
       close()
-      beats.push({ kind: 'note', key: item.id, event: item, tone: 'error', text: item.payload.message })
+      // Stopping the agent is something the person did, not something that went wrong.
+      const stopped = item.payload.message.startsWith('[Request interrupted by user')
+      beats.push({ kind: 'note', key: item.id, event: item, tone: stopped ? 'muted' : 'error', text: stopped ? 'Stopped by you' : item.payload.message })
       continue
     }
     if (isEvent(item, AgentEventType.PermissionDenied)) {
