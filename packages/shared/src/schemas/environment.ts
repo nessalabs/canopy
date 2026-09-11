@@ -549,7 +549,9 @@ export const CanopyEvent = z.discriminatedUnion('type', [
    * `git` says the repository itself moved (index, HEAD, refs), and `truncated` that a burst
    * was too large to list — treat everything about the worktree as stale then.
    */
-  z.object({ type: z.literal('files-changed'), seq: z.number().int(), worktreeId: Id, paths: z.array(z.string()), git: z.boolean(), truncated: z.boolean() })
+  z.object({ type: z.literal('files-changed'), seq: z.number().int(), worktreeId: Id, paths: z.array(z.string()), git: z.boolean(), truncated: z.boolean() }),
+  /** An agent session worked in this worktree for the first time (from its own cwd or another). */
+  z.object({ type: z.literal('agent-sessions-changed'), seq: z.number().int(), worktreeId: Id })
 ])
 export type CanopyEvent = z.infer<typeof CanopyEvent>
 

@@ -7,13 +7,16 @@ import { ApiError, routes } from '@canopy/shared'
 
 import { EditDiffsService } from './agents/edit-diffs/service'
 import { createSnapshots } from './agents/edit-diffs/snapshots'
+import { PresenceService } from './agents/presence'
 import { createAgentRegistry, type AgentRegistry } from './agents/registry'
+import { createSessionLister } from './agents/sessions'
 import { CommitService } from './commit/service'
 import { registerAuth } from './auth'
 import type { DaemonConfig } from './config'
 import { createDbRegistry } from './env/databases/registry'
 import { createDocker } from './env/docker'
 import { createEventBus } from './env/events/bus'
+import type { EventBus } from './env/types'
 import { createLogStore } from './env/logs/store'
 import { PortAllocator } from './env/ports/allocator'
 import { ResourceSampler } from './env/resources/sampler'
@@ -54,6 +57,8 @@ export interface ServerDeps {
   /** Tests inject fakes; production talks to the real docker CLI and `wt`. */
   docker?: DockerHelper
   worktrunk?: Worktrunk
+  /** Tests subscribe to the bus they hand in. */
+  events?: EventBus
   logger?: boolean
 }
 
@@ -73,10 +78,11 @@ export function buildServices(deps: ServerDeps): Services {
   const repo = createRepo(git)
   const diffs = createDiffReader(git, repo.untracked)
   const projects = new ProjectsService(deps.db, repo, deps.config.home)
-  const events = createEventBus()
+  const events = deps.events ?? createEventBus()
   const worktrunk = deps.worktrunk ?? createWorktrunk(git)
   const worktrees = new WorktreesService({ db: deps.db, repo, projects, worktreeRoot: deps.config.worktreeRoot, worktrunk, events })
   const agents = deps.agents ?? createAgentRegistry()
+  const presence = new PresenceService({ db: deps.db, worktrees, events })
   const docker = deps.docker ?? createDocker()
   const logs = createLogStore(deps.config.dataRoot)
   const appSettings = loadAppSettings(deps.config.home)
@@ -110,6 +116,8 @@ export function buildServices(deps: ServerDeps): Services {
     review: new ReviewService({ db: deps.db, worktrees, agents }),
     agents,
     editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots: createSnapshots(git) }),
+    presence,
+    sessions: createSessionLister({ agents, presence }),
     environment,
     logs,
     events

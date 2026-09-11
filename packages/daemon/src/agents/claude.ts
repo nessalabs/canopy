@@ -109,7 +109,18 @@ export class ClaudeAdapter implements AgentAdapter {
       includeProgrammatic: true
     })
     const live = new Set((await liveSessions()).map((entry) => entry.sessionId))
-    return sessions.map((session) => ({
+    return sessions.map((session) => ({ ...this.summarize(session), active: live.has(session.sessionId) }))
+  }
+
+  async describeSession(sessionId: string, cwd: string): Promise<AgentSessionSummary | undefined> {
+    const module = await this.loadSdk()
+    if (!module) return undefined
+    const session = await module.getSessionInfo(sessionId, { dir: cwd })
+    return session ? this.summarize(session) : undefined
+  }
+
+  private summarize(session: Awaited<ReturnType<SdkModule['listSessions']>>[number]): AgentSessionSummary {
+    return {
       provider: this.provider,
       sessionId: session.sessionId,
       title: session.customTitle ?? session.summary ?? session.sessionId.slice(0, 8),
@@ -117,9 +128,8 @@ export class ClaudeAdapter implements AgentAdapter {
       gitBranch: session.gitBranch,
       createdAt: session.createdAt,
       updatedAt: session.lastModified,
-      preview: session.firstPrompt,
-      active: live.has(session.sessionId)
-    }))
+      preview: session.firstPrompt
+    }
   }
 
   async transcript(sessionId: string, cwd?: string): Promise<TranscriptResponse> {

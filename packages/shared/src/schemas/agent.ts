@@ -40,7 +40,18 @@ export const AgentSessionSummary = z.object({
   preview: z.string().optional(),
   transcriptPath: z.string().optional(),
   /** A terminal has this session open right now. */
-  active: z.boolean().optional()
+  active: z.boolean().optional(),
+  /**
+   * What the session is doing this moment, when anything knows: `busy` while a turn is running
+   * (its terminal says so, or its hooks reported a tool call seconds ago), `idle` when a terminal
+   * has it open and is waiting for input. Absent when nothing is watching it.
+   */
+  status: z.enum(['busy', 'idle']).optional(),
+  /**
+   * The worktree this listing is for is not the session's own cwd: the session works here from
+   * another checkout, and its hooks said so.
+   */
+  visiting: z.boolean().optional()
 })
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummary>
 

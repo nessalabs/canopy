@@ -148,9 +148,13 @@ export const useComments = (worktreeId: string) => {
   return useQuery({ queryKey: keys.comments(worktreeId), queryFn: () => api.listComments(worktreeId) })
 }
 
+/**
+ * Polled, gently: a session's busy/idle state is read from its terminal and its hooks at listing
+ * time, and a session working here from another checkout arrives by event, not by poll.
+ */
 export const useAgentSessions = (worktreeId: string) => {
   const api = useApi()
-  return useQuery({ queryKey: keys.sessions(worktreeId), queryFn: () => api.agentSessions(worktreeId) })
+  return useQuery({ queryKey: keys.sessions(worktreeId), queryFn: () => api.agentSessions(worktreeId), refetchInterval: 5_000, refetchIntervalInBackground: false })
 }
 
 /**

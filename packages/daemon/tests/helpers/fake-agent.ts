@@ -33,6 +33,8 @@ export class FakeAgent implements AgentAdapter {
 
   available = async (): Promise<boolean> => true
   listSessions = async (): Promise<AgentSessionSummary[]> => this.sessions
+  /** Undefined, like a provider with no lookup, until a test gives the fake one. */
+  describeSession: AgentAdapter['describeSession'] = undefined
   transcript = async (): Promise<TranscriptResponse> => ({
     events: [fakeEvent(0, { type: 'user_message', text: 'hello', synthetic: false })],
     files: {},
