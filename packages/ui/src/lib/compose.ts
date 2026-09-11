@@ -44,7 +44,29 @@ export const CANOPY_PROMPTS: CommandItem[] = [
  * machine, or exist for the CLI's internals. The provider lists them all; this menu is not a
  * terminal.
  */
-const HIDDEN_BUILTINS = new Set(['heapdump', 'color', 'workflow-launch-exec', 'design-consent', 'design-revoke', 'list-agents', 'team-onboarding', 'import', 'auto-mode-setup'])
+const HIDDEN_BUILTINS = new Set([
+  // Measured on 2026-09-10 by sending each built-in through the SDK: these answer "not available
+  // in this environment" / "not available in the Agent SDK", or belong to the terminal process.
+  'help',
+  'fast',
+  'agents',
+  'color',
+  'heapdump',
+  'workflow-launch-exec',
+  // Their whole effect is a browser opening on the machine the daemon runs on.
+  'usage-credits',
+  'extra-usage',
+  // Interactive setup wizards and terminal-to-terminal peering, not something a turn can finish.
+  'import',
+  'auto-mode-setup',
+  'design',
+  'design-consent',
+  'design-revoke',
+  'list-agents',
+  'team-onboarding',
+  // A loop lives in the CLI process, which ends with the turn here.
+  'loop'
+])
 
 const GROUP_OF: Record<AgentCommand['source'], CommandGroup | null> = {
   builtin: 'Commands',

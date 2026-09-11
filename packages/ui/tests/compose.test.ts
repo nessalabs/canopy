@@ -30,9 +30,25 @@ describe('commandMenu', () => {
   })
 
   it('leaves out what a remote UI cannot run', () => {
-    const hidden = [command('color', 'terminal'), command('__internal', 'builtin'), command('heapdump', 'builtin'), command('design-consent', 'builtin')]
+    const hidden = [
+      command('color', 'terminal'),
+      command('__internal', 'builtin'),
+      command('heapdump', 'builtin'),
+      command('design-consent', 'builtin'),
+      // Measured: these answer "not available" through the SDK, or open a browser on the daemon's host.
+      command('help', 'builtin'),
+      command('fast', 'builtin'),
+      command('usage-credits', 'builtin'),
+      command('loop', 'builtin')
+    ]
     for (const entry of hidden) expect(isHiddenCommand(entry)).toBe(true)
     expect(commandMenu(hidden).every((item) => item.group === 'Canopy prompts')).toBe(true)
+  })
+
+  it('keeps the built-ins that answer through the SDK', () => {
+    // Measured on 2026-09-10: each of these produced its output when sent as the prompt.
+    for (const name of ['context', 'usage', 'compact', 'model', 'effort', 'config', 'mcp', 'rename', 'reload-skills', 'reload-plugins', 'skill-doctor', 'goal', 'recap', 'init', 'insights', 'schedule', 'doctor', 'clear'])
+      expect(isHiddenCommand(command(name, 'builtin'))).toBe(false)
   })
 
   it('keeps a builtin name that only a plugin would hide', () => {
