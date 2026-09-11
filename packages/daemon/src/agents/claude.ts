@@ -10,7 +10,7 @@ import { ClaudeCapabilities, type InitAdvertisement } from './claude-capabilitie
 import { createLiveTurn, LiveTurns, PromptChannel, type LiveQuery } from './claude-live'
 import { mapClaudeMessage, usageFrom } from './claude-map'
 import type { WireMessage } from './claude-normalize'
-import { readSessionExtras, type QueuedPrompt } from './claude-session'
+import { readSessionExtras, type LocalCommandOutput, type QueuedPrompt } from './claude-session'
 import { liveSessionFor, liveSessions } from './claude-terminal'
 import { slim } from './events'
 import { toImageBlocks } from './images'
@@ -62,6 +62,15 @@ const queuedLine = (parentSessionId: string, queued: QueuedPrompt): WireMessage 
   session_id: parentSessionId,
   parent_tool_use_id: null,
   message: { role: 'user', content: queued.prompt }
+})
+
+/** What a local slash command printed, as the `local_command` system line the mapper turns into assistant text. */
+const localOutputLine = (parentSessionId: string, output: LocalCommandOutput): WireMessage => ({
+  type: 'system',
+  subtype: 'local_command',
+  uuid: output.uuid,
+  session_id: parentSessionId,
+  content: `<local-command-stdout>${output.text}</local-command-stdout>`
 })
 
 /** Fires when any of its inputs does, so one ask can be cancelled by the tool call or by the turn. */
@@ -183,6 +192,8 @@ export class ClaudeAdapter implements AgentAdapter {
       feed(message as unknown as WireMessage)
       // Prompts typed mid-turn are stored as attachments the SDK drops; re-inject them in place.
       for (const queued of sessionExtras.queued.filter((q) => q.parentUuid === message.uuid)) feed(queuedLine(sessionId, queued))
+      // What a local slash command answered is a system row the SDK drops too; it follows its prompt.
+      for (const output of sessionExtras.localOutputs.filter((o) => o.parentUuid === message.uuid)) feed(localOutputLine(sessionId, output))
     }
 
     return {

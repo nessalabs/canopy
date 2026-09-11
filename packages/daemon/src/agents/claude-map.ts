@@ -16,6 +16,33 @@ export interface MappedMessage {
 
 const nothing = (): MappedMessage => ({ events: [], files: {}, extras: {} })
 
+/** How the session file stores the prompt of a slash command: the name and its arguments, tagged. */
+const COMMAND_NAME = /<command-name>\s*([^<]*?)\s*<\/command-name>/
+const COMMAND_ARGS = /<command-args>\s*([\s\S]*?)\s*<\/command-args>/
+/** How the session file stores what a local slash command printed. */
+const LOCAL_OUTPUT = /^\s*<local-command-(stdout|stderr)>([\s\S]*?)<\/local-command-\1>\s*$/
+
+/**
+ * The prompt a slash command was, as the person typed it (`/context`, `/compact focus on tests`),
+ * from the tagged form the session file keeps — or null when the line is not one.
+ */
+export function commandPrompt(content: unknown): string | null {
+  if (typeof content !== 'string') return null
+  const name = COMMAND_NAME.exec(content)?.[1]
+  if (!name) return null
+  const args = COMMAND_ARGS.exec(content)?.[1] ?? ''
+  return args ? `${name} ${args}` : name
+}
+
+/** A synthetic assistant line carrying `text`, for output the CLI drew as the assistant's. */
+const assistantLine = (message: WireMessage, text: string): WireMessage => ({
+  type: 'assistant',
+  uuid: message.uuid ?? newId(),
+  session_id: message.session_id,
+  parent_tool_use_id: null,
+  message: { role: 'assistant', content: [{ type: 'text', text }] }
+})
+
 /**
  * Rewrites the few message kinds agent-stream has no arm for, before the mapper sees them.
  *
@@ -27,17 +54,24 @@ const nothing = (): MappedMessage => ({ events: [], files: {}, extras: {} })
  */
 function forMapper(message: WireMessage): WireMessage | null {
   if (message.type === 'conversation_reset') return null
+  // Replay: the session file keeps a slash command's prompt tagged (`<command-name>`), which the
+  // normalizer would otherwise file under bookkeeping and hide. It is what the person typed.
+  if (message.type === 'user') {
+    const prompt = commandPrompt(message.message?.content)
+    return prompt === null ? message : { ...message, message: { ...message.message, content: prompt } }
+  }
   if (message.type !== 'system') return message
 
   switch (message.subtype as string | undefined) {
+    // Live: what a local slash command answered with.
     case 'local_command_output':
-      return {
-        type: 'assistant',
-        uuid: message.uuid ?? newId(),
-        session_id: message.session_id,
-        parent_tool_use_id: null,
-        message: { role: 'assistant', content: [{ type: 'text', text: String(message.content ?? '') }] }
-      }
+      return assistantLine(message, String(message.content ?? ''))
+    // Replay: the same answer as the session file stores it — tagged output, or a bare echo of the
+    // command name (which the `<command-name>` line above already covers).
+    case 'local_command': {
+      const output = LOCAL_OUTPUT.exec(String(message.content ?? ''))
+      return output ? assistantLine(message, output[2] ?? '') : null
+    }
     case 'commands_changed':
       return null
     default:
@@ -96,9 +130,10 @@ export function usageFrom(result: {
   const frame = {
     type: 'usage' as const,
     costUsd: positive(result.total_cost_usd),
-    inputTokens: usage?.input_tokens,
-    outputTokens: usage?.output_tokens,
-    contextTokens: context,
+    inputTokens: positive(usage?.input_tokens),
+    outputTokens: positive(usage?.output_tokens),
+    // A local command's result reports zeros; "0 context" would state the window was empty.
+    contextTokens: positive(context),
     contextWindow: positive(main?.contextWindow),
     durationMs: result.duration_ms
   }

@@ -2,6 +2,10 @@ import type { AccountInfo, AgentInfo, McpServerStatus, ModelInfo, SlashCommand }
 
 import type { AgentCapabilities, AgentCommand, AgentHook, AgentMcpServer, AgentModel, AgentPlugin, AgentSkill, CommandSource, Effort } from '@canopy/shared'
 
+import { readdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+
 import { ApiError } from '../lib/errors'
 import { now } from '../lib/ids'
 import type { SdkModule } from './claude'
@@ -124,8 +128,8 @@ export class ClaudeCapabilities {
 
     // A hook listing that fails is a settings file this daemon could not read — not a reason to
     // withhold every command, model and subagent the session actually has.
-    const hooks = await readHooks(module, cwd)
-    return assemble(cwd, probed, entry.advertised, hooks)
+    const [hooks, onDisk] = await Promise.all([readHooks(module, cwd), entry.advertised?.skills.length ? Promise.resolve([]) : skillDirectories(cwd)])
+    return assemble(cwd, probed, entry.advertised, hooks, onDisk)
   }
 
   private entryFor(cwd: string): Entry {
@@ -185,9 +189,25 @@ function timeout(): Promise<never> {
   })
 }
 
-function assemble(cwd: string, probed: Probed, advertised: Advertised | undefined, hooks: AgentHook[]): AgentCapabilities {
+/**
+ * Skill names by their directories, for a checkout no turn has advertised yet: `~/.claude/skills`
+ * and `<cwd>/.claude/skills`, one `SKILL.md` per subdirectory. Two readdirs, so cheap enough to
+ * pay on every read until a turn's init supersedes it; plugin skills are not here, but those
+ * carry a `plugin:` name and classify themselves.
+ */
+async function skillDirectories(cwd: string): Promise<string[]> {
+  const roots = [join(homedir(), '.claude', 'skills'), join(cwd, '.claude', 'skills')]
+  const found = await Promise.all(
+    roots.map((root) => readdir(root, { withFileTypes: true }).then((entries) => entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name)).catch(() => [] as string[]))
+  )
+  return [...new Set(found.flat())]
+}
+
+function assemble(cwd: string, probed: Probed, advertised: Advertised | undefined, hooks: AgentHook[], onDisk: string[] = []): AgentCapabilities {
   const live = advertised ?? emptyAdvertisement()
-  const skills = new Set(live.skills)
+  // A turn's init is authoritative; before one has run, the skill directories stand in.
+  const skillNames = live.skills.length > 0 ? live.skills : onDisk.filter((name) => probed.commands.some((command) => command.name === name))
+  const skills = new Set(skillNames)
   const terminal = new Set(live.terminalCommands)
   const commands = (live.commands ?? probed.commands).map((command) => classify(command, skills, terminal))
   const described = new Map(commands.map((command) => [command.name, command.description] as const))
@@ -202,8 +222,8 @@ function assemble(cwd: string, probed: Probed, advertised: Advertised | undefine
     outputStyles: probed.outputStyles,
     account: probed.account ? { email: probed.account.email, organization: probed.account.organization, subscriptionType: probed.account.subscriptionType } : undefined,
     commands,
-    // Skills are only nameable from a turn's init; their prose comes from the matching command.
-    skills: live.skills.map((name): AgentSkill => ({ name, description: described.get(name) })),
+    // A skill's prose comes from the matching command; only its name says it is one.
+    skills: skillNames.map((name): AgentSkill => ({ name, description: described.get(name) })),
     agents: probed.agents.map((agent) => ({ name: agent.name, description: agent.description, model: agent.model })),
     models: probed.models.map(toModel),
     // The probe asked the CLI just now; a turn's init is the fallback for a probe that saw none.

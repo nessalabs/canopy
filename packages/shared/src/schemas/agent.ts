@@ -251,8 +251,11 @@ export const CapabilitiesQuery = z.object({
   provider: AgentProvider,
   /** Read as of this session where the provider can; otherwise the checkout's defaults. */
   session: z.string().optional(),
-  /** `1` bypasses the daemon's cache. */
-  refresh: z.coerce.boolean().optional()
+  /** `1` / `true` bypasses the daemon's cache. */
+  refresh: z
+    .enum(['1', 'true', '0', 'false'])
+    .transform((value) => value === '1' || value === 'true')
+    .optional()
 })
 export type CapabilitiesQuery = z.infer<typeof CapabilitiesQuery>
 
