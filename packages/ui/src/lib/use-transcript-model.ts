@@ -1,8 +1,9 @@
 import { useMemo, useRef } from 'react'
 
-import type { TranscriptResponse, TurnExtras } from '@canopy/shared'
+import type { TranscriptResponse, TurnExtras, TurnImage } from '@canopy/shared'
 import type { DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
-import { TranscriptBuilder, applyDeltas } from '@canopy/shared/agent-stream'
+import type { ContextUsage, DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
+import { TranscriptBuilder, applyDeltas, contextUsage } from '@canopy/shared/agent-stream'
 
 import type { AgentTurn } from './use-agent-turn'
 
@@ -49,6 +50,14 @@ export function useTranscriptModel(history: TranscriptResponse | undefined, turn
   }, [history, turn.events, turn.busy])
   // Only a live turn streams deltas; a replay stores committed blocks alone.
   const previews = useMemo(() => applyDeltas(turn.events), [turn.events])
+  // Replay and live turn are folded separately, so a streaming turn re-walks its own events and
+  // not the whole session; the live reading wins wherever it has one.
+  const replayed = useMemo(() => contextUsage(history?.events ?? []), [history])
+  const live = useMemo(() => contextUsage(turn.events), [turn.events])
+  const context = useMemo<ContextUsage | null>(() => {
+    if (!replayed && !live) return null
+    return { tokens: live?.tokens ?? replayed?.tokens ?? null, window: live?.window ?? replayed?.window ?? null }
+  }, [replayed, live])
   const filesByCall = useMemo(() => ({ ...(history?.files ?? {}), ...turn.filesByCall }), [history, turn.filesByCall])
   // Merged per event, not per map: the replay may know a message's provider id while the live turn
   // holds the images it was sent with, and an event needs both.

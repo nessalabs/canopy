@@ -161,6 +161,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             latestChanges={{ count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }}
             quote={quote}
             onQuoteStaged={() => setQuote(undefined)}
+            context={model.context}
           />
         </div>
       )
