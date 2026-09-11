@@ -5,8 +5,10 @@ import { Link, useLocation, useRoute } from 'wouter'
 import { environmentDot, type Project, type Worktree } from '@canopy/shared'
 
 import { AddProjectDialog } from '@/components/add-project-dialog'
+import { WorktreeMenu } from '@/components/environment/worktree-menu'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { HeaderSlotProvider, HeaderSlotTarget } from '@/components/header-slot'
+import { MergedMark } from '@/components/merged-mark'
 import { SidePanel, SidePanelButtons, type SidePanelId } from '@/components/side-panel'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
 import { Badge } from '@/components/ui/badge'
@@ -98,6 +100,15 @@ function ProjectSection({ project, worktrees }: { project: Project; worktrees: W
                 icon={<StatusDot status={wt.environment.state === 'none' ? WORKTREE_DOT[wt.state] : environmentDot(wt.environment)} />}
                 isActive={location === `/worktrees/${wt.id}`}
                 onClick={() => navigate(`/worktrees/${wt.id}`)}
+                trailing={
+                  // The merged tick is the row's resting information and stays put; only the
+                  // menu waits for the pointer, so the tick is never taken away while its
+                  // tooltip is being read.
+                  <span className="flex items-center gap-1">
+                    <MergedMark worktree={wt} />
+                    <WorktreeMenu worktree={wt} revealOnHover />
+                  </span>
+                }
               >
                 <span className="truncate font-mono text-xs">{wt.name}</span>
               </SidebarMenuItem>

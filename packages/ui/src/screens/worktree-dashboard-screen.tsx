@@ -1,74 +1,27 @@
 import { useEffect, useState } from 'react'
-import { Activity, Boxes, Check, ChevronDown, Copy, FileDiff, RotateCw, Sparkles } from 'lucide-react'
+import { Activity, Boxes, Check, ChevronDown, Copy, FileDiff, Sparkles } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { environmentDot, type ReviewRequest, type Worktree } from '@canopy/shared'
 
 import { AgentTab } from '@/components/agent/agent-tab'
+import { DestroyWorktreeDialog } from '@/components/environment/destroy-worktree-dialog'
 import { EnvironmentTab } from '@/components/environment/environment-tab'
 import { WorktreeActions } from '@/components/environment/worktree-actions'
-import { ErrorNote } from '@/components/error-note'
 import { GitDiffTab } from '@/components/git/git-diff-tab'
 import { HeaderSlot } from '@/components/header-slot'
 import { ResourcesTab } from '@/components/resources/resources-tab'
 import { Button } from '@/components/ui/button'
-import { Checkbox } from '@/components/ui/checkbox'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { StatusDot } from '@/components/ui/status-dot'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useComments, useDestroyWorktreeWith, useProjects, useWorktree } from '@/lib/api-hooks'
+import { useComments, useProjects, useWorktree } from '@/lib/api-hooks'
 import { parseTab, uptime, type DashboardTab } from '@/lib/environment-ui'
 import { plural } from '@/lib/format'
-import { ENV_STATE_BADGE, WORKTREE_DOT } from '@/lib/status'
+import { ENV_STATE_BADGE, mergedLabel, WORKTREE_DOT } from '@/lib/status'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
 import { useWorktreeAgent } from '@/lib/use-worktree-agent'
-
-function DestroyDialog({ worktree, open, onOpenChange }: { worktree: Worktree; open: boolean; onOpenChange: (open: boolean) => void }): React.JSX.Element {
-  const [, navigate] = useLocation()
-  const destroy = useDestroyWorktreeWith()
-  const [deleteBranch, setDeleteBranch] = useState(false)
-  const dirty = worktree.status?.dirtyTotal ?? 0
-  const branch = worktree.branch
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Destroy {worktree.name}?</DialogTitle>
-          <DialogDescription>
-            Removes the worktree at <span className="font-mono">{worktree.path}</span>: this stops every service, frees its ports, and drops its database forks.
-            {dirty > 0 ? <span className="mt-2 block text-destructive">This worktree has {plural(dirty, 'uncommitted change')} — they will be lost.</span> : null}
-          </DialogDescription>
-        </DialogHeader>
-        <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={deleteBranch} disabled={worktree.isMain || !branch || destroy.isPending} onChange={(event) => setDeleteBranch(event.target.checked)} />
-          <span>
-            Delete branch <span className="font-mono">{branch ?? '(detached)'}</span>
-          </span>
-        </label>
-        <ErrorNote error={destroy.error} />
-        <DialogFooter>
-          <DialogClose asChild>
-            <Button variant="ghost" size="sm" disabled={destroy.isPending}>
-              Cancel
-            </Button>
-          </DialogClose>
-          <Button
-            variant="destructive"
-            size="sm"
-            disabled={destroy.isPending}
-            onClick={() => destroy.mutate({ id: worktree.id, force: dirty > 0, deleteBranch }, { onSuccess: () => navigate('/') })}
-          >
-            {destroy.isPending ? <RotateCw className="animate-spin" /> : null}
-            {destroy.isPending ? 'Destroying…' : 'Destroy worktree'}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  )
-}
 
 /** One `label: value` line in the identity menu. */
 function Row({ label, children }: { label: string; children: React.ReactNode }): React.JSX.Element {
@@ -93,6 +46,7 @@ function Identity({ worktree, projectName }: { worktree: Worktree; projectName: 
   const env = worktree.environment
   const badge = ENV_STATE_BADGE[env.state]
   const status = worktree.status
+  const merged = mergedLabel(worktree)
   const up = uptime(env.startedAt)
 
   const copyPath = (): void => {
@@ -116,6 +70,7 @@ function Identity({ worktree, projectName }: { worktree: Worktree; projectName: 
         <Row label="Branch">{worktree.branch ?? 'detached'}</Row>
         <Row label="Base">{worktree.baseBranch}</Row>
         {worktree.isMain ? <Row label="Checkout">main</Row> : null}
+        {merged ? <Row label="Merged">{merged.merged ? 'yes' : 'no'}</Row> : null}
         {up ? <Row label="Uptime">{up}</Row> : null}
         {status?.ahead !== null && status?.ahead !== undefined ? (
           <Row label="Ahead / behind">
@@ -147,6 +102,7 @@ const TABS = [
 ] as const satisfies readonly { value: DashboardTab; label: string; icon: React.ComponentType }[]
 
 function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectName: string }): React.JSX.Element {
+  const [, navigate] = useLocation()
   const [tab, setTab] = useState<DashboardTab>(() => parseTab(window.location.hash) ?? (worktree.environment.configured ? 'environment' : 'gitdiff'))
   const [destroyOpen, setDestroyOpen] = useState(false)
   const env = worktree.environment
@@ -234,7 +190,7 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
           <ResourcesTab worktree={worktree} />
         </TabsContent>
       </Tabs>
-      <DestroyDialog worktree={worktree} open={destroyOpen} onOpenChange={setDestroyOpen} />
+      <DestroyWorktreeDialog worktree={worktree} open={destroyOpen} onOpenChange={setDestroyOpen} onDestroyed={() => navigate('/')} />
     </div>
   )
 }

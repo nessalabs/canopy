@@ -10,9 +10,19 @@ import { useAppSettings, useOpenWorktree, useProvisionWorktree, useRegenerateEnv
 import { usePlatform } from '@/providers/platform'
 
 /** States in which a lifecycle command is already in flight; every button waits it out. */
-const BUSY = ['creating', 'provisioning', 'starting', 'stopping', 'destroying']
+export const WORKTREE_BUSY_STATES = ['creating', 'provisioning', 'starting', 'stopping', 'destroying']
+const BUSY = WORKTREE_BUSY_STATES
 
 const label = (presets: Record<string, { label: string }>, id: string, fallback: string): string => (id === 'custom' ? fallback : (presets[id]?.label ?? fallback))
+
+/** What "open in …" should call the configured editor and terminal. */
+export function useToolLabels(): { editor: string; terminal: string } {
+  const settings = useAppSettings().data
+  return {
+    editor: label(EDITOR_PRESETS as Record<EditorId, { label: string }>, settings?.editor.id ?? 'custom', 'editor'),
+    terminal: label(TERMINAL_PRESETS as Record<TerminalId, { label: string }>, settings?.terminal.id ?? 'custom', 'terminal')
+  }
+}
 
 /**
  * Start / Stop / Restart, the primary service's URL, and the overflow menu (open in the
@@ -26,7 +36,6 @@ const label = (presets: Record<string, { label: string }>, id: string, fallback:
 export function WorktreeActions({ worktree, onDestroy }: { worktree: Worktree; onDestroy: () => void }): React.JSX.Element {
   const env = worktree.environment
   const { openExternal } = usePlatform()
-  const settings = useAppSettings().data
   const lifecycle = useWorktreeLifecycle(worktree.id)
   const provision = useProvisionWorktree(worktree.id)
   const regenerate = useRegenerateEnvFile(worktree.id)
@@ -39,8 +48,7 @@ export function WorktreeActions({ worktree, onDestroy }: { worktree: Worktree; o
   const primary = live ? primaryService(env.services) : undefined
   const primaryPort = primary?.ports[0]?.port
   const failure = lifecycle.error ?? provision.error ?? regenerate.error ?? open.error
-  const editor = label(EDITOR_PRESETS as Record<EditorId, { label: string }>, settings?.editor.id ?? 'custom', 'editor')
-  const terminal = label(TERMINAL_PRESETS as Record<TerminalId, { label: string }>, settings?.terminal.id ?? 'custom', 'terminal')
+  const { editor, terminal } = useToolLabels()
 
   const start = (): void => {
     if (env.state === 'none') provision.mutate({ autoStart: true })
