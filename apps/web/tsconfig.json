@@ -16,9 +16,6 @@
       ],
       "@canopy/ui": [
         "../../packages/ui/src/index.ts"
-      ],
-      "@canopy/ui/lab/avatar": [
-        "../../packages/ui/src/lab/avatar-lab.tsx"
       ]
     },
     "noUncheckedIndexedAccess": false

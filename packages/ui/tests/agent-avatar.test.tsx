@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { AgentAvatar } from '../src/components/agent/agent-avatar'
 import { TurnStatus } from '../src/components/agent/turn-status'
-import { AvatarLab } from '../src/lab/avatar-lab'
 
 /** The pieces of a browser jsdom lacks and the nessa components reach for. */
 function stubBrowser(): void {
@@ -62,14 +61,5 @@ describe('TurnStatus', () => {
     expect(avatar().dataset['activity']).toBe('thinking')
     expect(avatar().getAttribute('aria-busy')).toBe('true')
     expect(host.textContent).toContain('Thinking…')
-  })
-})
-
-describe('AvatarLab', () => {
-  it('renders every activity and tuning row without a daemon', () => {
-    render(<AvatarLab />)
-    expect(host.textContent).toContain('flood 0.25')
-    expect(host.textContent).toContain('speed 2.5')
-    expect(host.querySelectorAll('[data-slot=agent-avatar][aria-busy]').length).toBeGreaterThanOrEqual(3)
   })
 })
