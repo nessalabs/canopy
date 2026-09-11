@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useComments, useProviders } from '@/lib/api-hooks'
 import { plural } from '@/lib/format'
+import { mergeAffordance } from '@/lib/status'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
@@ -44,11 +45,7 @@ export function GitDiffTab({ worktree, agent, onSendForReview }: { worktree: Wor
   const [picking, setPicking] = useState(false)
   const [merging, setMerging] = useState(false)
   const unsent = comments.filter((c) => !c.sent)
-  const ahead = worktree.status?.ahead ?? 0
-  const landed = worktree.status?.merged === true
-  // Nothing to land: the main checkout, a detached HEAD, a branch with no commits of its own, or one that already landed.
-  const mergeable = !worktree.isMain && worktree.branch !== null && ahead > 0 && !landed
-  const mergeHint = landed ? `Already merged into ${worktree.baseBranch}` : ahead === 0 ? `No commits ${worktree.baseBranch} lacks` : `Land ${plural(ahead, 'commit')} on ${worktree.baseBranch}`
+  const merge = mergeAffordance(worktree)
 
   const onJump = (comment: ReviewComment): void => {
     const next = jumpFor(comment)
@@ -67,19 +64,19 @@ export function GitDiffTab({ worktree, agent, onSendForReview }: { worktree: Wor
             <TabsTrigger value="history">History</TabsTrigger>
             <TabsTrigger value="comments">Comments{comments.length ? ` · ${comments.length}` : ''}</TabsTrigger>
           </TabsList>
-          {worktree.isMain || worktree.branch === null ? null : (
+          {merge.shown ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <span className="ml-auto">
-                  <Button variant="outline" size="sm" className="h-8" disabled={!mergeable} onClick={() => setMerging(true)}>
+                  <Button variant="outline" size="sm" className="h-8" disabled={!merge.enabled} onClick={() => setMerging(true)}>
                     <GitMerge />
-                    {landed ? 'Merged' : `Merge into ${worktree.baseBranch}`}
+                    {merge.label}
                   </Button>
                 </span>
               </TooltipTrigger>
-              <TooltipContent>{mergeHint}</TooltipContent>
+              <TooltipContent>{merge.hint}</TooltipContent>
             </Tooltip>
-          )}
+          ) : null}
         </div>
         <TabsContent value="changes" className="mt-3 flex min-h-0 flex-1 flex-col">
           <ChangesView worktree={worktree} focus={focusFor('changes')} {...shared} />

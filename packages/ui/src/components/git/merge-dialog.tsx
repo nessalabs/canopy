@@ -38,7 +38,8 @@ export function MergeDialog({ worktree, open, onOpenChange }: { worktree: Worktr
   const dirty = status?.dirtyTotal ?? 0
   const branch = worktree.branch ?? ''
   const base = worktree.baseBranch
-  const canFastForward = behind === 0
+  // Unknown is not zero: without a status there is no telling whether the base has moved.
+  const canFastForward = status?.behind === 0
   const defaultMessage = strategy === 'squash' ? (ahead === 1 && status?.lastCommit ? status.lastCommit.subject : branch) : ''
 
   useEffect(() => {
