@@ -31,6 +31,8 @@ import type {
   ChangesResponse,
   Commit,
   CommitInput,
+  MergeInput,
+  MergeResult,
   CommitResponse,
   ExcludeInput,
   HiddenResponse,
@@ -181,6 +183,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     stageHunks: (worktreeId: string, input: StageHunksInput) => post<ChangesResponse>(routes.stageHunks(worktreeId), input),
     commitChanges: (worktreeId: string, input: CommitInput) =>
       post<{ commit: Commit }>(routes.commitChanges(worktreeId), input).then((r) => r.commit),
+    mergeWorktree: (worktreeId: string, input: MergeInput) => post<MergeResult>(routes.merge(worktreeId), input),
     excludePaths: (worktreeId: string, input: ExcludeInput) => post<ChangesResponse>(routes.exclude(worktreeId), input),
     hiddenPaths: (worktreeId: string) => get<HiddenResponse>(routes.hidden(worktreeId)).then((r) => r.hidden),
     unhidePaths: (worktreeId: string, input: UnhideInput) => post<ChangesResponse>(routes.unhide(worktreeId), input),

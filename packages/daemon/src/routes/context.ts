@@ -7,6 +7,7 @@ import type { EventBus, LogStore } from '../env/types'
 import type { ProjectsService } from '../projects/service'
 import type { ReviewService } from '../review/service'
 import type { HistoryService } from '../worktrees/history'
+import type { MergeService } from '../worktrees/merge'
 import type { WatchService } from '../worktrees/watch'
 import type { WorktreesService } from '../worktrees/service'
 
@@ -19,6 +20,7 @@ export interface Services {
   history: HistoryService
   watch: WatchService
   commits: CommitService
+  merges: MergeService
   review: ReviewService
   agents: AgentRegistry
   editDiffs: EditDiffsService

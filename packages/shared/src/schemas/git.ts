@@ -182,3 +182,28 @@ export type ExcludeInput = z.infer<typeof ExcludeInput>
 
 export const UnhideInput = z.object({ paths: z.array(z.string().min(1)).min(1) })
 export type UnhideInput = z.infer<typeof UnhideInput>
+
+/**
+ * How a worktree's branch lands on its base. `merge` keeps the commits under a merge commit,
+ * `squash` folds them into one commit with `message`, `ff` only moves the base pointer and
+ * refuses when the branch is behind.
+ */
+export const MergeStrategy = z.enum(['merge', 'squash', 'ff'])
+export type MergeStrategy = z.infer<typeof MergeStrategy>
+
+export const MergeInput = z.object({
+  strategy: MergeStrategy.default('merge'),
+  /** The merge or squash commit's message; a merge without one gets git's default. */
+  message: z.string().max(8192).optional()
+})
+export type MergeInput = z.infer<typeof MergeInput>
+
+export const MergeResult = z.object({
+  /** The base branch's new tip. */
+  sha: z.string(),
+  into: z.string(),
+  strategy: MergeStrategy,
+  /** Where the base branch was checked out and the merge ran; null for a pointer-only fast-forward. */
+  checkout: z.string().nullable()
+})
+export type MergeResult = z.infer<typeof MergeResult>

@@ -8,6 +8,7 @@ import type {
   AppSettingsPatch,
   ChangesResponse,
   CommitInput,
+  MergeInput,
   CreateWorktreeInput,
   ExcludeInput,
   StageHunksInput,
@@ -504,6 +505,17 @@ export const useCommitChanges = (worktreeId: string) => {
   const api = useApi()
   return useInvalidating((input: CommitInput) => api.commitChanges(worktreeId, input), () => [
     keys.diffFiles(worktreeId, HEAD_SPEC),
+    keys.log(worktreeId),
+    keys.worktree(worktreeId),
+    keys.worktrees
+  ])
+}
+
+/** Landing the branch moves the base, so every "vs base" reading and the merged tick change. */
+export const useMergeWorktree = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating((input: MergeInput) => api.mergeWorktree(worktreeId, input), () => [
+    ['diff-files', worktreeId],
     keys.log(worktreeId),
     keys.worktree(worktreeId),
     keys.worktrees

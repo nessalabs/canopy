@@ -139,4 +139,68 @@ describe('worktrees', () => {
       }
     })
   })
+
+  describe('merge', () => {
+    const create = async (name: string, branch: string) =>
+      settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name, branch: { mode: 'new', name: branch, base: 'main' } })).body.worktree.id)
+    const commitIn = async (path: string, file: string, content = `${file}\n`): Promise<void> => {
+      writeFileSync(join(path, file), content)
+      await execa('git', ['add', '-A'], { cwd: path })
+      await execa('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', file], { cwd: path })
+    }
+    const mainSubjects = async (): Promise<string[]> => (await repo.git('log', '--format=%s', 'main')).split('\n').filter(Boolean)
+
+    it('lands a branch with a merge commit, a squash, or a fast-forward, in the checkout that has main', async () => {
+      const wt = await create('feat', 'feat/one')
+      await commitIn(wt.path, 'one.txt')
+      await commitIn(wt.path, 'two.txt')
+
+      const squashed = await server.call('POST', routes.merge(wt.id), { strategy: 'squash', message: 'Land feat/one' })
+      expect(squashed.status).toBe(200)
+      expect(squashed.body).toMatchObject({ into: 'main', strategy: 'squash', checkout: repo.path })
+      expect(await mainSubjects()).toEqual(['Land feat/one', 'init'])
+      expect((await server.call('GET', routes.worktree(wt.id))).body.worktree.status.merged).toBe(true)
+
+      await commitIn(wt.path, 'three.txt')
+      const merged = await server.call('POST', routes.merge(wt.id), { strategy: 'merge', message: 'Merge feat/one' })
+      expect(merged.status).toBe(200)
+      expect((await mainSubjects())[0]).toBe('Merge feat/one')
+      expect((await repo.git('rev-list', '--parents', '-1', 'main')).trim().split(' ')).toHaveLength(3)
+
+      const other = await create('ff', 'feat/ff')
+      await commitIn(other.path, 'four.txt')
+      const ff = await server.call('POST', routes.merge(other.id), { strategy: 'ff' })
+      expect(ff.status).toBe(200)
+      expect((await repo.git('rev-parse', 'main')).trim()).toBe(ff.body.sha)
+      expect((await mainSubjects())[0]).toBe('four.txt')
+    })
+
+    it('refuses what cannot land and leaves main untouched', async () => {
+      const wt = await create('clash', 'feat/clash')
+      await commitIn(wt.path, 'a.txt', 'branch\n')
+      await repo.commit({ 'a.txt': 'main\n' }, 'main edits a')
+      const before = (await repo.git('rev-parse', 'main')).trim()
+
+      const ff = await server.call('POST', routes.merge(wt.id), { strategy: 'ff' })
+      expect(ff.status).toBe(409)
+      expect(ff.body.error.code).toBe('not_fast_forward')
+
+      const clash = await server.call('POST', routes.merge(wt.id), { strategy: 'merge' })
+      expect(clash.status).toBe(409)
+      expect(clash.body.error).toMatchObject({ code: 'merge_conflict', details: { files: ['a.txt'] } })
+      expect((await repo.git('rev-parse', 'main')).trim()).toBe(before)
+      expect(await repo.git('status', '--porcelain')).toBe('')
+
+      const empty = await create('empty', 'feat/empty')
+      expect((await server.call('POST', routes.merge(empty.id), {})).body.error.code).toBe('nothing_to_merge')
+
+      repo.write({ 'b.txt': 'dirty\n' })
+      await repo.git('add', 'b.txt')
+      const dirty = await server.call('POST', routes.merge(wt.id), { strategy: 'squash', message: 'x' })
+      expect(dirty.body.error.code).toBe('base_dirty')
+
+      const main = (await server.call('GET', routes.worktrees())).body.worktrees[0]
+      expect((await server.call('POST', routes.merge(main.id), {})).status).toBe(400)
+    })
+  })
 })

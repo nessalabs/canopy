@@ -39,6 +39,7 @@ import { registerReviewRoutes } from './routes/review'
 import { registerStatic } from './routes/static'
 import { registerWorktreeRoutes } from './routes/worktrees'
 import { HistoryService } from './worktrees/history'
+import { MergeService } from './worktrees/merge'
 import { WatchService } from './worktrees/watch'
 import { WorktreesService } from './worktrees/service'
 
@@ -103,6 +104,7 @@ export function buildServices(deps: ServerDeps): Services {
     worktrees,
     history,
     commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
+    merges: new MergeService({ repo, git, worktrees, projects, events }),
     review: new ReviewService({ db: deps.db, worktrees, agents }),
     agents,
     editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots: createSnapshots(git) }),

@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 
-import { routes } from '@canopy/shared'
+import { MergeInput, routes } from '@canopy/shared'
 
 import type { Services } from './context'
 import { AgainstQuery, CommitParams, DestroyQuery, DirQuery, IdParams, PageQuery, PathQuery, RevQuery, TreesParams } from './params'
 
-export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, history, watch }: Services): void {
+export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, history, watch, merges }: Services): void {
   app.get(routes.worktrees(), async () => ({ worktrees: await worktrees.listAll() }))
 
   app.get(routes.worktree(':id'), async (request) => ({ worktree: await worktrees.get(IdParams.parse(request.params).id) }))
@@ -15,6 +15,8 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
     await worktrees.destroy(IdParams.parse(request.params).id, force === 'true', deleteBranch === undefined ? undefined : deleteBranch === 'true' ? 'always' : 'never')
     return reply.code(204).send()
   })
+
+  app.post(routes.merge(':id'), async (request) => merges.merge(IdParams.parse(request.params).id, MergeInput.parse(request.body ?? {})))
 
   // Reading a worktree's files or changes is what starts its watcher: from then on the client
   // hears about edits instead of asking on a timer.
