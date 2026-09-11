@@ -17,6 +17,10 @@ export interface TurnReview {
   prompt: string
   files: string[]
   snapshot?: TurnSnapshot
+  /** The branch (or name) of the checkout the files are in, when it is not the worktree on screen. */
+  location?: string
+  /** Files the turn wrote in other checkouts, which this diff cannot show. */
+  elsewhere: number
 }
 
 const specFor = (review: TurnReview): DiffSpec => (review.snapshot ? { kind: 'trees', before: review.snapshot.before, after: review.snapshot.after } : WORKING_TREE)
@@ -35,6 +39,8 @@ export interface RewindAction {
  * The files one agent turn wrote, through the same explorer (and comments) as the Git Diff
  * tab. With a hook snapshot the diff is exactly that turn's; without one it is the current
  * uncommitted diff of the files the turn named, and files clean again are only counted.
+ * `worktree` is the checkout the files are in, which is not always the one the session is
+ * listed under; the header says so when it is another.
  */
 export function TurnChanges({ worktree, review, rewind, className }: { worktree: Worktree; review: TurnReview; rewind?: RewindAction; className?: string }): React.JSX.Element {
   const spec = specFor(review)
@@ -52,8 +58,10 @@ export function TurnChanges({ worktree, review, rewind, className }: { worktree:
           <div className="min-w-0 flex-1">
             <p className="m-0 text-xs font-medium">
               {plural(review.files.length, 'file')} {review.snapshot ? 'changed in this turn' : 'edited'}
+              {review.location ? ` in ${review.location}` : ''}
               {!review.snapshot && clean > 0 ? ` · ${clean} since committed or reverted` : ''}
               {unattributed.length > 0 ? ` · ${unattributed.length} possibly by another agent` : ''}
+              {review.elsewhere > 0 ? ` · ${plural(review.elsewhere, 'file')} written elsewhere, not shown` : ''}
             </p>
             <p className="m-0 line-clamp-2 text-[11px] text-muted-foreground" title={review.prompt}>
               {review.prompt}

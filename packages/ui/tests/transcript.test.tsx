@@ -81,7 +81,7 @@ describe('TranscriptView', () => {
           tokens={0}
           avatarSeed="seed"
           emptyMessage="empty"
-          filesByTurn={new Map()}
+          writesByTurn={new Map()}
           onReviewTurn={() => undefined}
           {...extra}
         />
@@ -116,6 +116,27 @@ describe('TranscriptView', () => {
     expect(sheet?.textContent).toContain('src/a.ts')
     expect(sheet?.textContent).toContain('npm test')
     expect(cue?.getAttribute('aria-expanded')).toBe('true')
+  })
+
+  it('says how many files a turn wrote, and where, when that is another checkout', () => {
+    const asked = prompt('build it in a worktree')
+    const other = prompt('tidy up here')
+    const review = vi.fn()
+    render([asked, said('Done.'), other, said('Tidied.')], {
+      writesByTurn: new Map([
+        [`turn:${asked.id}`, { count: 3, location: 'feat/thing' }],
+        [`turn:${other.id}`, { count: 1 }]
+      ]),
+      onReviewTurn: review
+    })
+    const text = host.textContent ?? ''
+    expect(text).toContain('3 files changed in feat/thing')
+    expect(text).toContain('1 file changed')
+    expect(text).not.toContain('1 file changed in')
+    const buttons = [...host.querySelectorAll('button[aria-label^="Show the"]')]
+    expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual(['Show the 3 files this turn changed', 'Show the 1 file this turn changed'])
+    act(() => (buttons[0] as HTMLButtonElement).click())
+    expect(review).toHaveBeenCalledWith(`turn:${asked.id}`)
   })
 
   it('never draws harness bookkeeping as something the user said', () => {

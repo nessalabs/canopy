@@ -1,7 +1,6 @@
 import { useMemo, useRef } from 'react'
 
 import type { TranscriptResponse, TurnExtras, TurnImage } from '@canopy/shared'
-import type { DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
 import type { ContextUsage, DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
 import { TranscriptBuilder, applyDeltas, contextUsage } from '@canopy/shared/agent-stream'
 
@@ -15,6 +14,8 @@ export interface TranscriptModel {
   filesByCall: Record<string, string[]>
   /** Canopy-only data by event id — images and the provider's message id — replay plus this turn. */
   extras: Record<string, TurnExtras>
+  /** How full the model's window is, as of the latest call the stream reported; null before any. */
+  context: ContextUsage | null
 }
 
 /** The fold in progress: which replay it started from and how much of the live turn it has absorbed. */
@@ -66,6 +67,6 @@ export function useTranscriptModel(history: TranscriptResponse | undefined, turn
     for (const [id, extra] of Object.entries(turn.extras)) merged[id] = { ...merged[id], ...extra }
     return merged
   }, [history, turn.extras])
-  return { transcript, previews, filesByCall, extras }
+  return { transcript, previews, filesByCall, extras, context }
 }
 
