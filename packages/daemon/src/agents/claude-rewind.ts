@@ -32,10 +32,29 @@ const TIMEOUT_MS = 30_000
  */
 export async function rewindClaudeFiles(module: SdkModule, turn: LiveTurn | undefined, sessionId: string, input: RewindInput): Promise<RewindResult> {
   try {
-    const result = turn ? await turn.rewindFiles(input.messageId, input.dryRun) : await onResumedQuery(module, sessionId, input)
+    const result = turn
+      ? await previewThenRewind(input, (dryRun) => turn.rewindFiles(input.messageId, dryRun))
+      : await onResumedQuery(module, sessionId, input, (rewind) => previewThenRewind(input, rewind))
     return toRewindResult(result, input.cwd)
   } catch (error) {
     return { source: 'checkpoint', canRewind: false, error: `claude: ${error instanceof Error ? error.message : String(error)}`, filesChanged: [] }
+  }
+}
+
+/**
+ * A real rewind answers with `canRewind` and little else — the file list and line counts come only
+ * from a dry run (measured on 0.3.260). So a real rewind is a dry run first, whose answer names what
+ * the rewind then changes; a dry run that refuses is the whole answer.
+ */
+async function previewThenRewind(input: RewindInput, rewind: (dryRun: boolean) => Promise<RewindFilesResult>): Promise<RewindFilesResult> {
+  const preview = await rewind(true)
+  if (input.dryRun === true || !preview.canRewind) return preview
+  const applied = await rewind(false)
+  return {
+    ...applied,
+    filesChanged: applied.filesChanged ?? preview.filesChanged,
+    insertions: applied.insertions ?? preview.insertions,
+    deletions: applied.deletions ?? preview.deletions
   }
 }
 
@@ -48,7 +67,12 @@ export async function rewindClaudeFiles(module: SdkModule, turn: LiveTurn | unde
  * The iterator is deliberately never touched. Draining the query closes its transport, and the
  * control channel — which is where `rewindFiles` lives — goes with it.
  */
-async function onResumedQuery(module: SdkModule, sessionId: string, input: RewindInput): Promise<RewindFilesResult> {
+async function onResumedQuery(
+  module: SdkModule,
+  sessionId: string,
+  input: RewindInput,
+  ask: (rewind: (dryRun: boolean) => Promise<RewindFilesResult>) => Promise<RewindFilesResult>
+): Promise<RewindFilesResult> {
   let release: (() => void) | undefined
   const gate = new Promise<void>((resolve) => (release = resolve))
   async function* idle(): AsyncGenerator<never> {
@@ -60,14 +84,14 @@ async function onResumedQuery(module: SdkModule, sessionId: string, input: Rewin
     options: { resume: sessionId, cwd: input.cwd, enableFileCheckpointing: true, permissionMode: 'plan' }
   })
   try {
-    const ask = (async (): Promise<RewindFilesResult> => {
+    const answer = (async (): Promise<RewindFilesResult> => {
       // The CLI is not listening on its control channel until it has initialized.
       await query.initializationResult()
       const rewindFiles = (query as unknown as LiveQuery).rewindFiles
       if (!rewindFiles) return { canRewind: false, error: 'this Claude Code version does not support rewinding files' }
-      return rewindFiles.call(query, input.messageId, { dryRun: input.dryRun === true })
+      return ask((dryRun) => rewindFiles.call(query, input.messageId, { dryRun }))
     })()
-    return await Promise.race([ask, timeout()])
+    return await Promise.race([answer, timeout()])
   } finally {
     release?.()
     // Releasing the gate ends the prompt stream; returning closes the query and the CLI with it.

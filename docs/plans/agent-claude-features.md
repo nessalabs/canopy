@@ -89,3 +89,21 @@ terminal peering; `/loop` lives in the CLI process, which ends with the turn; `/
 Replay caveat: a local command's answer is stored as a `system/local_command` row that the SDK's
 `getSessionMessages` drops, and its prompt as a `<command-name>` line — the daemon reads the
 former from the session file and unwraps the latter (`claude-session.ts`, `claude-map.ts`).
+
+## Rewinding files: SDK checkpoint vs Canopy snapshot (measured 2026-09-10)
+
+One turn, run through the daemon: Write `a.txt`, Edit `b.txt`, Bash `echo > c.txt && rm d.txt`.
+
+| | Claude Code checkpoint (`rewindFiles`) | Canopy hook snapshot (git tree) |
+|---|---|---|
+| Sees | `a.txt`, `b.txt` | all four |
+| Restores | Write/Edit/MultiEdit/NotebookEdit output | every path in the worktree, shell side effects included |
+| Needs | `enableFileCheckpointing` on the turn (now always on) | `canopy hooks:setup` installed (Pre/PostToolUse → daemon) |
+| Works after the turn | yes — a resumed idle query answers from `file-history-*` rows in the session file | yes — trees are pinned under `refs/canopy/snapshots/` |
+| Addressing | the user message uuid; the daemon mints it and echoes it (`TurnExtras.messageId`) | the tree before the turn's first write (`AgentEdit.beforeTree`) |
+| Touches the index | no | no (`git restore --source … --worktree`; `git rm --cached` only for files the turn created) |
+| Real-run report | `canRewind` only — the file list comes from a dry run, so the daemon dry-runs first | full list and counts |
+
+Verdict: the snapshot is the better rewind whenever the turn has one; the checkpoint is the fallback
+for sessions without hooks (terminal sessions, hooks not installed). `POST …/rewind` takes `tree`
+for the former and falls back to the latter; the UI's dialog names which one it is about to use.

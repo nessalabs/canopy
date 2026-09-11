@@ -707,7 +707,9 @@ describe('claude adapter message ids', () => {
 
 describe('claude adapter rewind', () => {
   const cwd = '/tmp/wt-rewind'
-  const fixture = (): RewindFilesResult => ({ canRewind: true, filesChanged: [`${cwd}/src/a.ts`, `${cwd}/docs/b.md`, '/etc/elsewhere'], insertions: 3, deletions: 4 })
+  // As the CLI answers (measured): the dry run names the files; the real rewind answers only that it happened.
+  const fixture = (_messageId: string, options?: { dryRun?: boolean }): RewindFilesResult =>
+    options?.dryRun ? { canRewind: true, filesChanged: [`${cwd}/src/a.ts`, `${cwd}/docs/b.md`, '/etc/elsewhere'], insertions: 3, deletions: 4 } : { canRewind: true }
 
   it('resumes the session just to ask, when no turn is running', async () => {
     const fake = fakeSdk(() => (async function* () {})(), { rewind: fixture })
@@ -717,7 +719,8 @@ describe('claude adapter rewind', () => {
     // Resumed onto the very session whose checkpoints are being asked for, and unable to write:
     // the query exists to ask a question, not to run a turn.
     expect(fake.captured.queries[0]).toMatchObject({ resume: 'sess-rw', cwd, enableFileCheckpointing: true, permissionMode: 'plan' })
-    expect(fake.captured.rewinds).toEqual([{ messageId: 'u-7', dryRun: false }])
+    // A dry run first, so the answer can name what the rewind then changed.
+    expect(fake.captured.rewinds).toEqual([{ messageId: 'u-7', dryRun: true }, { messageId: 'u-7', dryRun: false }])
     // The SDK answers in absolute paths; the contract is relative to the checkout. A path outside
     // it has no relative form worth showing, so it is reported as it came.
     expect(result).toEqual({ source: 'checkpoint', canRewind: true, filesChanged: ['src/a.ts', 'docs/b.md', '/etc/elsewhere'], insertions: 3, deletions: 4 })
