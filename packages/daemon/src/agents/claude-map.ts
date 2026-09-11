@@ -1,4 +1,4 @@
-import type { AgentStreamEvent, TurnImage } from '@canopy/shared'
+import type { AgentStreamEvent, TurnExtras } from '@canopy/shared'
 import type { AgentEvent, ClaudeStreamMapper, ClaudeWireLine } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
@@ -10,8 +10,11 @@ export interface MappedMessage {
   events: AgentEvent[]
   /** Written paths by `callId` for the tool calls in this batch. */
   files: Record<string, string[]>
-  /** Images a user turn carried, by the resulting `user_message` event id. */
-  extras: Record<string, { images: TurnImage[] }>
+  /**
+   * What Canopy knows about an event beyond its payload, by the resulting event's id: the images a
+   * user turn carried, and the provider's uuid for the prompt — what a file rewind is addressed by.
+   */
+  extras: Record<string, TurnExtras>
 }
 
 const nothing = (): MappedMessage => ({ events: [], files: {}, extras: {} })
@@ -80,10 +83,15 @@ function forMapper(message: WireMessage): WireMessage | null {
 }
 
 /**
- * Normalizes one SDK / session-file message and maps it to agent-stream events, tagging on the two
- * things agent-stream leaves to the host: which files each tool call wrote, and the images a user
- * turn carried (which the mapper drops from user content). Shared by live turns and replay so both
- * produce the same events from the same message.
+ * Normalizes one SDK / session-file message and maps it to agent-stream events, tagging on the
+ * three things agent-stream leaves to the host: which files each tool call wrote, the images a user
+ * turn carried (which the mapper drops from user content), and the provider's own uuid for the
+ * prompt. Shared by live turns and replay so both produce the same events from the same message.
+ *
+ * The uuid is the whole basis of a file rewind: the CLI keys its checkpoints by the uuid of the
+ * user message that opened the turn, and agent-stream's event ids are Canopy's own. Reporting it
+ * for every real prompt — replayed or live — is what lets a client point at a turn and say "undo
+ * what that one wrote". A synthetic line is bookkeeping the person never typed, so it names nothing.
  */
 export function mapClaudeMessage(mapper: ClaudeStreamMapper, message: WireMessage, cwd?: string): MappedMessage {
   const translated = forMapper(message)
@@ -92,10 +100,14 @@ export function mapClaudeMessage(mapper: ClaudeStreamMapper, message: WireMessag
   const events = [...mapper.map(line as unknown as ClaudeWireLine)]
   const files = filesFromEvents(events, cwd)
 
-  const extras: Record<string, { images: TurnImage[] }> = {}
-  if (images.length > 0) {
-    const prompt = events.find((event) => isEvent(event, AgentEventType.UserMessage))
-    if (prompt) extras[prompt.id] = { images }
+  const extras: Record<string, TurnExtras> = {}
+  const prompt = events.find((event) => isEvent(event, AgentEventType.UserMessage) && !event.payload.synthetic)
+  if (prompt) {
+    const extra: TurnExtras = {
+      ...(images.length > 0 ? { images } : {}),
+      ...(typeof line.uuid === 'string' && line.uuid ? { messageId: line.uuid } : {})
+    }
+    if (Object.keys(extra).length > 0) extras[prompt.id] = extra
   }
   return { events, files, extras }
 }

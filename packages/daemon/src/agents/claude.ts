@@ -2,13 +2,14 @@ import type { CanUseTool, SDKMessage, SDKUserMessage } from '@anthropic-ai/claud
 
 import type { AgentAdapter, AgentCapabilities, AgentSessionSummary, AgentStreamEvent, SendOptions, TranscriptResponse } from './types'
 import type { AgentEvent } from '@canopy/shared/agent-stream'
-import type { LiveControlsInput, PermissionDecisionInput, TurnImage } from '@canopy/shared'
+import type { LiveControlsInput, PermissionDecisionInput, RewindInput, RewindResult, TurnImage } from '@canopy/shared'
 import { ClaudeStreamMapper } from '@canopy/shared/agent-stream'
 
 import { newId } from '../lib/ids'
 import { ClaudeCapabilities, type InitAdvertisement } from './claude-capabilities'
 import { createLiveTurn, LiveTurns, PromptChannel, type LiveQuery } from './claude-live'
 import { mapClaudeMessage, usageFrom } from './claude-map'
+import { rewindClaudeFiles } from './claude-rewind'
 import type { WireMessage } from './claude-normalize'
 import { readSessionExtras, type LocalCommandOutput, type QueuedPrompt } from './claude-session'
 import { liveSessionFor, liveSessions } from './claude-terminal'
@@ -120,8 +121,24 @@ export class ClaudeAdapter implements AgentAdapter {
   queue(sessionId: string, text: string, images?: Array<Omit<TurnImage, 'label'>>): boolean {
     const turn = this.live.get(sessionId)
     if (!turn) return false
-    turn.push(userMessage(text, images, sessionId))
+    // The uuid travels with the message: the CLI stores the one it is given, so this is also the
+    // id its checkpoint for the queued prompt is filed under, and the id the echo reports.
+    turn.push(userMessage(text, images, sessionId, newId()))
     return true
+  }
+
+  /**
+   * Puts the checkout back to how it was before a turn wrote anything, by the CLI's own
+   * checkpoints. A turn still running is asked directly; otherwise a resumed query is started just
+   * to ask — the checkpoints live in the session file, so an ended session can still answer.
+   *
+   * "No, and here is why" is an answer, not a failure: a message the CLI has no checkpoint for
+   * comes back as `canRewind: false` with the reason, which is what the client shows.
+   */
+  async rewind(sessionId: string, input: RewindInput): Promise<RewindResult> {
+    const module = await this.loadSdk()
+    if (!module) return { source: 'checkpoint', canRewind: false, error: '@anthropic-ai/claude-agent-sdk is not installed', filesChanged: [] }
+    return rewindClaudeFiles(module, this.live.get(sessionId), sessionId, input)
   }
 
   async control(sessionId: string, input: LiveControlsInput): Promise<boolean> {
@@ -175,14 +192,15 @@ export class ClaudeAdapter implements AgentAdapter {
     const mapper = new ClaudeStreamMapper()
     const events: AgentEvent[] = []
     const files: Record<string, string[]> = {}
-    const imageExtras: Record<string, { images: import('@canopy/shared').TurnImage[] }> = {}
+    const extras: Record<string, import('@canopy/shared').TurnExtras> = {}
     let model: string | undefined
 
     const feed = (message: WireMessage): void => {
       const mapped = mapClaudeMessage(mapper, message, cwd)
       for (const event of mapped.events) events.push(slim(event))
       Object.assign(files, mapped.files)
-      Object.assign(imageExtras, mapped.extras)
+      // Merged rather than replaced: one event can carry both its images and its message id.
+      for (const [id, extra] of Object.entries(mapped.extras)) extras[id] = { ...extras[id], ...extra }
     }
 
     for (const message of messages) {
@@ -199,7 +217,7 @@ export class ClaudeAdapter implements AgentAdapter {
     return {
       events,
       files,
-      extras: imageExtras,
+      extras,
       model,
       effort: sessionExtras.effort,
       openInTerminal: live !== undefined,
@@ -226,7 +244,14 @@ export class ClaudeAdapter implements AgentAdapter {
      * when the turn ends — the SDK holds the CLI open until it does.
      */
     const channel = new PromptChannel()
-    const prompt = channel.stream(userMessage(text, options.images, resolvedSession))
+    /**
+     * The daemon picks the prompt's uuid rather than reading one back: the CLI stores the uuid it
+     * is handed, so this one id is at once what the session file will hold, what the CLI files its
+     * file checkpoint under, and what the echo below reports — which is what makes a rewind of
+     * this turn addressable the moment it starts, without waiting for the session file to land.
+     */
+    const promptUuid = newId()
+    const prompt = channel.stream(userMessage(text, options.images, resolvedSession, promptUuid))
 
     // Numbering continues from the transcript the client already holds, so a live turn's events
     // extend that log instead of colliding with it.
@@ -246,6 +271,10 @@ export class ClaudeAdapter implements AgentAdapter {
       const mapped = mapClaudeMessage(mapper, line, options.cwd)
       for (const [callId, files] of Object.entries(mapped.files)) push({ type: 'files', callId, files })
       for (const event of mapped.events) push({ type: 'event', event: slim(event) })
+      // Follows its own event, so a client can only learn a message id for a turn it already has.
+      for (const [eventId, extra] of Object.entries(mapped.extras)) {
+        if (extra.messageId) push({ type: 'message_id', eventId, messageId: extra.messageId })
+      }
     }
 
     /**
@@ -257,7 +286,9 @@ export class ClaudeAdapter implements AgentAdapter {
     const echoPrompt = (): void => {
       feed({
         type: 'user',
-        uuid: newId(),
+        // The same uuid the SDK was handed, so the id the client learns here is the one the CLI
+        // stored — a rewind addressed by it names this turn and not some line that looks like it.
+        uuid: promptUuid,
         session_id: resolvedSession,
         parent_tool_use_id: null,
         message: {
@@ -328,6 +359,9 @@ export class ClaudeAdapter implements AgentAdapter {
         ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : { canUseTool }),
         ...(options.model ? { model: options.model } : {}),
         ...(options.effort ? { effort: options.effort } : {}),
+        // Every turn checkpoints what its file tools write, so "undo this turn" is answerable
+        // later — from this query while it runs, and from a resumed one once it has ended.
+        enableFileCheckpointing: true,
         includePartialMessages: true,
         ...(options.signal ? { abortController: abortControllerFor(options.signal) } : {})
       }
@@ -345,7 +379,9 @@ export class ClaudeAdapter implements AgentAdapter {
      */
     let liveKey = sessionId ?? `pending:${newId()}`
     const turn = createLiveTurn(response as unknown as LiveQuery, channel, {
-      onPush: (message) => feed({ ...(message as unknown as WireMessage), uuid: newId(), session_id: resolvedSession })
+      // The uuid `queue()` minted rides on the message; echoing it keeps the client's id for the
+      // queued prompt the same one the CLI stored for it.
+      onPush: (message) => feed({ ...(message as unknown as WireMessage), uuid: message.uuid ?? newId(), session_id: resolvedSession })
     })
     this.live.register(liveKey, turn)
 
@@ -444,13 +480,17 @@ export class ClaudeAdapter implements AgentAdapter {
  * One prompt as the SDK's streaming input wants it. Images ride along as content blocks, which is
  * the only form that carries them; plain text stays a string so the mapper reads it as the prompt
  * it is rather than as the CLI feeding the model back.
+ *
+ * `uuid` is not decoration: the CLI writes the message under the uuid it was given, so choosing it
+ * here is what lets the daemon tell a client the id of a prompt it has only just sent.
  */
-function userMessage(text: string, images: Array<Omit<TurnImage, 'label'>> | undefined, sessionId: string): SDKUserMessage {
+function userMessage(text: string, images: Array<Omit<TurnImage, 'label'>> | undefined, sessionId: string, uuid: string): SDKUserMessage {
   return {
     type: 'user',
     message: { role: 'user', content: images?.length ? [{ type: 'text', text }, ...toImageBlocks(images)] : text },
     parent_tool_use_id: null,
-    session_id: sessionId
+    session_id: sessionId,
+    uuid: uuid as SDKUserMessage['uuid']
   }
 }
 

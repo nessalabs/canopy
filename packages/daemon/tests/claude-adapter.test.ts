@@ -9,6 +9,7 @@ import { routes, type AgentStreamEvent } from '@canopy/shared'
 import type { AgentEvent } from '@canopy/shared/agent-stream'
 
 import { ClaudeAdapter, type SdkModule } from '../src/agents/claude'
+import type { RewindFilesResult } from '../src/agents/claude-live'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 import { createTestServer, type TestServer } from './helpers/test-server'
 
@@ -19,6 +20,8 @@ interface ProbeFixtures {
   agents?: unknown[]
   mcp?: unknown[]
   settings?: unknown | (() => unknown)
+  /** What `query.rewindFiles` answers; absent means the CLI does not offer the call at all. */
+  rewind?: (userMessageId: string, options?: { dryRun?: boolean }) => RewindFilesResult | Promise<RewindFilesResult>
 }
 
 /**
@@ -38,15 +41,27 @@ function fakeSdk(run: (options: Options, prompt: AsyncIterable<SDKUserMessage>) 
     modes: string[]
     /** How many times a probe actually started a CLI — the cache's whole point. */
     probes: number
-  } = { interrupts: 0, models: [], modes: [], probes: 0 }
+    /** Every `query()` the adapter made: a rewind that starts its own CLI shows up here. */
+    queries: Array<Options>
+    rewinds: Array<{ messageId: string; dryRun?: boolean }>
+  } = { interrupts: 0, models: [], modes: [], probes: 0, queries: [], rewinds: [] }
 
   const module = {
     query: (args: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => {
       captured.options = args.options
+      captured.queries.push(args.options)
       return Object.assign(run(args.options, args.prompt), {
         interrupt: async () => void captured.interrupts++,
         setModel: async (model?: string) => void captured.models.push(model),
         setPermissionMode: async (mode: string) => void captured.modes.push(mode),
+        ...(fixtures.rewind
+          ? {
+              rewindFiles: async (messageId: string, options?: { dryRun?: boolean }) => {
+                captured.rewinds.push({ messageId, dryRun: options?.dryRun })
+                return fixtures.rewind?.(messageId, options)
+              }
+            }
+          : {}),
         initializationResult: async () => {
           captured.probes++
           return { commands: [], agents: [], models: [], output_style: 'default', available_output_styles: ['default'], account: {}, ...fixtures.init }
@@ -610,5 +625,157 @@ describe('live-turn and capability routes', () => {
 
     expect((await server.call('POST', routes.queue('claude', 's1'), { text: '' })).status).toBe(400)
     expect((await server.call('PATCH', routes.liveControls('claude', 's1'), { autonomy: 'sudo' })).status).toBe(400)
+  })
+})
+
+describe('claude adapter message ids', () => {
+  const messageIds = (frames: AgentStreamEvent[]) => frames.flatMap((frame) => (frame.type === 'message_id' ? [frame] : []))
+  const eventsById = (frames: AgentStreamEvent[]) => new Map(frames.flatMap((frame) => (frame.type === 'event' ? [[frame.event.id, frame.event] as const] : [])))
+
+  it('names every prompt it sends, and tells the client which event carries that name', async () => {
+    const sent: SDKUserMessage[] = []
+    const fake = fakeSdk((_options, prompt) =>
+      (async function* () {
+        const prompts = prompt[Symbol.asyncIterator]()
+        sent.push((await prompts.next()).value as SDKUserMessage)
+        yield initMessage('sess-mid')
+        // Parks on the prompt stream the way the CLI does, so a queued prompt is read as its own.
+        sent.push((await prompts.next()).value as SDKUserMessage)
+        yield resultMessage('sess-mid')
+      })()
+    )
+
+    const adapter = new ClaudeAdapter({ loadSdk: async () => fake.module })
+    const frames: AgentStreamEvent[] = []
+    for await (const frame of adapter.send(null, 'first', {})) {
+      frames.push(frame)
+      if (frame.type === 'session') expect(adapter.queue('sess-mid', 'and also this')).toBe(true)
+    }
+
+    // Nothing is rewindable unless the turn that wrote it checkpointed as it went.
+    expect(fake.captured.options?.enableFileCheckpointing).toBe(true)
+
+    // The uuid the daemon chose is the one the CLI is handed — which is the one it stores.
+    const uuids = sent.map((message) => message.uuid)
+    expect(uuids.every((uuid) => typeof uuid === 'string' && uuid.length > 0)).toBe(true)
+    expect(new Set(uuids).size).toBe(2)
+
+    const ids = messageIds(frames)
+    expect(ids.map((frame) => frame.messageId)).toEqual(uuids)
+    // Each frame points at the echoed prompt it names, not at some other event of the turn.
+    const byId = eventsById(frames)
+    expect(ids.map((frame) => byId.get(frame.eventId)?.payload)).toEqual([
+      expect.objectContaining({ type: 'user_message', text: 'first' }),
+      expect.objectContaining({ type: 'user_message', text: 'and also this' })
+    ])
+  })
+
+  it('reports the provider’s uuid for a replayed prompt, alongside the images it carried', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'canopy-claude-'))
+    const previousHome = process.env.HOME
+    process.env.HOME = home
+    try {
+      const fake = {
+        ...fakeSdk(() => (async function* () {})()).module,
+        getSessionMessages: async () => [
+          { type: 'user', uuid: 'u-first', session_id: 'sess-x', message: { role: 'user', content: 'do the thing' } },
+          { type: 'assistant', uuid: 'a-1', session_id: 'sess-x', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } },
+          {
+            type: 'user',
+            uuid: 'u-second',
+            session_id: 'sess-x',
+            message: { role: 'user', content: [{ type: 'text', text: 'look at [Image #1]' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAA' } }] }
+          },
+          // Bookkeeping the person never typed: it opens no turn, so it names nothing either.
+          { type: 'user', uuid: 'u-caveat', session_id: 'sess-x', message: { role: 'user', content: '<system-reminder>ignore this</system-reminder>' } }
+        ]
+      } as unknown as SdkModule
+
+      const { events, extras } = await new ClaudeAdapter({ loadSdk: async () => fake }).transcript('sess-x', '/tmp/wt-ids')
+      const prompts = events.filter((event) => event.payload.type === 'user_message' && !event.payload.synthetic)
+      expect(prompts).toHaveLength(2)
+      expect(prompts.map((event) => extras[event.id]?.messageId)).toEqual(['u-first', 'u-second'])
+      // One event, both facts: the images the mapper lifted out and the id a rewind names.
+      expect(extras[prompts[1]!.id]).toEqual({ messageId: 'u-second', images: [{ label: 'Image #1', mediaType: 'image/png', data: 'AAA' }] })
+      expect(Object.keys(extras)).toHaveLength(2)
+    } finally {
+      process.env.HOME = previousHome
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('claude adapter rewind', () => {
+  const cwd = '/tmp/wt-rewind'
+  const fixture = (): RewindFilesResult => ({ canRewind: true, filesChanged: [`${cwd}/src/a.ts`, `${cwd}/docs/b.md`, '/etc/elsewhere'], insertions: 3, deletions: 4 })
+
+  it('resumes the session just to ask, when no turn is running', async () => {
+    const fake = fakeSdk(() => (async function* () {})(), { rewind: fixture })
+    const result = await new ClaudeAdapter({ loadSdk: async () => fake.module }).rewind('sess-rw', { messageId: 'u-7', cwd })
+
+    expect(fake.captured.queries).toHaveLength(1)
+    // Resumed onto the very session whose checkpoints are being asked for, and unable to write:
+    // the query exists to ask a question, not to run a turn.
+    expect(fake.captured.queries[0]).toMatchObject({ resume: 'sess-rw', cwd, enableFileCheckpointing: true, permissionMode: 'plan' })
+    expect(fake.captured.rewinds).toEqual([{ messageId: 'u-7', dryRun: false }])
+    // The SDK answers in absolute paths; the contract is relative to the checkout. A path outside
+    // it has no relative form worth showing, so it is reported as it came.
+    expect(result).toEqual({ source: 'checkpoint', canRewind: true, filesChanged: ['src/a.ts', 'docs/b.md', '/etc/elsewhere'], insertions: 3, deletions: 4 })
+  })
+
+  it('asks the turn that is already running rather than starting a second CLI', async () => {
+    const fake = fakeSdk(
+      (_options, prompt) =>
+        (async function* () {
+          const prompts = prompt[Symbol.asyncIterator]()
+          await prompts.next()
+          yield initMessage('sess-live')
+          // Parks, so the turn is still live while the rewind is asked.
+          await prompts.next()
+          yield resultMessage('sess-live')
+        })(),
+      { rewind: fixture }
+    )
+
+    const adapter = new ClaudeAdapter({ loadSdk: async () => fake.module })
+    let result: Awaited<ReturnType<ClaudeAdapter['rewind']>> | undefined
+    for await (const frame of adapter.send('sess-live', 'go', { cwd })) {
+      if (result !== undefined || payloadOf(frame)?.type !== 'user_message') continue
+      result = await adapter.rewind('sess-live', { messageId: 'u-9', cwd, dryRun: true })
+      // Unparks the fake CLI so the turn can end; its echo is another `user_message`, which is
+      // why the rewind above is asked exactly once.
+      adapter.queue('sess-live', 'stop')
+    }
+
+    // One query for the turn and none for the rewind: the live CLI already holds the checkpoints.
+    expect(fake.captured.queries).toHaveLength(1)
+    expect(fake.captured.rewinds).toEqual([{ messageId: 'u-9', dryRun: true }])
+    expect(result).toMatchObject({ source: 'checkpoint', canRewind: true, filesChanged: ['src/a.ts', 'docs/b.md', '/etc/elsewhere'] })
+  })
+
+  it('reports a refusal as an answer, and a CLI that cannot rewind at all as one too', async () => {
+    const refused = fakeSdk(() => (async function* () {})(), { rewind: () => ({ canRewind: false, error: 'no checkpoint for that message' }) })
+    expect(await new ClaudeAdapter({ loadSdk: async () => refused.module }).rewind('sess-no', { messageId: 'u-0', cwd })).toEqual({
+      source: 'checkpoint',
+      canRewind: false,
+      error: 'no checkpoint for that message',
+      filesChanged: []
+    })
+
+    // No `rewindFiles` on the query at all: an older CLI, which is still a 200 the client renders.
+    const old = fakeSdk(() => (async function* () {})())
+    const result = await new ClaudeAdapter({ loadSdk: async () => old.module }).rewind('sess-old', { messageId: 'u-0', cwd })
+    expect(result).toMatchObject({ source: 'checkpoint', canRewind: false, filesChanged: [] })
+    expect(result.error).toContain('does not support rewinding files')
+  })
+
+  it('turns a CLI that threw into a refusal rather than a failed request', async () => {
+    const fake = fakeSdk(() => (async function* () {})(), {
+      rewind: () => {
+        throw new Error('the session file is gone')
+      }
+    })
+    const result = await new ClaudeAdapter({ loadSdk: async () => fake.module }).rewind('sess-boom', { messageId: 'u-1', cwd })
+    expect(result).toEqual({ source: 'checkpoint', canRewind: false, error: 'claude: the session file is gone', filesChanged: [] })
   })
 })

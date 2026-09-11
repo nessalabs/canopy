@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
-import { AgentProvider, CapabilitiesQuery, LiveControlsInput, NewSessionInput, PermissionDecisionInput, QueueMessageInput, SendMessageInput, SessionRef, routes } from '@canopy/shared'
+import { AgentProvider, CapabilitiesQuery, LiveControlsInput, NewSessionInput, PermissionDecisionInput, QueueMessageInput, RewindInput, SendMessageInput, SessionRef, routes } from '@canopy/shared'
 
 import { ClaudeHookPayload } from '../agents/edit-diffs/hook'
 
@@ -92,6 +92,32 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, r
     const { text, images } = QueueMessageInput.parse(request.body)
     if (agents.adapterFor(provider).queue?.(sid, text, images) !== true) throw noLiveTurn(provider, sid)
     return reply.code(204).send()
+  })
+
+  /**
+   * Undoing what a turn wrote. The body picks the mechanism: a `tree` is one of Canopy's own
+   * pre-turn snapshots and restores the whole checkout, shell side effects included; without one
+   * the provider's checkpoints are used, which cover only what its file tools wrote.
+   *
+   * Neither needs a live turn, and "no, because…" is a 200: a message the provider has no
+   * checkpoint for is an answer the client renders, not a broken request. The failures that *are*
+   * errors are structural — a cwd this daemon does not manage, a provider that cannot rewind at all.
+   */
+  app.post(routes.rewind(':provider', ':sid'), async (request) => {
+    const { provider, sid } = SessionParams.parse(request.params)
+    const input = RewindInput.parse(request.body)
+    // Writing into a directory Canopy knows nothing about is not a rewind, it is an arbitrary
+    // file write driven by a request body — so the cwd is checked the way the hook receiver does.
+    const worktree = worktrees.containing(input.cwd)
+    if (!worktree) throw new ApiError(400, 'unknown_worktree', `${input.cwd} is not inside a worktree Canopy manages`)
+    // A snapshot is of the whole checkout, so it is restored at the checkout's root whatever
+    // subdirectory the session happened to run in; the provider's own rewind keeps the caller's
+    // cwd, because that is what its `filesChanged` are reported relative to.
+    if (input.tree) return editDiffs.restore(worktree.path, input.tree, input.dryRun)
+
+    const adapter = agents.adapterFor(provider)
+    if (!adapter.rewind) throw new ApiError(404, 'unsupported', `the ${provider} agent cannot rewind files`)
+    return adapter.rewind(sid, input)
   })
 
   app.patch(routes.liveControls(':provider', ':sid'), async (request, reply) => {

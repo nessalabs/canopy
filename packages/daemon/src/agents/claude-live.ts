@@ -44,11 +44,24 @@ export class PromptChannel {
   }
 }
 
+/**
+ * What `query.rewindFiles` answers — the SDK's own `RewindFilesResult`, restated here so the
+ * daemon and its tests can name it without importing the SDK. `filesChanged` is absolute paths.
+ */
+export interface RewindFilesResult {
+  canRewind: boolean
+  error?: string
+  filesChanged?: string[]
+  insertions?: number
+  deletions?: number
+}
+
 /** What the SDK's `Query` offers a running turn; narrowed so tests can script it. */
 export interface LiveQuery {
   interrupt?(): Promise<unknown>
   setModel?(model?: string): Promise<void>
   setPermissionMode?(mode: PermissionMode): Promise<void>
+  rewindFiles?(userMessageId: string, options?: { dryRun?: boolean }): Promise<RewindFilesResult>
 }
 
 export interface LiveTurn {
@@ -58,6 +71,12 @@ export interface LiveTurn {
   interrupt(): Promise<void>
   setModel(model: string): Promise<void>
   setPermissionMode(mode: PermissionMode): Promise<void>
+  /**
+   * Puts the files back to how they were before `messageId` was answered, from the CLI's own
+   * checkpoints — only what its file tools wrote, never a Bash side effect. The live query is the
+   * cheapest place to ask: the CLI is already up and holding this session's checkpoints.
+   */
+  rewindFiles(messageId: string, dryRun?: boolean): Promise<RewindFilesResult>
 }
 
 export interface LiveTurnOptions {
@@ -86,7 +105,13 @@ export function createLiveTurn(query: LiveQuery, channel: PromptChannel, options
     },
     interrupt: () => swallow(query.interrupt?.()),
     setModel: (model) => swallow(query.setModel?.(model)),
-    setPermissionMode: (mode) => swallow(query.setPermissionMode?.(mode))
+    setPermissionMode: (mode) => swallow(query.setPermissionMode?.(mode)),
+    // Unlike the other three this one has an answer to carry back, so a CLI too old to offer it
+    // says so rather than being swallowed into a silent no-op.
+    rewindFiles: async (messageId, dryRun) =>
+      query.rewindFiles
+        ? query.rewindFiles(messageId, { dryRun: dryRun === true })
+        : { canRewind: false, error: 'this Claude Code version does not support rewinding files' }
   }
 }
 

@@ -13,6 +13,8 @@ import type {
   AgentStreamEvent,
   LiveControlsInput,
   PermissionDecisionInput,
+  RewindInput,
+  RewindResult,
   TranscriptResponse,
   TurnImage,
   TurnOptions
@@ -53,4 +55,12 @@ export interface AgentAdapter {
   queue?(sessionId: string, text: string, images?: Array<Omit<TurnImage, 'label'>>): boolean
   /** Retunes the running turn. True when a turn was running and the knobs were applied. */
   control?(sessionId: string, input: LiveControlsInput): Promise<boolean>
+  /**
+   * Puts the checkout's files back to before a turn was answered, using the provider's own
+   * checkpoints. Unlike the three above, a live turn is not required — the checkpoints outlive it.
+   *
+   * A provider that cannot rewind the message it was given answers `canRewind: false` with the
+   * reason; only a provider with no checkpoints at all leaves this undefined, and the route 404s.
+   */
+  rewind?(sessionId: string, input: RewindInput): Promise<RewindResult>
 }

@@ -5,7 +5,7 @@
  */
 import type { Database } from 'better-sqlite3'
 
-import type { AgentEdit, AgentProvider } from '@canopy/shared'
+import type { AgentEdit, AgentProvider, RewindResult } from '@canopy/shared'
 
 import { now } from '../../lib/ids'
 import type { WorktreesService } from '../../worktrees/service'
@@ -56,6 +56,39 @@ export class EditDiffsService {
   list(provider: AgentProvider, sessionId: string): AgentEdit[] {
     const rows = this.deps.db.prepare('SELECT * FROM agent_edits WHERE provider = ? AND session_id = ? ORDER BY at, path').all(provider, sessionId) as EditRow[]
     return rows.map(toEdit)
+  }
+
+  /**
+   * Puts the whole checkout back to a snapshot Canopy's hooks took before a turn wrote anything.
+   *
+   * This is the wide mechanism, and the reason it exists: a provider's own checkpoints cover only
+   * what its file tools wrote, while a snapshot is the worktree entire — so a file a `rm` removed
+   * or an `echo >` created comes back too.
+   *
+   * The current state is snapshotted first. That costs one tree when nothing has changed, and it
+   * means an unwanted rewind is itself undoable: the ref pinning that tree survives this call.
+   *
+   * The index is deliberately left where the user put it. Restoring the worktree from a tree is not
+   * a claim about what they meant to stage, and Canopy's commit panel *is* the index — rewriting it
+   * here would silently unstage (or stage) work the agent never touched.
+   */
+  async restore(cwd: string, tree: string, dryRun = false): Promise<RewindResult> {
+    // A sha this repo does not hold as a tree is not one of ours, and `git restore --source` would
+    // take almost anything: refusing by name is cheaper than finding out by damage.
+    if (!(await this.deps.snapshots.isTree(cwd, tree))) return { source: 'snapshot', canRewind: false, error: `${tree} is not a snapshot of this worktree`, filesChanged: [] }
+
+    const current = await this.deps.snapshots.take(cwd)
+    const changes = await this.deps.snapshots.changes(cwd, tree, current)
+    const { insertions, deletions } = await this.deps.snapshots.countLines(cwd, tree, current)
+    const answer: RewindResult = { source: 'snapshot', canRewind: true, filesChanged: changes.map((change) => change.path), insertions, deletions }
+    if (dryRun) return answer
+
+    // `A` means the path is in the worktree today and was not in the snapshot: there is nothing to
+    // restore it *to*, so putting the worktree back means the file goes. Everything else — changed,
+    // or deleted since — is content the snapshot still holds.
+    await this.deps.snapshots.removePaths(cwd, changes.filter((change) => change.status === 'A').map((change) => change.path))
+    await this.deps.snapshots.restorePaths(cwd, tree, changes.filter((change) => change.status !== 'A').map((change) => change.path))
+    return answer
   }
 
   /** One hook event. Unknown worktrees are ignored so hooks outside Canopy's projects cost nothing. */

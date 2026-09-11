@@ -1,4 +1,4 @@
-import type { AgentCapabilities, AgentStreamEvent, LiveControlsInput, PermissionDecisionInput, TurnImage } from '@canopy/shared'
+import type { AgentCapabilities, AgentStreamEvent, LiveControlsInput, PermissionDecisionInput, RewindInput, TurnImage } from '@canopy/shared'
 import type { AgentEvent } from '@canopy/shared/agent-stream'
 
 import type { AgentAdapter, AgentSessionSummary, SendOptions, TranscriptResponse } from '../../src/agents/types'
@@ -89,6 +89,16 @@ export class FakeAgent implements AgentAdapter {
   control: AgentAdapter['control'] = async (sessionId, input) => {
     this.controls.push({ sessionId, input })
     return sessionId === this.liveSessionId
+  }
+
+  readonly rewinds: Array<{ sessionId: string; input: RewindInput }> = []
+  /** A message the fake has no checkpoint for; asking for it is answered, not refused. */
+  unknownMessageId = 'u-gone'
+
+  rewind: AgentAdapter['rewind'] = async (sessionId, input) => {
+    this.rewinds.push({ sessionId, input })
+    if (input.messageId === this.unknownMessageId) return { source: 'checkpoint', canRewind: false, error: 'no checkpoint for that message', filesChanged: [] }
+    return { source: 'checkpoint', canRewind: true, filesChanged: ['src/a.ts'], insertions: 2, deletions: 1 }
   }
 
   async *send(sessionId: string | null, text: string, options?: SendOptions): AsyncIterable<AgentStreamEvent> {
