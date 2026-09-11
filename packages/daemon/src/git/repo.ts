@@ -11,8 +11,10 @@ import {
   COMMIT_FORMAT,
   parseAheadBehind,
   parseBranches,
+  parseCherryApplied,
   parseLogZ,
   parsePorcelainV2,
+  parseRefTips,
   parseStatusBranch,
   parseStatusEntries,
   parseWorktreeList,
@@ -31,6 +33,14 @@ export interface Repo {
   aheadBehind(cwd: string, base: string): Promise<{ ahead: number; behind: number } | null>
   lastCommit(cwd: string): Promise<Commit | null>
   mergeBase(cwd: string, base: string): Promise<string | null>
+  /** The tips of whichever of `refs` (full names) exist; one cheap process, no object walk. */
+  refTips(cwd: string, refs: string[]): Promise<{ ref: string; sha: string }[]>
+  /** Which of `refs` (full names) have `rev` in their history. */
+  refsContaining(cwd: string, rev: string, refs: string[]): Promise<string[]>
+  /** `git cherry`: true when every commit of `head` not in `upstream` has an equivalent patch there. */
+  cherryApplied(cwd: string, upstream: string, head: string): Promise<boolean>
+  /** A dangling commit with `tree`'s content on `parent` — one patch standing for a whole branch. */
+  commitTree(cwd: string, tree: string, parent: string, message: string): Promise<string>
   /** The commit a revision names, or null when it does not exist (e.g. HEAD on an unborn branch). */
   resolveCommit(cwd: string, rev: string): Promise<string | null>
   log(cwd: string, limit: number, skip: number): Promise<{ commits: Commit[]; hasMore: boolean }>
@@ -138,6 +148,24 @@ export function createRepo(run: GitRunner): Repo {
     async mergeBase(cwd, base) {
       const out = await tryRun(cwd, ['merge-base', base, 'HEAD'])
       return out?.trim() || null
+    },
+
+    async refTips(cwd, refs) {
+      return parseRefTips(await run(cwd, ['for-each-ref', '--format=%(refname)%00%(objectname)', ...refs]))
+    },
+
+    async refsContaining(cwd, rev, refs) {
+      const out = await tryRun(cwd, ['for-each-ref', '--contains', rev, '--format=%(refname)', ...refs])
+      return out === null ? [] : out.split('\n').filter(Boolean)
+    },
+
+    async cherryApplied(cwd, upstream, head) {
+      const out = await tryRun(cwd, ['cherry', upstream, head])
+      return out !== null && parseCherryApplied(out)
+    },
+
+    async commitTree(cwd, tree, parent, message) {
+      return (await run(cwd, ['commit-tree', tree, '-p', parent, '-m', message])).trim()
     },
 
     async log(cwd, limit, skip) {

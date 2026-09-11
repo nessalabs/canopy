@@ -1,5 +1,5 @@
 // Presentation mappings from domain states to nessa-ui primitives.
-import { ENV_STATE_LABEL, SERVICE_DOT, SERVICE_LABEL, type EnvState, type WorktreeState } from '@canopy/shared'
+import { ENV_STATE_LABEL, SERVICE_DOT, SERVICE_LABEL, type EnvState, type Worktree, type WorktreeState } from '@canopy/shared'
 
 type DotStatus = 'running' | 'success' | 'error' | 'idle'
 type BadgeVariant = 'default' | 'secondary' | 'destructive' | 'outline'
@@ -33,6 +33,19 @@ export const ENV_STATE_BADGE: Record<EnvState, { label: string; variant: BadgeVa
   stopping: { label: ENV_STATE_LABEL.stopping, variant: 'secondary' },
   error: { label: ENV_STATE_LABEL.error, variant: 'destructive' },
   destroying: { label: ENV_STATE_LABEL.destroying, variant: 'secondary' }
+}
+
+/**
+ * What a worktree's `merged` fact reads as, or null when there is nothing to say (the main
+ * checkout, or a daemon that could not tell). Lists show only the merged state as an icon;
+ * the unmerged wording is for the places that are about to destroy something.
+ */
+export function mergedLabel(worktree: Pick<Worktree, 'isMain' | 'baseBranch' | 'status'>): { merged: boolean; label: string } | null {
+  const merged = worktree.status?.merged
+  if (worktree.isMain || merged === null || merged === undefined) return null
+  const ahead = worktree.status?.ahead ?? null
+  const behindBy = ahead !== null && ahead > 0 ? ` (${ahead} commit${ahead === 1 ? '' : 's'} ahead)` : ''
+  return merged ? { merged, label: `Merged into ${worktree.baseBranch}` } : { merged, label: `Not merged into ${worktree.baseBranch}${behindBy}` }
 }
 
 export const FILE_STATUS_LABEL: Record<'A' | 'M' | 'D' | 'T' | 'U', string> = {

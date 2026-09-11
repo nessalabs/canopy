@@ -2,6 +2,7 @@ import { Code, ExternalLink, Play, RotateCw, Square, Terminal } from 'lucide-rea
 
 import { ENV_STATE_LABEL, environmentDot, formatMem, isLive, type OpenTarget, type ServiceAction, type Worktree } from '@canopy/shared'
 
+import { MergedMark } from '@/components/merged-mark'
 import { Button } from '@/components/ui/button'
 import { StatusDot } from '@/components/ui/status-dot'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -95,6 +96,7 @@ export function TrayWorktreeRow({ worktree, onLifecycle, onService, onOpen, onOp
         >
           {worktree.name}
         </button>
+        <MergedMark worktree={worktree} side="bottom" />
         <span className={cn('shrink-0 font-mono text-[10px] tabular-nums', failing ? 'text-destructive' : 'text-muted-foreground')}>
           {transitioning ? `${ENV_STATE_LABEL[env.state].toLowerCase()}…` : since ? `up ${since}` : ENV_STATE_LABEL[env.state].toLowerCase()}
         </span>

@@ -4,6 +4,7 @@ import { useLocation } from 'wouter'
 
 import { environmentDot, formatMem, isLive, serviceResources, type Worktree } from '@canopy/shared'
 
+import { MergedMark } from '@/components/merged-mark'
 import { PanelShell, type PanelDef } from '@/components/panel-shell'
 import { CoreGrid, SystemMemBar } from '@/components/resources/host-usage'
 import { Badge } from '@/components/ui/badge'
@@ -129,7 +130,10 @@ function WorktreeRow({ worktree, projectName }: { worktree: Worktree; projectNam
         <span className="truncate font-mono text-sm font-medium">{worktree.name}</span>
         <span className="flex items-center gap-1 truncate font-mono text-[10px] text-muted-foreground">
           <GitBranch className="size-2.5 shrink-0" />
-          {projectName} · {worktree.branch ?? 'detached'}
+          <span className="truncate">
+            {projectName} · {worktree.branch ?? 'detached'}
+          </span>
+          <MergedMark worktree={worktree} side="bottom" className="size-2.5" />
         </span>
       </span>
       <Badge variant={env.state === 'none' ? gitBadge.variant : envBadge.variant} className="hidden w-28 justify-center text-[10px] sm:inline-flex">

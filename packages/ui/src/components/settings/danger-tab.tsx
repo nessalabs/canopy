@@ -27,6 +27,7 @@ export function DangerTab({ project }: { project: Project }): React.JSX.Element 
   const [confirm, setConfirm] = useState('')
   const [deleteBranch, setDeleteBranch] = useState(false)
   const dirty = worktrees.filter((worktree) => (worktree.status?.dirtyTotal ?? 0) > 0).length
+  const unmerged = worktrees.filter((worktree) => worktree.status?.merged === false).length
 
   return (
     <div className="flex flex-col gap-3">
@@ -71,6 +72,12 @@ export function DangerTab({ project }: { project: Project }): React.JSX.Element 
                   {dirty > 0 ? (
                     <span className="mt-2 block text-destructive">
                       {dirty} worktree{dirty === 1 ? ' has' : 's have'} uncommitted changes that will be lost.
+                    </span>
+                  ) : null}
+                  {unmerged > 0 ? (
+                    <span className={`mt-2 block ${deleteBranch ? 'text-destructive' : 'text-amber-600 dark:text-amber-500'}`}>
+                      {unmerged} worktree{unmerged === 1 ? ' is' : 's are'} on a branch not merged into its base
+                      {deleteBranch ? ' — deleting those branches discards their commits.' : '. The branches stay unless you delete them below.'}
                     </span>
                   ) : null}
                 </DialogDescription>

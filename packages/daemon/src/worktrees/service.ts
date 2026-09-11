@@ -12,6 +12,8 @@ import { conflict, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
 import type { ProjectsService } from '../projects/service'
 
+import { MergedDetector } from './merged'
+
 /** The slice of EnvironmentService the worktree service needs; bound late because each depends on the other. */
 export interface EnvironmentHooks {
   environmentOf(worktreeId: string): Worktree['environment']
@@ -52,8 +54,11 @@ const stateOf = (row: WorktreeRow, status: WorktreeStatus | null): WorktreeState
  */
 export class WorktreesService {
   private environment: EnvironmentHooks | null = null
+  private readonly merged: MergedDetector
 
-  constructor(private readonly deps: Deps) {}
+  constructor(private readonly deps: Deps) {
+    this.merged = new MergedDetector(deps.repo)
+  }
 
   private get db(): Database {
     return this.deps.db
@@ -119,16 +124,21 @@ export class WorktreesService {
       this.deps.repo.aheadBehind(row.path, base),
       this.deps.repo.lastCommit(row.path)
     ])
+    const ahead = aheadBehind?.ahead ?? null
+    const behind = aheadBehind?.behind ?? null
+    // The main checkout is its own base; "merged" would always be true and mean nothing.
+    const merged = row.is_main || !lastCommit ? null : await this.merged.isMerged({ cwd: row.path, head: lastCommit.sha, base, ahead, behind })
     return {
       head: counts.head,
-      ahead: aheadBehind?.ahead ?? null,
-      behind: aheadBehind?.behind ?? null,
+      ahead,
+      behind,
       staged: counts.staged,
       unstaged: counts.unstaged,
       untracked: counts.untracked,
       conflicted: counts.conflicted,
       dirtyTotal: counts.staged + counts.unstaged + counts.untracked + counts.conflicted,
-      lastCommit
+      lastCommit,
+      merged
     }
   }
 

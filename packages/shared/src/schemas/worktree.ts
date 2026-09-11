@@ -22,7 +22,14 @@ export const WorktreeStatus = z.object({
   untracked: z.number().int(),
   conflicted: z.number().int(),
   dirtyTotal: z.number().int(),
-  lastCommit: LastCommit.nullable()
+  lastCommit: LastCommit.nullable(),
+  /**
+   * Whether HEAD is already in the base branch (or its `origin/` counterpart), by ancestry or
+   * as a squash/rebase whose patches all landed. Null when there is nothing to say: the main
+   * checkout, a branch sitting exactly on the base tip (nothing to merge), a base that does
+   * not exist, or a branch too far behind to check cheaply.
+   */
+  merged: z.boolean().nullable()
 })
 export type WorktreeStatus = z.infer<typeof WorktreeStatus>
 

@@ -189,6 +189,23 @@ export function parseAheadBehind(out: string): { ahead: number; behind: number }
   return { ahead: Number(ahead), behind: Number(behind) }
 }
 
+/** `git for-each-ref --format=%(refname)%00%(objectname)` → one tip per line, missing refs simply absent. */
+export function parseRefTips(out: string): { ref: string; sha: string }[] {
+  return out
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [ref = '', sha = ''] = line.split('\0')
+      return { ref, sha }
+    })
+}
+
+/** `git cherry <upstream> <head>`: true when every listed commit is `-` (already applied upstream). */
+export function parseCherryApplied(out: string): boolean {
+  const lines = out.split('\n').filter(Boolean)
+  return lines.length > 0 && lines.every((line) => line.startsWith('-'))
+}
+
 export const COMMIT_FORMAT = '%H%x00%h%x00%an%x00%ae%x00%at%x00%s%x00%P'
 const COMMIT_FIELDS = 7
 

@@ -5,6 +5,7 @@ import {
   joinChangedFiles,
   parseAheadBehind,
   parseBranches,
+  parseCherryApplied,
   parseLogZ,
   parseNameStatus,
   parseNumstat,
@@ -12,6 +13,7 @@ import {
   parseStatusBranch,
   parseStatusEntries,
   UNSTAGED,
+  parseRefTips,
   parseWorktreeList
 } from '../src/git/parse'
 
@@ -87,5 +89,17 @@ describe('git parsers', () => {
       { name: 'feat', sha: 'def', at: 200000, current: false }
     ])
     expect(parseAheadBehind('2\t5\n')).toEqual({ behind: 2, ahead: 5 })
+  })
+
+  it('reads ref tips and cherry verdicts', () => {
+    expect(parseRefTips('refs/heads/main\0abc\nrefs/remotes/origin/main\0def\n')).toEqual([
+      { ref: 'refs/heads/main', sha: 'abc' },
+      { ref: 'refs/remotes/origin/main', sha: 'def' }
+    ])
+    expect(parseRefTips('')).toEqual([])
+    expect(parseCherryApplied('- abc\n- def\n')).toBe(true)
+    expect(parseCherryApplied('- abc\n+ def\n')).toBe(false)
+    // Nothing to apply is not "applied": ancestry answers that case before cherry runs.
+    expect(parseCherryApplied('')).toBe(false)
   })
 })

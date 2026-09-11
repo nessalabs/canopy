@@ -1,4 +1,8 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import { execa } from 'execa'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
@@ -75,5 +79,64 @@ describe('worktrees', () => {
 
     const main = (await server.call('GET', routes.worktrees())).body.worktrees[0]
     expect((await server.call('DELETE', routes.worktree(main.id))).body.error.code).toBe('cannot_destroy_main')
+  })
+
+  describe('merged', () => {
+    const create = async (name: string, branch: string) =>
+      settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name, branch: { mode: 'new', name: branch, base: 'main' } })).body.worktree.id)
+    const commitIn = async (path: string, file: string): Promise<void> => {
+      writeFileSync(join(path, file), `${file}\n`)
+      await execa('git', ['add', '-A'], { cwd: path })
+      await execa('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-q', '-m', file], { cwd: path })
+    }
+    const mergedOf = async (id: string): Promise<boolean | null> => (await server.call('GET', routes.worktree(id))).body.worktree.status.merged
+
+    it('says nothing for the main checkout or a branch still sitting on the base tip', async () => {
+      expect((await server.call('GET', routes.worktrees())).body.worktrees[0].status.merged).toBeNull()
+      const fresh = await create('fresh', 'fresh')
+      expect(await mergedOf(fresh.id)).toBeNull()
+      // Once the base moves past it the branch is behind, and behind with nothing of its own is merged.
+      await repo.commit({ 'b.txt': 'two\n' }, 'base moves')
+      expect(await mergedOf(fresh.id)).toBe(true)
+    })
+
+    it('tells a merged, squash-merged and unmerged branch apart', async () => {
+      const merged = await create('merged', 'feat/merged')
+      const squashed = await create('squashed', 'feat/squashed')
+      const open = await create('open', 'feat/open')
+      await commitIn(merged.path, 'm.txt')
+      await commitIn(squashed.path, 's1.txt')
+      await commitIn(squashed.path, 's2.txt')
+      await commitIn(open.path, 'o.txt')
+      expect(await mergedOf(merged.id)).toBe(false)
+
+      await repo.git('merge', '-q', '--no-ff', '-m', 'merge', 'feat/merged')
+      await repo.git('merge', '-q', '--squash', 'feat/squashed')
+      await repo.git('commit', '-q', '-m', 'squash')
+      expect(await mergedOf(merged.id)).toBe(true)
+      expect(await mergedOf(squashed.id)).toBe(true)
+      expect(await mergedOf(open.id)).toBe(false)
+
+      // A new commit on the branch invalidates the cached answer.
+      await commitIn(squashed.path, 's3.txt')
+      expect(await mergedOf(squashed.id)).toBe(false)
+    })
+
+    it('counts a branch that only origin/main has as merged', async () => {
+      const remote = mkdtempSync(join(tmpdir(), 'canopy-remote-'))
+      try {
+        await execa('git', ['init', '-q', '--bare', '-b', 'main'], { cwd: remote })
+        await repo.git('remote', 'add', 'origin', remote)
+        const wt = await create('remote-only', 'feat/remote')
+        await commitIn(wt.path, 'r.txt')
+        const before = (await repo.git('rev-parse', 'HEAD')).trim()
+        await repo.git('merge', '-q', '--no-ff', '-m', 'merge', 'feat/remote')
+        await repo.git('push', '-q', 'origin', 'main')
+        await repo.git('reset', '-q', '--hard', before)
+        expect(await mergedOf(wt.id)).toBe(true)
+      } finally {
+        rmSync(remote, { recursive: true, force: true })
+      }
+    })
   })
 })
