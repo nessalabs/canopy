@@ -1,4 +1,5 @@
 import { execa } from 'execa'
+import { existsSync } from 'node:fs'
 
 import { ApiError } from '../lib/errors'
 
@@ -49,7 +50,14 @@ export const runGit: GitRunner = async (cwd, args, { okCodes = [0], env, input, 
   })
   // A timeout kills the process, so there is no exit code to report and stderr is usually empty.
   if (result.timedOut) throw new GitError(args, -1, `git ${args[0]} timed out after ${timeout}ms`)
-  const exitCode = result.exitCode ?? 1
+  // No exit code at all means git never ran: usually a cwd that is not there (a checkout
+  // removed while the daemon still had a row for it). Calling that "exited with 1" tells
+  // whoever reads the error nothing about what actually went wrong.
+  if (result.exitCode === undefined) {
+    const reason = existsSync(cwd) ? (result.shortMessage ?? '').split('\n')[0] || 'the command could not be started' : `${cwd} does not exist`
+    throw new GitError(args, -1, `git ${args[0]} could not run: ${reason}`)
+  }
+  const exitCode = result.exitCode
   if (!okCodes.includes(exitCode)) {
     const text = (stream: unknown): string => (stream instanceof Uint8Array ? Buffer.from(stream).toString('utf8') : String(stream ?? ''))
     // Hooks print their diagnostics to stdout, so a failed `git commit` usually has an empty

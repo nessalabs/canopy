@@ -81,6 +81,35 @@ describe('worktrees', () => {
     expect((await server.call('DELETE', routes.worktree(main.id))).body.error.code).toBe('cannot_destroy_main')
   })
 
+  it('forgets a worktree that something else removed, and says so', async () => {
+    const created = await settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name: 'elsewhere', branch: { mode: 'new', name: 'feat/elsewhere', base: 'main' } })).body.worktree.id)
+    expect((await server.call('GET', routes.worktrees())).body.worktrees).toHaveLength(2)
+
+    // What a second daemon (or a person at a prompt) does behind this one's back.
+    await repo.git('worktree', 'remove', created.path)
+
+    const list = (await server.call('GET', routes.worktrees())).body.worktrees
+    expect(list.map((wt: { name: string }) => wt.name)).toEqual([repo.path.split('/').pop()])
+    // The row is dropped, not just hidden: the reap runs off the sync that found it.
+    for (let i = 0; i < 100; i++) {
+      if ((await server.call('GET', routes.worktree(created.id))).status === 404) return
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    throw new Error('the row for a removed worktree was never reaped')
+  })
+
+  it('says a checkout is gone rather than leaking the git failure', async () => {
+    const created = await settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name: 'vanishing', branch: { mode: 'new', name: 'feat/vanishing', base: 'main' } })).body.worktree.id)
+    // Removed behind the daemon's back, and read before any list read has reaped the row.
+    await repo.git('worktree', 'remove', created.path)
+
+    const changes = await server.call('GET', routes.changes(created.id))
+    expect(changes.status).toBe(410)
+    expect(changes.body.error.code).toBe('worktree_gone')
+    expect(changes.body.error.message).toContain('vanishing')
+    expect((await server.call('GET', routes.log(created.id))).status).toBe(410)
+  })
+
   describe('merged', () => {
     const create = async (name: string, branch: string) =>
       settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name, branch: { mode: 'new', name: branch, base: 'main' } })).body.worktree.id)

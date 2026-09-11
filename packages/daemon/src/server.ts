@@ -97,7 +97,7 @@ export function buildServices(deps: ServerDeps): Services {
   worktrees.attachEnvironment(environment)
   const history = new HistoryService({ repo, diffs, worktrees })
   return {
-    watch: new WatchService({ worktrees, repo, events }),
+    watch: new WatchService({ worktrees, projects, repo, events }),
     config: deps.config,
     version: deps.version ?? '0.1.0',
     projects,

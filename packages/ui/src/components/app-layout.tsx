@@ -97,7 +97,9 @@ function ProjectSection({ project, worktrees }: { project: Project; worktrees: W
               <SidebarMenuItem
                 key={wt.id}
                 size="sm"
-                icon={<StatusDot status={wt.environment.state === 'none' ? WORKTREE_DOT[wt.state] : environmentDot(wt.environment)} />}
+                // A checkout that is not there outranks whatever its environment last said it
+                // was doing: a stopped environment must never make a gone worktree look ordinary.
+                icon={<StatusDot status={wt.state === 'missing' || wt.environment.state === 'none' ? WORKTREE_DOT[wt.state] : environmentDot(wt.environment)} />}
                 isActive={location === `/worktrees/${wt.id}`}
                 onClick={() => navigate(`/worktrees/${wt.id}`)}
                 trailing={

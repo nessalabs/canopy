@@ -8,7 +8,7 @@ import { emptyEnvironment, projectDirName, type CreateWorktreeInput, type Projec
 import type { EventBus } from '../env/types'
 import type { Worktrunk } from '../env/worktrunk/wt'
 import type { Repo } from '../git/repo'
-import { conflict, notFound } from '../lib/errors'
+import { conflict, gone, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
 import type { ProjectsService } from '../projects/service'
 
@@ -50,11 +50,15 @@ const stateOf = (row: WorktreeRow, status: WorktreeStatus | null): WorktreeState
 
 /**
  * Worktrees are whatever `git worktree list` says, persisted by path so comments and
- * pins survive across daemon restarts. Rows git no longer lists are flagged `missing`.
+ * pins survive across daemon restarts. A checkout git has stopped listing was removed by
+ * something other than this daemon — another canopyd, a plain `git worktree remove`, a
+ * prune — and its row is reaped rather than left in the list as a ghost.
  */
 export class WorktreesService {
   private environment: EnvironmentHooks | null = null
   private readonly merged: MergedDetector
+  /** Rows a reap is working through; the sync that lands mid-reap must not start it over. */
+  private readonly reaping = new Set<string>()
 
   constructor(private readonly deps: Deps) {
     this.merged = new MergedDetector(deps.repo)
@@ -86,9 +90,13 @@ export class WorktreesService {
     return rows.find((row) => cwd === row.path || cwd.startsWith(`${row.path}/`))
   }
 
-  /** Path is the identity; the project's git decides what exists. */
+  /**
+   * Path is the identity; the project's git decides what exists. A set that grew or shrank
+   * since the last read is news for every client, not just the one that asked.
+   */
   async sync(project: Project): Promise<WorktreeRow[]> {
     const records = await this.deps.repo.worktreeList(project.path)
+    const known = new Set((this.db.prepare('SELECT path FROM worktrees WHERE project_id = ?').all(project.id) as Array<{ path: string }>).map((row) => row.path))
     const upsert = this.db.prepare(
       `INSERT INTO worktrees (id, project_id, name, path, branch, base_branch, is_main, managed, missing, created_at, updated_at)
        VALUES (@id, @projectId, @name, @path, @branch, @baseBranch, @isMain, 0, 0, @at, @at)
@@ -114,7 +122,42 @@ export class WorktreesService {
         .prepare(`UPDATE worktrees SET missing = 1 WHERE project_id = ? AND env_state NOT IN ('creating', 'destroying') AND path NOT IN (${paths.map(() => '?').join(',') || "''"})`)
         .run(project.id, ...paths)
     })()
-    return this.db.prepare('SELECT * FROM worktrees WHERE project_id = ? ORDER BY is_main DESC, name').all(project.id) as WorktreeRow[]
+    const rows = this.db.prepare('SELECT * FROM worktrees WHERE project_id = ? ORDER BY is_main DESC, name').all(project.id) as WorktreeRow[]
+    // Flagged just now or left over from a daemon that stopped before it could finish: either
+    // way the checkout is gone. Rows mid-create and mid-destroy are never flagged, so nothing
+    // on its way in or out is reaped.
+    const vanished = rows.filter((row) => row.missing === 1 && !this.reaping.has(row.id))
+    // The reap announces itself; an arrival from outside this daemon has no other announcement.
+    // Nothing awaits it, so it must swallow its own failures: an unhandled rejection here would
+    // take the daemon down over a worktree that had already gone.
+    if (vanished.length > 0) void this.reap(project, vanished).catch((error: unknown) => console.error('[worktrees] reap failed:', error))
+    else if (records.some((record) => !known.has(record.path))) this.deps.events.emit({ type: 'worktrees-changed', projectId: project.id })
+    return rows.filter((row) => row.missing === 0)
+  }
+
+  /**
+   * Drops rows whose checkout git no longer lists. The environment goes first, so the ports,
+   * logs, databases and service records it was holding are released exactly as `destroy`
+   * releases them; the row goes whether or not that succeeded, because a worktree that cannot
+   * be torn down is still not a worktree. Runs off the sync that found them rather than inside
+   * it — reading the list never waits on docker.
+   */
+  private async reap(project: Project, rows: WorktreeRow[]): Promise<void> {
+    for (const row of rows) this.reaping.add(row.id)
+    try {
+      for (const row of rows) {
+        try {
+          await this.environment?.teardown(row.id)
+        } catch (error) {
+          console.error(`[worktrees] ${row.name} is gone from git but its environment would not tear down:`, error)
+        }
+        this.db.prepare('DELETE FROM worktrees WHERE id = ?').run(row.id)
+        this.environment?.forget(row.id)
+      }
+    } finally {
+      for (const row of rows) this.reaping.delete(row.id)
+    }
+    this.deps.events.emit({ type: 'worktrees-changed', projectId: project.id })
   }
 
   async status(row: WorktreeRow, base: string): Promise<WorktreeStatus | null> {
@@ -182,6 +225,13 @@ export class WorktreesService {
    */
   location(id: string): { path: string; baseBranch: string; projectId: string } {
     const row = this.row(id)
+    // Every reader that spawns git inside a checkout comes through here, so this is where a
+    // checkout that is not there turns into an answer. Left to git it is an unspawnable
+    // command, which reaches the client as "git diff exited with 1" and explains nothing.
+    if (!existsSync(row.path)) {
+      if (row.env_state === 'creating') throw conflict('worktree_not_ready', `${row.name} is still being created`)
+      throw gone('worktree_gone', `${row.name} is no longer on disk (${row.path}); it was removed outside this daemon`)
+    }
     return { path: row.path, baseBranch: row.base_branch ?? this.deps.projects.get(row.project_id).defaultBase, projectId: row.project_id }
   }
 

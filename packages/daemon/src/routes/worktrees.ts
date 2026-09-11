@@ -6,7 +6,12 @@ import type { Services } from './context'
 import { AgainstQuery, CommitParams, DestroyQuery, DirQuery, IdParams, PageQuery, PathQuery, RevQuery, TreesParams } from './params'
 
 export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, history, watch, merges }: Services): void {
-  app.get(routes.worktrees(), async () => ({ worktrees: await worktrees.listAll() }))
+  // Reading the list is what arms the per-project watch on git's worktree administration:
+  // from here on a worktree added or removed outside this daemon is pushed, not waited for.
+  app.get(routes.worktrees(), async () => {
+    watch.ensureProjects()
+    return { worktrees: await worktrees.listAll() }
+  })
 
   app.get(routes.worktree(':id'), async (request) => ({ worktree: await worktrees.get(IdParams.parse(request.params).id) }))
 

@@ -216,8 +216,9 @@ export class CommitService {
       const commit = await this.deps.repo.commit(cwd, sha)
       if (!commit) throw conflict('commit_failed', 'the commit was created but could not be read back')
 
-      const { projectId } = this.deps.worktrees.location(worktreeId)
-      this.deps.events.emit({ type: 'worktrees-changed', projectId })
+      // The row, not `location`: the commit has already landed, and a checkout that vanished
+      // underneath it must not turn a success into an error on the way out.
+      this.deps.events.emit({ type: 'worktrees-changed', projectId: this.deps.worktrees.row(worktreeId).project_id })
       return commit
     })
   }
