@@ -209,6 +209,44 @@ export function parseMcpSummary(text: string): McpSummary | null {
   return { total: Number(match[1]), connected: Number(match[2]), notConnected: Number(match[3]), disabled: Number(match[4]) }
 }
 
+// ---- /list-agents ----
+
+export interface PeerSession {
+  /** "busy" | "idle", as printed. */
+  status: string
+  name: string
+  cwd: string
+  /** As printed after "started": "1h ago". */
+  started: string
+}
+
+export interface PeersReport {
+  self?: { name: string; id: string }
+  /** How many the CLI counted, which may exceed the rows it listed. */
+  count: number
+  peers: PeerSession[]
+}
+
+const SELF = /^This session:\s*(.+?)\s*\[([0-9a-f]+)\]/m
+const OTHERS = /^(?:Other Claude sessions|Other sessions)\s*\((\d+)\)/m
+const PEER = /^\s*\[(\w+)\]\s*·\s*(.+?)\s*·\s*(.+?)\s*·\s*started\s+(.+?)\s*$/
+
+export function parsePeersReport(text: string): PeersReport | null {
+  const self = SELF.exec(text)
+  const others = OTHERS.exec(text)
+  if (!self && !others) return null
+  const peers: PeerSession[] = []
+  for (const line of text.split('\n')) {
+    const match = PEER.exec(line)
+    if (match) peers.push({ status: (match[1] ?? '').toLowerCase(), name: match[2] ?? '', cwd: match[3] ?? '', started: match[4] ?? '' })
+  }
+  return {
+    ...(self ? { self: { name: self[1] ?? '', id: self[2] ?? '' } } : {}),
+    count: others ? Number(others[1]) : peers.length,
+    peers
+  }
+}
+
 // ---- which answer is this? ----
 
 /** Built-ins whose whole answer is a sentence or two: a note under the prompt, not an agent bubble. */
@@ -225,6 +263,7 @@ export type LocalAnswer =
   | { kind: 'skills'; report: SkillDoctorReport }
   | { kind: 'model'; report: ModelReport }
   | { kind: 'mcp'; summary: McpSummary }
+  | { kind: 'peers'; report: PeersReport }
   | { kind: 'note'; text: string }
 
 /**
@@ -240,6 +279,8 @@ export function classifyLocalAnswer(text: string, prompt?: string): LocalAnswer 
   if (model) return { kind: 'model', report: model }
   const mcp = parseMcpSummary(text)
   if (mcp) return { kind: 'mcp', summary: mcp }
+  const peers = parsePeersReport(text)
+  if (peers) return { kind: 'peers', report: peers }
 
   const command = commandOf(prompt)
   const lines = text.split('\n').filter((line) => line.trim() !== '')

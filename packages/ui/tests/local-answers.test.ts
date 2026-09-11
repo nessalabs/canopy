@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { classifyLocalAnswer, commandOf, formatTokenCount, markdownTables, parseContextReport, parseMcpSummary, parseModelReport, parseSkillDoctor, parseTokenCount } from '../src/lib/local-answers'
+import { classifyLocalAnswer, commandOf, formatTokenCount, markdownTables, parseContextReport, parseMcpSummary, parseModelReport, parsePeersReport, parseSkillDoctor, parseTokenCount } from '../src/lib/local-answers'
 
 // Verbatim answers from Claude Code 2.1.260 (session files, 2026-09-10), trimmed.
 const CONTEXT = `## Context Usage
@@ -108,6 +108,28 @@ describe('parseModelReport / parseMcpSummary', () => {
       notConnected: 3,
       disabled: 0
     })
+  })
+})
+
+describe('parsePeersReport', () => {
+  const PEERS = `This session: cli-commands-reference [e3c682] (the name other sessions use to message it)
+
+Other Claude sessions (3):
+  [busy]  ·  canopy-d9  ·  /Users/gpanthee/dev/canopy  ·  started 1h ago
+  [idle]  ·  canopy-97  ·  /Users/gpanthee/dev/canopy  ·  started 1h ago
+  [idle]  ·  canopy-16  ·  /Users/gpanthee/dev/canopy  ·  started 1h ago`
+
+  it('reads this session and every other one', () => {
+    const report = parsePeersReport(PEERS)
+    expect(report?.self).toEqual({ name: 'cli-commands-reference', id: 'e3c682' })
+    expect(report?.count).toBe(3)
+    expect(report?.peers).toEqual([
+      { status: 'busy', name: 'canopy-d9', cwd: '/Users/gpanthee/dev/canopy', started: '1h ago' },
+      { status: 'idle', name: 'canopy-97', cwd: '/Users/gpanthee/dev/canopy', started: '1h ago' },
+      { status: 'idle', name: 'canopy-16', cwd: '/Users/gpanthee/dev/canopy', started: '1h ago' }
+    ])
+    expect(classifyLocalAnswer(PEERS, '/list-agents')?.kind).toBe('peers')
+    expect(parsePeersReport('nothing about sessions')).toBeNull()
   })
 })
 

@@ -50,7 +50,7 @@ import type { Activity } from './activity-orb'
 import type { PendingPrompt, TurnUsage } from '../../lib/use-agent-turn'
 import { SessionLine, SessionSheetBody } from './session-details'
 import { TurnStatus } from './turn-status'
-import { ContextCard, McpCard, ModelCard, SkillDoctorCard } from './local-cards'
+import { ContextCard, McpCard, ModelCard, PeersCard, SkillDoctorCard } from './local-cards'
 import { UsageCard } from './usage-card'
 import { ImageTiles, ImageViewer, TextWithImageRefs } from './image-strip'
 import { SelectionActions } from './selection-actions'
@@ -178,6 +178,8 @@ function localCard(text: string, prompt: string | undefined, capabilities: Agent
       return <ModelCard report={answer.report} onPick={onPickModel} />
     case 'mcp':
       return <McpCard summary={answer.summary} servers={capabilities?.mcpServers} />
+    case 'peers':
+      return <PeersCard report={answer.report} />
     default:
       return null
   }

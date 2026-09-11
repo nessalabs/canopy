@@ -56,13 +56,12 @@ const HIDDEN_BUILTINS = new Set([
   // Their whole effect is a browser opening on the machine the daemon runs on.
   'usage-credits',
   'extra-usage',
-  // Interactive setup wizards and terminal-to-terminal peering, not something a turn can finish.
+  // Interactive setup wizards, not something a turn can finish.
   'import',
   'auto-mode-setup',
   'design',
   'design-consent',
   'design-revoke',
-  'list-agents',
   'team-onboarding',
   // A loop lives in the CLI process, which ends with the turn here.
   'loop'

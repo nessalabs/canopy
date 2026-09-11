@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { Check, ChevronRight, Cpu, Database, Puzzle, Webhook } from 'lucide-react'
+import { Check, ChevronRight, Cpu, Database, Puzzle, Users, Webhook } from 'lucide-react'
 
 import type { AgentCapabilities } from '@canopy/shared'
 
 import { Badge } from '@/components/ui/badge'
 import { StatusDot } from '@/components/ui/status-dot'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { formatTokenCount, type AnswerTable, type ContextReport, type McpSummary, type ModelReport, type SkillDoctorReport } from '@/lib/local-answers'
+import { formatTokenCount, type AnswerTable, type ContextReport, type McpSummary, type ModelReport, type PeersReport, type SkillDoctorReport } from '@/lib/local-answers'
 import { cn } from '@/lib/utils'
 
 // ---- /context ----
@@ -294,6 +294,64 @@ export function McpCard({ summary, servers }: { summary: McpSummary; servers?: A
         </ul>
       ) : (
         <p className="m-0 nessa-text-2 text-muted-foreground">Server names arrive with the next turn's session details.</p>
+      )}
+    </div>
+  )
+}
+
+// ---- /list-agents ----
+
+const peerDot = (status: string): 'running' | 'idle' => (status === 'busy' ? 'running' : 'idle')
+const basename = (path: string): string => path.split('/').filter(Boolean).at(-1) ?? path
+
+/**
+ * `/list-agents`: this session's name and the id other sessions message it by, then every other
+ * Claude session on the machine — busy or idle, where it runs, how long it has been up.
+ */
+export function PeersCard({ report }: { report: PeersReport }): React.JSX.Element {
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <span className="flex items-center gap-2 nessa-text-3 font-medium text-foreground">
+          <Users className="size-4 text-muted-foreground" aria-hidden="true" />
+          Claude sessions
+          <span className="font-mono nessa-text-1 font-normal text-muted-foreground">{report.count} other{report.count === 1 ? '' : 's'}</span>
+        </span>
+        {report.self ? (
+          <span className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5 nessa-text-2 text-muted-foreground">
+            This session
+            <span className="font-mono text-foreground">{report.self.name}</span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="outline" className="cursor-help font-mono nessa-text-1">
+                  {report.self.id}
+                </Badge>
+              </TooltipTrigger>
+              <TooltipContent>The name other sessions use to message it</TooltipContent>
+            </Tooltip>
+          </span>
+        ) : null}
+      </div>
+      {report.peers.length > 0 ? (
+        <ul className="m-0 flex list-none flex-col p-0">
+          {report.peers.map((peer) => (
+            <li key={`${peer.name}-${peer.cwd}`} className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 border-t border-border/40 py-1.5 first:border-t-0">
+              <span className="flex w-12 items-center gap-1.5 nessa-text-1 uppercase tracking-wide text-muted-foreground">
+                <StatusDot status={peerDot(peer.status)} />
+                {peer.status}
+              </span>
+              <span className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+                <span className="font-mono nessa-text-2 text-foreground">{peer.name}</span>
+                <span className="min-w-0 truncate nessa-text-2 text-muted-foreground" title={peer.cwd}>
+                  {basename(peer.cwd)}
+                </span>
+              </span>
+              <span className="shrink-0 nessa-text-1 text-muted-foreground">started {peer.started}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="m-0 nessa-text-2 text-muted-foreground">No other Claude session is running on this machine.</p>
       )}
     </div>
   )

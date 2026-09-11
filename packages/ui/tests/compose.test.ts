@@ -47,7 +47,7 @@ describe('commandMenu', () => {
 
   it('keeps the built-ins that answer through the SDK', () => {
     // Measured on 2026-09-10: each of these produced its output when sent as the prompt.
-    for (const name of ['context', 'usage', 'compact', 'model', 'effort', 'config', 'mcp', 'rename', 'reload-skills', 'reload-plugins', 'skill-doctor', 'goal', 'recap', 'init', 'insights', 'schedule', 'doctor', 'clear'])
+    for (const name of ['context', 'usage', 'compact', 'model', 'effort', 'config', 'mcp', 'rename', 'reload-skills', 'reload-plugins', 'skill-doctor', 'goal', 'recap', 'init', 'insights', 'schedule', 'doctor', 'clear', 'list-agents'])
       expect(isHiddenCommand(command(name, 'builtin'))).toBe(false)
   })
 
