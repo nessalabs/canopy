@@ -25,6 +25,7 @@ export const keys = {
   appSettings: ['app-settings'] as const,
   projectSettings: (projectId: string) => ['project-settings', projectId] as const,
   projectConfig: (projectId: string) => ['project-config', projectId] as const,
+  projectTrash: (projectId: string) => ['project-trash', projectId] as const,
   projectEnvironment: (projectId: string) => ['project-environment', projectId] as const,
   projectWtToml: (projectId: string) => ['project-wt-toml', projectId] as const,
   resources: (worktreeId: string) => ['resources', worktreeId] as const,

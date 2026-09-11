@@ -10,6 +10,7 @@ import type {
   DbResetInput,
   DestroyAllInput,
   DestroyResult,
+  TrashEntry,
   DirListing,
   HostInfo,
   LogEvent,
@@ -235,6 +236,9 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     adoptWorktree: (input: AdoptWorktreeInput) => post<{ worktree: Worktree }>(routes.adoptWorktree(), input).then((r) => r.worktree),
     destroyWorktreeWith: (id: string, opts: { force?: boolean; deleteBranch?: boolean }) =>
       del<DestroyResult>(routes.worktree(id), { force: opts.force ? 'true' : undefined, deleteBranch: opts.deleteBranch === undefined ? undefined : String(opts.deleteBranch) }),
+    projectTrash: (id: string) => get<{ entries: TrashEntry[] }>(routes.projectTrash(id)).then((r) => r.entries),
+    restoreFromTrash: (id: string, entry: string) => post<{ worktree: Worktree; restored: number }>(routes.trashRestore(id, entry), {}),
+    purgeFromTrash: (id: string, entry: string) => del(routes.trashEntry(id, entry)),
     worktreeEnvironment: (id: string) => get<{ environment: WorktreeEnvironment }>(routes.worktreeEnvironment(id)).then((r) => r.environment),
     startWorktree: (id: string) => post<{ environment: WorktreeEnvironment }>(routes.worktreeStart(id), {}).then((r) => r.environment),
     stopWorktree: (id: string) => post<{ environment: WorktreeEnvironment }>(routes.worktreeStop(id), {}).then((r) => r.environment),

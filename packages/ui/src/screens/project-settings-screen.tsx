@@ -1,12 +1,13 @@
 /** Project settings: a left nav over one tab per concern. This machine's preferences have their own screen. */
 import { useEffect, useState } from 'react'
-import { Boxes, FileCode, Files, FolderGit2, GitMerge, Settings, Trash2, TriangleAlert } from 'lucide-react'
+import { Boxes, Eraser, FileCode, Files, FolderGit2, GitMerge, Settings, Trash2, TriangleAlert } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import type { Project } from '@canopy/shared'
 
 import { CachesTab } from '@/components/settings/caches-tab'
 import { CleanupTab } from '@/components/settings/cleanup-tab'
+import { TrashTab } from '@/components/settings/trash-tab'
 import { DangerTab } from '@/components/settings/danger-tab'
 import { DefaultsTab } from '@/components/settings/defaults-tab'
 import { GeneralTab } from '@/components/settings/general-tab'
@@ -25,7 +26,9 @@ const PROJECT_TABS: Array<{ id: SettingsTabId; icon: TabIcon }> = [
   { id: 'yaml', icon: FileCode },
   { id: 'caches', icon: Files },
   { id: 'defaults', icon: Boxes },
-  { id: 'cleanup', icon: Trash2 },
+  // Cleanup is the policy; Trash is the bin those policies fill, so the bin gets the bin icon.
+  { id: 'cleanup', icon: Eraser },
+  { id: 'trash', icon: Trash2 },
   { id: 'danger', icon: TriangleAlert }
 ]
 
@@ -82,6 +85,7 @@ function ProjectSettings({ project }: { project: Project }): React.JSX.Element {
           {tab === 'caches' ? <CachesTab project={project} draft={draft} /> : null}
           {tab === 'defaults' ? <DefaultsTab draft={draft} /> : null}
           {tab === 'cleanup' ? <CleanupTab draft={draft} /> : null}
+          {tab === 'trash' ? <TrashTab projectId={project.id} /> : null}
           {tab === 'danger' ? <DangerTab project={project} /> : null}
         </div>
       </div>

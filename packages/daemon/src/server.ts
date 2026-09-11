@@ -40,6 +40,7 @@ import { registerStatic } from './routes/static'
 import { registerWorktreeRoutes } from './routes/worktrees'
 import { HistoryService } from './worktrees/history'
 import { MergeService } from './worktrees/merge'
+import { TrashService } from './worktrees/trash'
 import { WatchService } from './worktrees/watch'
 import { WorktreesService } from './worktrees/service'
 
@@ -98,6 +99,7 @@ export function buildServices(deps: ServerDeps): Services {
   const history = new HistoryService({ repo, diffs, worktrees })
   return {
     watch: new WatchService({ worktrees, projects, repo, events }),
+    trash: new TrashService({ repo, projects }),
     config: deps.config,
     version: deps.version ?? '0.1.0',
     projects,

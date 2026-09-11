@@ -55,8 +55,18 @@ export interface Repo {
   showFile(cwd: string, rev: string, path: string): Promise<string | null>
   worktreeAdd(repo: string, path: string, branch: { mode: 'new'; name: string; base: string } | { mode: 'existing'; name: string }): Promise<void>
   worktreeRemove(repo: string, path: string, force: boolean): Promise<void>
-  /** Everything in a working tree, tracked and untracked, saved as one commit under `ref`. */
-  snapshotWorkingTree(cwd: string, ref: string, message: string): Promise<{ sha: string; files: number } | null>
+  /**
+   * Everything in a working tree, tracked and untracked, saved as one commit under `ref`.
+   * The message is built from the file count, which is only known once the tree is written.
+   */
+  snapshotWorkingTree(cwd: string, ref: string, message: (files: number) => string): Promise<{ sha: string; files: number } | null>
+  /** Every ref under `prefix`, newest first, with the commit each points at and its message. */
+  refsUnder(cwd: string, prefix: string): Promise<Array<{ ref: string; sha: string; at: number; message: string }>>
+  deleteRef(cwd: string, ref: string): Promise<void>
+  /** What changed between two commits, as `status\tpath` pairs. */
+  changedPaths(cwd: string, from: string, to: string): Promise<Array<{ status: string; path: string }>>
+  /** Writes every path of `sha` into the working tree, leaving the index alone. */
+  restoreFrom(cwd: string, sha: string): Promise<void>
 
   // ---- the index: everything the commit panel's checkboxes drive ----
   /** Every path git has something to say about, plus the branch, from one `status` call. */
@@ -293,6 +303,36 @@ export function createRepo(run: GitRunner): Repo {
       await run(repo, ['worktree', 'prune'])
     },
 
+    async refsUnder(cwd, prefix) {
+      // One call for the lot: a record per ref, fields NUL-separated, the message last because
+      // it is the only one that can contain newlines.
+      const out = await run(cwd, ['for-each-ref', '--sort=-committerdate', `--format=%(refname)%00%(objectname)%00%(committerdate:unix)%00%(contents)%01`, prefix])
+      return out
+        .split('\x01')
+        .map((record) => record.replace(/^\n/, ''))
+        .filter((record) => record.trim() !== '')
+        .map((record) => {
+          const [ref = '', sha = '', at = '0', ...rest] = record.split('\0')
+          return { ref, sha, at: Number(at) * 1000, message: rest.join('\0') }
+        })
+    },
+
+    async deleteRef(cwd, ref) {
+      await run(cwd, ['update-ref', '-d', ref])
+    },
+
+    async changedPaths(cwd, from, to) {
+      const fields = splitNul(await run(cwd, ['diff', '--name-status', '-z', from, to]))
+      // `-z` emits status and path as separate records, in pairs.
+      const pairs: Array<{ status: string; path: string }> = []
+      for (let i = 0; i + 1 < fields.length; i += 2) pairs.push({ status: fields[i] ?? '', path: fields[i + 1] ?? '' })
+      return pairs
+    },
+
+    async restoreFrom(cwd, sha) {
+      await run(cwd, ['restore', '--source', sha, '--worktree', '--', '.'])
+    },
+
     async snapshotWorkingTree(cwd, ref, message) {
       // A throwaway index, so the real one is untouched: seed it from HEAD and add everything
       // the working tree has. `add -A` takes modifications, deletions and untracked files and
@@ -309,7 +349,7 @@ export function createRepo(run: GitRunner): Repo {
         const files = splitNul(await run(cwd, ['diff', '--name-only', '-z', ...(head ? [head] : ['--cached']), '--', '.'], { env })).length
         // An identity of our own: a repository with none configured must still be able to save.
         const sha = (
-          await run(cwd, ['commit-tree', tree, ...(head ? ['-p', head] : []), '-m', message], {
+          await run(cwd, ['commit-tree', tree, ...(head ? ['-p', head] : []), '-m', message(files)], {
             env: { ...env, GIT_AUTHOR_NAME: 'Canopy', GIT_AUTHOR_EMAIL: 'canopy@localhost', GIT_COMMITTER_NAME: 'Canopy', GIT_COMMITTER_EMAIL: 'canopy@localhost' }
           })
         ).trim()

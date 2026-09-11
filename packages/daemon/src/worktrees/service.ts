@@ -312,7 +312,21 @@ export class WorktreesService {
   private async salvage(row: WorktreeRow): Promise<Salvage | null> {
     const ref = `${SALVAGE_REFS}/${row.name}-${new Date().toISOString().replace(/[:.]/g, '-')}`
     try {
-      const snapshot = await this.deps.repo.snapshotWorkingTree(row.path, ref, `canopy: uncommitted work in ${row.name} at the time it was destroyed`)
+      // Trailers, so the trash can describe an entry and put the worktree back without a
+      // record of its own: one `for-each-ref` answers the whole list.
+      const head = await this.deps.repo.resolveCommit(row.path, 'HEAD')
+      const message = (files: number): string =>
+        [
+          `canopy: uncommitted work in ${row.name} at the time it was destroyed`,
+          '',
+          `Canopy-Worktree: ${row.name}`,
+          ...(row.branch === null ? [] : [`Canopy-Branch: ${row.branch}`]),
+          `Canopy-Path: ${row.path}`,
+          ...(head === null ? [] : [`Canopy-Base: ${head}`]),
+          `Canopy-Files: ${files}`,
+          ''
+        ].join('\n')
+      const snapshot = await this.deps.repo.snapshotWorkingTree(row.path, ref, message)
       return snapshot && { ref, ...snapshot }
     } catch (error) {
       console.error(`[worktrees] could not save the uncommitted work in ${row.name}:`, error)

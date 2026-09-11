@@ -619,6 +619,22 @@ export type Salvage = z.infer<typeof Salvage>
 export const DestroyResult = z.object({ salvaged: Salvage.nullable() })
 export type DestroyResult = z.infer<typeof DestroyResult>
 
+/**
+ * One thing in a project's trash: a worktree that was destroyed with uncommitted work in it,
+ * and everything needed to put it back where it was.
+ */
+export const TrashEntry = z.object({
+  id: z.string(),
+  ref: z.string(),
+  name: z.string(),
+  branch: z.string().nullable(),
+  path: z.string(),
+  base: z.string().nullable(),
+  files: z.number().int(),
+  destroyedAt: z.number()
+})
+export type TrashEntry = z.infer<typeof TrashEntry>
+
 export const DestroyAllInput = z.object({ force: z.boolean().optional(), deleteBranch: z.boolean().optional() })
 export type DestroyAllInput = z.infer<typeof DestroyAllInput>
 
