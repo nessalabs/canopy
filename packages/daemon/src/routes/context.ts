@@ -1,6 +1,8 @@
 import type { EditDiffsService } from '../agents/edit-diffs/service'
 import type { CommitService } from '../commit/service'
+import type { PresenceService } from '../agents/presence'
 import type { AgentRegistry } from '../agents/registry'
+import type { SessionLister } from '../agents/sessions'
 import type { DaemonConfig } from '../config'
 import type { EnvironmentService } from '../env/service'
 import type { EventBus, LogStore } from '../env/types'
@@ -26,6 +28,8 @@ export interface Services {
   review: ReviewService
   agents: AgentRegistry
   editDiffs: EditDiffsService
+  presence: PresenceService
+  sessions: SessionLister
   environment: EnvironmentService
   logs: LogStore
   events: EventBus

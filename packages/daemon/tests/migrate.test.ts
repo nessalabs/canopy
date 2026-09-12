@@ -42,6 +42,8 @@ describe('migrate', () => {
    */
   it('applies a migration added below the version already reached', () => {
     migrate(db)
+    // A database from before 005 has none of what came after it either.
+    db.exec('DROP TABLE agent_session_worktrees')
     db.exec('DROP TABLE db_instances')
     db.exec(`CREATE TABLE db_instances (
       worktree_id TEXT NOT NULL, name TEXT NOT NULL, adapter TEXT NOT NULL, status TEXT NOT NULL,

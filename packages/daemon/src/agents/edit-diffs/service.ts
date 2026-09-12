@@ -3,12 +3,14 @@
  * write, keyed by the call's id so the Agent tab can fold them into per-turn diffs. Hooks
  * deliver the before/after moments; git trees hold the content; SQLite holds the index.
  */
+import { resolve } from 'node:path'
+
 import type { Database } from 'better-sqlite3'
 
 import type { AgentEdit, AgentProvider, RewindResult } from '@canopy/shared'
 
 import { now } from '../../lib/ids'
-import type { WorktreesService } from '../../worktrees/service'
+import type { WorktreeRow, WorktreesService } from '../../worktrees/service'
 import type { ClaudeHookPayload } from './hook'
 import type { Snapshots } from './snapshots'
 import { claudeWrittenFiles } from './written-files'
@@ -97,8 +99,22 @@ export class EditDiffsService {
     await HANDLERS[payload.hook_event_name](this, payload)
   }
 
+  /**
+   * The worktree a call's edit lands in: the one holding the file it names, else the session's
+   * own. A session started in the main checkout and told to work in a worktree edits there, and
+   * that is the tree to snapshot.
+   */
+  private target(payload: ClaudeHookPayload): WorktreeRow | undefined {
+    const { worktrees } = this.deps
+    for (const file of claudeWrittenFiles(payload.tool_name, payload.tool_input, payload.cwd)) {
+      const holder = worktrees.containing(resolve(payload.cwd, file))
+      if (holder) return holder
+    }
+    return worktrees.containing(payload.cwd)
+  }
+
   async pre(payload: ClaudeHookPayload): Promise<void> {
-    const worktree = this.deps.worktrees.containing(payload.cwd)
+    const worktree = this.target(payload)
     if (!worktree) return
     const tree = await this.deps.snapshots.take(worktree.path)
     this.pending.set(payload.tool_use_id, { worktreeId: worktree.id, cwd: worktree.path, tree })

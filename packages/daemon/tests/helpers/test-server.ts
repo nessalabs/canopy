@@ -6,7 +6,8 @@ import type { FastifyInstance, InjectOptions } from 'fastify'
 
 import { createAgentRegistry } from '../../src/agents/registry'
 import { openDb } from '../../src/db'
-import type { DockerHelper } from '../../src/env/types'
+import { createEventBus } from '../../src/env/events/bus'
+import type { DockerHelper, EventBus } from '../../src/env/types'
 import { createWorktrunk, type Worktrunk } from '../../src/env/worktrunk/wt'
 import { runGit } from '../../src/git/exec'
 import { buildServer } from '../../src/server'
@@ -34,6 +35,7 @@ export const TOKEN = 'test-token'
 export interface TestServer {
   app: FastifyInstance
   agent: FakeAgent
+  events: EventBus
   home: string
   /** Authenticated inject; JSON bodies encoded, JSON responses decoded. */
   call<T = any>(method: InjectOptions['method'], url: string, body?: unknown): Promise<{ status: number; body: T; text: string }>
@@ -43,7 +45,9 @@ export interface TestServer {
 export async function createTestServer(opts: { worktrunk?: Worktrunk; docker?: DockerHelper } = {}): Promise<TestServer> {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'canopy-home-')))
   const agent = new FakeAgent()
+  const events = createEventBus()
   const app = await buildServer({
+    events,
     config: { home, port: 0, host: '127.0.0.1', worktreeRoot: join(home, 'worktrees'), dataRoot: join(home, 'worktrees-data'), dbPath: ':memory:', tokenPath: join(home, 'token') },
     db: openDb(':memory:'),
     token: TOKEN,
@@ -57,6 +61,7 @@ export async function createTestServer(opts: { worktrunk?: Worktrunk; docker?: D
   return {
     app,
     agent,
+    events,
     home,
     async call(method, url, body) {
       const response = await app.inject({

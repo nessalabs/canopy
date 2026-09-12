@@ -9,7 +9,16 @@ import { cn } from '@/lib/utils'
 
 import { ProviderIcon } from './provider-icon'
 
-/** Every agent session that ran in this worktree; the avatar is seeded by session id so each reads distinct. */
+const STATUS_LABEL = { busy: 'Working now', idle: 'Open in a terminal, waiting' } as const
+
+/** The last segment of a checkout's path: what a person calls the worktree. */
+const checkoutName = (cwd: string): string => cwd.replace(/\/+$/, '').split('/').pop() || cwd
+
+/**
+ * Every agent session that worked in this worktree — the ones that ran in its checkout and the
+ * ones that came here from another (a session started in the main checkout and told to work
+ * in this one). The avatar is seeded by session id so each reads distinct.
+ */
 export function SessionRail({ sessions, selected, onSelect, className }: { sessions: AgentSessionSummary[]; selected?: AgentSessionSummary; onSelect: (ref: SessionRef) => void; className?: string }): React.JSX.Element {
   return (
     // Radix's viewport lays content out as a table that grows to its widest child, which
@@ -38,10 +47,24 @@ export function SessionRail({ sessions, selected, onSelect, className }: { sessi
                       {title}
                     </TooltipContent>
                   </Tooltip>
-                  <span className="flex items-center gap-1.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+                  <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
                     <ProviderIcon provider={session.provider} className="size-3" />
                     {relativeTime(session.updatedAt)}
-                    {session.active ? <StatusDot status="running" aria-label="Open in a terminal" title="Open in a terminal" /> : null}
+                    {session.status ? (
+                      <StatusDot status={session.status === 'busy' ? 'running' : 'idle'} aria-label={STATUS_LABEL[session.status]} title={STATUS_LABEL[session.status]} />
+                    ) : session.active ? (
+                      <StatusDot status="idle" aria-label="Open in a terminal" title="Open in a terminal" />
+                    ) : null}
+                    {session.visiting && session.cwd ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="truncate rounded-sm bg-muted px-1 py-px">from {checkoutName(session.cwd)}</span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" className="max-w-xs">
+                          Started in {session.cwd}; its tool calls work in this worktree.
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : null}
                   </span>
                 </span>
               </button>

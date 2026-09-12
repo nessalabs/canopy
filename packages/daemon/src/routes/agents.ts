@@ -12,13 +12,13 @@ import { now } from '../lib/ids'
 import type { Services } from './context'
 import { CwdQuery, IdParams, LimitQuery, SessionParams } from './params'
 
-export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, review, editDiffs }: Services): void {
+export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, review, editDiffs, presence, sessions }: Services): void {
   app.get(routes.providers(), async () => ({ providers: await agents.availableProviders() }))
 
   app.get(routes.agentSessions(':id'), async (request) => {
     const worktree = await worktrees.get(IdParams.parse(request.params).id)
     const { limit } = LimitQuery.parse(request.query)
-    return { sessions: await agents.listWorktreeSessions(worktree.path, limit), pinned: review.pinned(worktree.id) }
+    return { sessions: await sessions.list(worktree, limit), pinned: review.pinned(worktree.id) }
   })
 
   app.post(routes.agentSessions(':id'), async (request, reply) => {
@@ -45,7 +45,15 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, r
 
   // Hook commands must never stall the agent: validation errors are the hook's problem, not Claude's.
   app.post(routes.hooksClaude(), async (request, reply) => {
-    await editDiffs.onClaudeHook(ClaudeHookPayload.parse(request.body))
+    const payload = ClaudeHookPayload.parse(request.body)
+    // Presence is advisory; the snapshot pair is not. A failed row (a locked database, a worktree
+    // deleted under the hook) must not cost the call its before-snapshot.
+    try {
+      presence.record(payload)
+    } catch (err) {
+      request.log.warn({ err }, 'session presence not recorded')
+    }
+    await editDiffs.onClaudeHook(payload)
     return reply.code(204).send()
   })
 

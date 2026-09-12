@@ -35,6 +35,12 @@ export interface AgentAdapter {
   /** False when the provider's CLI/SDK isn't installed or authenticated. */
   available(): Promise<boolean>
   listSessions(cwd: string, limit?: number): Promise<AgentSessionSummary[]>
+  /**
+   * One session by id, looked up under the directory it ran in — for a session another worktree's
+   * listing needs to show because its hooks worked there. Undefined when the provider has no
+   * record of it; providers that cannot look one up leave the method undefined.
+   */
+  describeSession?(sessionId: string, cwd: string): Promise<AgentSessionSummary | undefined>
   transcript(sessionId: string, cwd?: string): Promise<TranscriptResponse>
   send(sessionId: string | null, text: string, options?: SendOptions): AsyncIterable<AgentStreamEvent>
   /**

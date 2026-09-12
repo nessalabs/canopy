@@ -58,8 +58,24 @@ const processAlive = (pid: number): boolean => {
 
 const exists = (path: string): Promise<boolean> => stat(path).then(() => true, () => false)
 
-/** Terminal sessions whose process and socket are both still there. */
+/**
+ * Terminal sessions whose process and socket are both still there.
+ *
+ * Read at most every couple of seconds: one listing asks several times over (per adapter, then
+ * once more for status), and the registry does not change faster than a person opens terminals.
+ */
 export async function liveSessions(): Promise<LiveSession[]> {
+  const at = Date.now()
+  if (cached && at - cached.at < LIVE_TTL_MS) return cached.value
+  const value = readLiveSessions()
+  cached = { at, value }
+  return value
+}
+
+let cached: { at: number; value: Promise<LiveSession[]> } | undefined
+const LIVE_TTL_MS = 2_000
+
+async function readLiveSessions(): Promise<LiveSession[]> {
   let files: string[]
   try {
     files = (await readdir(sessionsDir())).filter((file) => file.endsWith('.json'))

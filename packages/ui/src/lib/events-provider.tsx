@@ -137,6 +137,9 @@ function applyEvent(queryClient: QueryClient, samples: SampleStore, event: Canop
       void queryClient.invalidateQueries({ queryKey: ['tree', id] })
       return
     }
+    case 'agent-sessions-changed':
+      void queryClient.invalidateQueries({ queryKey: keys.sessions(event.worktreeId) })
+      return
     case 'reset':
       void queryClient.invalidateQueries()
       return

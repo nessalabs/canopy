@@ -103,8 +103,12 @@ export class WorktreesService {
     // Lexically canonical first: `<worktree>/../elsewhere` starts with the worktree's path and is
     // not inside it. Callers that go on to use the path must use the canonical form too.
     const target = resolve(cwd)
-    const rows = this.db.prepare('SELECT * FROM worktrees WHERE missing = 0 ORDER BY length(path) DESC').all() as WorktreeRow[]
-    return rows.find((row) => target === row.path || target.startsWith(`${row.path}/`))
+    return this.present().find((row) => target === row.path || target.startsWith(`${row.path}/`))
+  }
+
+  /** Every worktree still on disk, deepest path first, so a nested checkout wins a containment test. */
+  present(): WorktreeRow[] {
+    return this.db.prepare('SELECT * FROM worktrees WHERE missing = 0 ORDER BY length(path) DESC').all() as WorktreeRow[]
   }
 
   /**
