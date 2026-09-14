@@ -7,17 +7,23 @@ mod fixture;
 use canopy_worktree::ErrorCode;
 use fixture::{Fixture, ok_envelope};
 
-/// Every command, for the table-driven envelope test. Each new subcommand must be added here.
-const READ_ONLY_COMMANDS: &[&str] = &["info", "list"];
+/// Every read-only command, for the table-driven envelope tests. Each new subcommand must be
+/// added here — that is what stops `--json` rotting as the CLI grows.
+const READ_ONLY_COMMANDS: &[&[&str]] =
+    &[&["info"], &["list"], &["config", "check"], &["config", "show"], &["config", "path"]];
+
+const CONFIG: &str = "version: 1\nports:\n  web: {}\nservices:\n  app:\n    run: serve ${ports.web}\n";
 
 #[test]
 fn every_command_emits_a_v1_envelope() {
     let fx = Fixture::new();
+    fx.write("canopy.yaml", CONFIG);
     for command in READ_ONLY_COMMANDS {
-        let out = fx.cwt().args([command, "--json"]).output().unwrap();
-        assert!(out.status.success(), "{command} failed: {}", String::from_utf8_lossy(&out.stderr));
+        let out = fx.cwt().args(*command).arg("--json").output().unwrap();
+        let name = command.join(" ");
+        assert!(out.status.success(), "{name} failed: {}", String::from_utf8_lossy(&out.stdout));
         let value = ok_envelope(&out.stdout);
-        assert_eq!(value["command"], *command, "envelope names the command it came from");
+        assert_eq!(value["command"], name, "envelope names the command it came from");
         assert!(value["warnings"].is_array(), "warnings is always an array, even when empty");
         assert!(value.get("data").is_some(), "a successful envelope carries data");
         assert!(value.get("error").is_none(), "a successful envelope carries no error");
@@ -27,10 +33,11 @@ fn every_command_emits_a_v1_envelope() {
 #[test]
 fn json_output_is_exactly_one_line_so_it_streams() {
     let fx = Fixture::new();
+    fx.write("canopy.yaml", CONFIG);
     for command in READ_ONLY_COMMANDS {
-        let out = fx.cwt().args([command, "--json"]).output().unwrap();
+        let out = fx.cwt().args(*command).arg("--json").output().unwrap();
         let text = String::from_utf8(out.stdout).unwrap();
-        assert_eq!(text.lines().count(), 1, "{command} --json must be one NDJSON-able line");
+        assert_eq!(text.lines().count(), 1, "{} --json must be one NDJSON-able line", command.join(" "));
     }
 }
 

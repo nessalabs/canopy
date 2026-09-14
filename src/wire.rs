@@ -70,3 +70,12 @@ fn _codes_are_reachable() {
     // `error_codes_are_exhaustive` test catches it at runtime.
     let _ = ErrorCode::ALL;
 }
+
+impl<T: Serialize> Envelope<T> {
+    /// An envelope whose `ok` is a *verdict* about the thing inspected, not about whether the
+    /// command ran. `canopywt config check` on a broken file ran perfectly and the answer is
+    /// "no" — so `data` carries the diagnostics and `error` explains the verdict.
+    pub fn verdict(command: &str, ok: bool, data: T, error: Option<ErrorBody>) -> Self {
+        Envelope { v: ENVELOPE_VERSION, ok, command: command.to_owned(), data: Some(data), error, warnings: Vec::new() }
+    }
+}

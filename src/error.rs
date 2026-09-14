@@ -97,6 +97,12 @@ pub enum Error {
     #[error("path is not valid UTF-8: {0}")]
     NonUtf8Path(String),
 
+    #[error("no canopy.yaml found — {0}")]
+    ConfigNotFound(String),
+
+    #[error("canopy.yaml has {0} error(s)")]
+    ConfigInvalid(usize),
+
     #[error("{0}")]
     Io(#[from] std::io::Error),
 }
@@ -107,6 +113,8 @@ impl Error {
             Error::NotARepository(_) => ErrorCode::NotARepository,
             Error::GitFailed { .. } => ErrorCode::GitFailed,
             Error::NonUtf8Path(_) => ErrorCode::Io,
+            Error::ConfigNotFound(_) => ErrorCode::ConfigNotFound,
+            Error::ConfigInvalid(_) => ErrorCode::ConfigInvalid,
             Error::Io(_) => ErrorCode::Io,
         }
     }
@@ -118,6 +126,7 @@ impl Error {
             Error::GitFailed { args, status, stderr } => Some(serde_json::json!({
                 "args": args, "status": status, "stderr": stderr
             })),
+            Error::ConfigInvalid(errors) => Some(serde_json::json!({ "errors": errors })),
             _ => None,
         }
     }

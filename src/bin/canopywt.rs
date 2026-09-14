@@ -33,6 +33,26 @@ enum Command {
     Info,
     /// List every worktree git knows about.
     List,
+    /// Read and validate canopy.yaml.
+    #[command(subcommand)]
+    Config(ConfigCommand),
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigCommand {
+    /// Validate the config and report errors and warnings.
+    Check {
+        /// Validate text on stdin instead of the file on disk — for an editor validating a
+        /// buffer that has not been saved.
+        #[arg(long)]
+        stdin: bool,
+    },
+    /// Print the effective config, with every default filled in.
+    Show,
+    /// Print the path of the canopy.yaml in effect, and where it was found.
+    Path,
+    /// Print a starter canopy.yaml on stdout. Never writes; redirect it yourself.
+    Init,
 }
 
 impl Command {
@@ -41,6 +61,10 @@ impl Command {
         match self {
             Command::Info => "info",
             Command::List => "list",
+            Command::Config(ConfigCommand::Check { .. }) => "config check",
+            Command::Config(ConfigCommand::Show) => "config show",
+            Command::Config(ConfigCommand::Path) => "config path",
+            Command::Config(ConfigCommand::Init) => "config init",
         }
     }
 }
@@ -49,7 +73,7 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     let name = cli.command.name();
     match run(&cli) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => ExitCode::from(code),
         Err(error) => {
             if cli.json {
                 // A failure is still a well-formed envelope on stdout: a consumer parses one
@@ -64,7 +88,17 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: &Cli) -> Result<()> {
+/// Returns the process exit code. Commands that report a *verdict* rather than a fault —
+/// `config check` on an invalid file — print their own envelope and return a non-zero code,
+/// so exactly one envelope reaches stdout either way.
+fn run(cli: &Cli) -> Result<u8> {
+    // `config init` is the one command that must work before there is a repository: it is
+    // what you run to create the file, possibly in a directory you have just made.
+    if let Command::Config(ConfigCommand::Init) = cli.command {
+        print!("{}", canopy_worktree::config::STARTER);
+        return Ok(0);
+    }
+
     let cwd = match &cli.directory {
         Some(dir) => dir.clone(),
         None => current_dir()?,
@@ -100,8 +134,130 @@ fn run(cli: &Cli) -> Result<()> {
                 }
             }
         }
+        Command::Config(ref config_command) => return run_config(cli, &canopy, config_command),
     }
-    Ok(())
+    Ok(0)
+}
+
+fn run_config(cli: &Cli, canopy: &Canopy, command: &ConfigCommand) -> Result<u8> {
+    match command {
+        // Handled before the repo is opened.
+        ConfigCommand::Init => unreachable!("config init is handled earlier"),
+
+        ConfigCommand::Path => {
+            let Some((located, _)) = canopy.config() else {
+                return Err(Error::ConfigNotFound(searched_description(canopy)));
+            };
+            if cli.json {
+                emit("config path", located);
+            } else {
+                println!("{}  ({})", located.path, source_label(located.source));
+            }
+        }
+
+        ConfigCommand::Show => {
+            let Some((_, parsed)) = canopy.config() else {
+                return Err(Error::ConfigNotFound(searched_description(canopy)));
+            };
+            let Some(config) = &parsed.config else {
+                return Err(Error::ConfigInvalid(parsed.error_count()));
+            };
+            if cli.json {
+                emit("config show", config);
+            } else {
+                // The human form of "show" is the YAML you would have written with every
+                // default spelled out, which is the question people actually have.
+                print!("{}", serde_json::to_string_pretty(config).expect("config is serializable"));
+                println!();
+            }
+        }
+
+        ConfigCommand::Check { stdin } => {
+            let (label, parsed) = if *stdin {
+                let mut text = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut text)?;
+                ("<stdin>".to_owned(), canopy_worktree::parse_str(&text))
+            } else {
+                let Some((located, parsed)) = canopy.config() else {
+                    return Err(Error::ConfigNotFound(searched_description(canopy)));
+                };
+                (located.path.to_string(), parsed.clone())
+            };
+
+            let report = CheckReport {
+                path: &label,
+                valid: parsed.is_valid(),
+                errors: parsed.error_count(),
+                warnings: parsed.warning_count(),
+                diagnostics: &parsed.diagnostics,
+            };
+
+            if cli.json {
+                // One envelope, whatever the verdict. `ok` is the verdict and `data` always
+                // carries the diagnostics, so a caller reads warnings off a passing file the
+                // same way it reads errors off a failing one.
+                let envelope = Envelope::verdict(
+                    "config check",
+                    parsed.is_valid(),
+                    &report,
+                    (!parsed.is_valid()).then(|| canopy_worktree::wire::ErrorBody {
+                        code: canopy_worktree::ErrorCode::ConfigInvalid.as_str(),
+                        message: format!("canopy.yaml has {} error(s)", parsed.error_count()),
+                        details: None,
+                    }),
+                );
+                println!("{}", serde_json::to_string(&envelope).expect("envelope is serializable"));
+            } else {
+                for diagnostic in &parsed.diagnostics {
+                    let severity = match diagnostic.severity {
+                        canopy_worktree::Severity::Error => "error",
+                        canopy_worktree::Severity::Warning => "warning",
+                    };
+                    let position = match (diagnostic.line, diagnostic.column) {
+                        (Some(line), Some(column)) => format!("{label}:{line}:{column}"),
+                        _ => label.clone(),
+                    };
+                    println!("{position}: {severity}: {}: {}", diagnostic.path, diagnostic.message);
+                }
+                println!(
+                    "{}: {} error(s), {} warning(s)",
+                    if parsed.is_valid() { "ok" } else { "invalid" },
+                    parsed.error_count(),
+                    parsed.warning_count()
+                );
+            }
+            // Exit 1 on an invalid config so CI does not have to parse the summary line. The
+            // envelope has already been printed, which is why this returns a code rather than
+            // an error.
+            return Ok(if parsed.is_valid() { 0 } else { 1 });
+        }
+    }
+    Ok(0)
+}
+
+#[derive(serde::Serialize)]
+struct CheckReport<'a> {
+    path: &'a str,
+    valid: bool,
+    errors: usize,
+    warnings: usize,
+    diagnostics: &'a [canopy_worktree::Diagnostic],
+}
+
+fn source_label(source: canopy_worktree::ConfigSource) -> &'static str {
+    match source {
+        canopy_worktree::ConfigSource::Worktree => "this worktree",
+        canopy_worktree::ConfigSource::MainCheckout => "the main checkout",
+        canopy_worktree::ConfigSource::UserConfig => "your user config",
+    }
+}
+
+/// Where we looked, so "no config" is actionable rather than just a refusal.
+fn searched_description(canopy: &Canopy) -> String {
+    let root = canopy.repo().root.as_ref().map(|p| p.to_string()).unwrap_or_else(|| "(bare repo)".to_owned());
+    format!(
+        "looked in {root}, the main checkout, and your user config; `canopywt config init > canopy.yaml` writes a starter"
+    )
 }
 
 fn emit<T: serde::Serialize>(command: &str, data: &T) {
