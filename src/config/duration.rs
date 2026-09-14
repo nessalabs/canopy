@@ -9,8 +9,14 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 /// A duration in milliseconds. `Copy`, because it is passed around constantly.
+// Doc comments on this type are published: they become the TypeScript binding's JSDoc and the
+// JSON Schema's description. The schema itself is hand-written in `super::schema`, because it
+// has to describe the spelling `parse` accepts rather than the `u64` underneath.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
-pub struct Duration(u64);
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+// The inner field is milliseconds, but a `canopy.yaml` and a `--json` payload both carry the
+// string spelling, so that is what the binding has to say.
+pub struct Duration(#[cfg_attr(feature = "ts", ts(type = "string"))] u64);
 
 impl Duration {
     pub const ZERO: Duration = Duration(0);

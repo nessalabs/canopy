@@ -125,6 +125,11 @@ enum Command {
         /// Report the plan and write nothing.
         #[arg(long)]
         dry_run: bool,
+        /// Use these rules instead of the config's `copy:`, as `pattern` or `pattern=strategy`
+        /// where strategy is copy, clone or symlink. Repeatable. For an embedder that keeps its
+        /// own rules, the way `--path` exists for one that owns its own layout.
+        #[arg(long = "rule")]
+        rules: Vec<String>,
     },
     /// Run the `setup:` steps for a worktree.
     Setup {
@@ -187,6 +192,8 @@ enum ConfigCommand {
     Path,
     /// Print a starter canopy.yaml on stdout. Never writes; redirect it yourself.
     Init,
+    /// Print the JSON Schema for canopy.yaml.
+    Schema,
 }
 
 impl Command {
@@ -199,6 +206,7 @@ impl Command {
             Command::Config(ConfigCommand::Show) => "config show",
             Command::Config(ConfigCommand::Path) => "config path",
             Command::Config(ConfigCommand::Init) => "config init",
+            Command::Config(ConfigCommand::Schema) => "config schema",
             Command::Path { .. } => "path",
             Command::New { .. } => "new",
             Command::Ports { .. } => "ports",
@@ -241,6 +249,12 @@ fn run(cli: &Cli) -> Result<u8> {
     // what you run to create the file, possibly in a directory you have just made.
     if let Command::Config(ConfigCommand::Init) = cli.command {
         print!("{}", canopy_worktree::config::STARTER);
+        return Ok(0);
+    }
+    // Like `init`, the schema describes the format rather than a repository, so it must work
+    // before there is one — it is what you point an editor at while writing the first file.
+    if let Command::Config(ConfigCommand::Schema) = cli.command {
+        println!("{}", canopy_worktree::config::schema::json_schema().trim_end());
         return Ok(0);
     }
 
@@ -438,7 +452,7 @@ fn run(cli: &Cli) -> Result<u8> {
             }
         }
 
-        Command::Copy { ref branch, ref from, dry_run } => {
+        Command::Copy { ref branch, ref from, dry_run, ref rules } => {
             let branch = resolve_branch(&canopy, branch.as_deref())?;
             let target = worktree_path_for_branch(&canopy, &branch)?;
             if !target.exists() {
@@ -454,12 +468,16 @@ fn run(cli: &Cli) -> Result<u8> {
             };
             let default_config = canopy_worktree::config::CanopyConfig::empty();
             let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+            // `--rule` wins over the config's `copy:`, for an embedder that keeps its own rules
+            // — the same reason `--path` exists for one that owns its own layout.
+            let overrides = parse_rules(rules)?;
+            let rules = if overrides.is_empty() { &config.copy } else { &overrides };
             let options = canopy_worktree::copy::CopyOptions { dry_run, source: source.clone() };
             let outcome = canopy_worktree::copy::copy_ignored(
                 &canopy_worktree::git::Git::default(),
                 &source,
                 &target,
-                &config.copy,
+                rules,
                 &options,
             )?;
 
@@ -586,8 +604,8 @@ fn run(cli: &Cli) -> Result<u8> {
 
 fn run_config(cli: &Cli, canopy: &Canopy, command: &ConfigCommand) -> Result<u8> {
     match command {
-        // Handled before the repo is opened.
-        ConfigCommand::Init => unreachable!("config init is handled earlier"),
+        // Both are handled before the repo is opened: they describe the format, not a repo.
+        ConfigCommand::Init | ConfigCommand::Schema => unreachable!("handled earlier"),
 
         ConfigCommand::Path => {
             let Some((located, _)) = canopy.config() else {
@@ -703,6 +721,36 @@ fn searched_description(canopy: &Canopy) -> String {
     format!(
         "looked in {root}, the main checkout, and your user config; `canopywt config init > canopy.yaml` writes a starter"
     )
+}
+
+/// `pattern` or `pattern=strategy`, the spelling `--rule` takes.
+fn parse_rules(raw: &[String]) -> Result<Vec<canopy_worktree::config::CopyRule>> {
+    raw.iter()
+        .map(|text| {
+            let (pattern, strategy) = match text.split_once('=') {
+                Some((pattern, strategy)) => (pattern, strategy),
+                None => (text.as_str(), "copy"),
+            };
+            let strategy = match strategy {
+                "copy" => canopy_worktree::config::CopyStrategy::Copy,
+                "clone" => canopy_worktree::config::CopyStrategy::Clone,
+                "symlink" => canopy_worktree::config::CopyStrategy::Symlink,
+                other => {
+                    return Err(Error::Module {
+                        code: canopy_worktree::ErrorCode::ConfigInvalid,
+                        message: format!("unknown copy strategy {other:?}; use copy, clone or symlink"),
+                    });
+                }
+            };
+            if pattern.is_empty() {
+                return Err(Error::Module {
+                    code: canopy_worktree::ErrorCode::ConfigInvalid,
+                    message: "a copy rule needs a pattern".to_owned(),
+                });
+            }
+            Ok(canopy_worktree::config::CopyRule { pattern: pattern.to_owned(), strategy })
+        })
+        .collect()
 }
 
 /// Everything the service commands need, with the borrowed pieces kept alive by the caller.

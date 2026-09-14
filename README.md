@@ -55,7 +55,7 @@ mutants before the next starts.
 | ✅ **M8–M9** | services and health — `up`, `down`, `ps`, `logs` |
 | ⬜ M10 | `run` — foreground supervisor with a restart policy |
 | ⬜ M11–M12 | hardened removal with salvage, `doctor`, `gc`, git hook |
-| ⬜ M2b | JSON Schema, generated TypeScript types, `config set` |
+| ✅ **M2b** | JSON Schema (`config schema`) and generated TypeScript types |
 
 The whole provisioning chain works today: create a worktree, carry its gitignored files,
 allocate its ports, resolve its environment, run its setup steps, start its services and watch

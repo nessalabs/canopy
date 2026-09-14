@@ -12,15 +12,20 @@ pub mod duration;
 pub mod lint;
 pub mod load;
 pub mod parse;
+pub mod schema;
 
 use std::collections::BTreeMap;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "ts")]
+use ts_rs::TS;
 
 pub use duration::Duration;
 pub use lint::{Diagnostic, Severity, TemplateRef, lint, service_ports, service_runtime, start_order, template_refs};
 pub use load::{ConfigSource, LocatedConfig, STARTER, locate};
 pub use parse::{Parsed, parse_str};
+pub use schema::json_schema;
 
 /// Top-level keys we recognise. An unknown one is a warning, not an error — a newer
 /// `canopywt` may have added a key this binary does not know, and refusing the whole file over
@@ -39,23 +44,37 @@ fn default_true() -> bool {
 // Top level
 // ---------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// # canopy.yaml
+///
+/// A repository's whole development environment: the ports each worktree gets, the commands
+/// that provision it, the long-running services, and where the worktree itself goes.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct CanopyConfig {
     /// Only `1` exists. Present so a future format can be recognised rather than guessed at.
+    // `const: 1` rather than a bare integer, so an editor flags `version: 2` at the same moment
+    // `config check` would.
+    #[schemars(extend("const" = 1))]
     pub version: u32,
+    /// The project name, used by `${project.name}`. Defaults to the repository directory name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Settings every service inherits unless it overrides them.
     #[serde(default)]
     pub defaults: Defaults,
     /// Project-wide env, layered under every service and setup step.
     #[serde(default)]
     pub env: Map<String>,
+    /// Named ports. Each worktree gets its own free number for each name.
     #[serde(default)]
     pub ports: Map<PortSpec>,
+    /// Database forks. Parsed but not yet acted on; `config check` warns.
     #[serde(default)]
     pub databases: Map<DatabaseSpec>,
+    /// Commands run once when a worktree is provisioned, in order.
     #[serde(default)]
     pub setup: Vec<SetupStep>,
+    /// Long-running processes `canopywt up` starts and supervises.
     #[serde(default)]
     pub services: Map<ServiceSpec>,
     /// Dotenv written into each worktree with everything resolved; `false` disables it.
@@ -89,7 +108,9 @@ impl CanopyConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// What every service inherits before its own keys are applied.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct Defaults {
     #[serde(default)]
     pub runtime: Runtime,
@@ -105,6 +126,7 @@ impl Default for Defaults {
 
 /// `env_file: .env.canopy` (the default) or `env_file: false`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(untagged)]
 pub enum EnvFile {
     /// Only `false` is meaningful; `true` is rejected by lint.
@@ -132,7 +154,8 @@ impl EnvFile {
 // Worktrees and copying
 // ---------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct WorktreeSpec {
     /// Where a worktree goes. `{{ repo }}`, `{{ repo_path }}`, `{{ branch }}`, `{{ name }}`,
     /// each optionally `| sanitize`. A relative result resolves against the repo.
@@ -156,7 +179,9 @@ impl Default for WorktreeSpec {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// One gitignored path, or glob of paths, carried into a new worktree.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct CopyRule {
     /// Glob relative to the repo root (`.env`, `config/*.local.json`, `node_modules`).
     pub pattern: String,
@@ -167,7 +192,8 @@ pub struct CopyRule {
 /// How a copied path is materialised. `clone` is a copy-on-write clone where the filesystem
 /// supports it (APFS, btrfs, XFS) and a plain copy where it does not — which is what makes
 /// carrying a multi-gigabyte `node_modules` or `target` affordable.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "lowercase")]
 pub enum CopyStrategy {
     #[default]
@@ -180,7 +206,9 @@ pub enum CopyStrategy {
 // Ports
 // ---------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+/// A named port. Every key is optional: `web: {}` is a complete declaration.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct PortSpec {
     /// Used when free; otherwise allocation walks on from a hash of the branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -196,7 +224,9 @@ pub struct PortSpec {
 // Services
 // ---------------------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+/// Where a service runs.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "lowercase")]
 pub enum Runtime {
     #[default]
@@ -205,7 +235,9 @@ pub enum Runtime {
     Compose,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize)]
+/// What happens when a supervised service exits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "kebab-case")]
 pub enum RestartPolicy {
     Never,
@@ -214,7 +246,9 @@ pub enum RestartPolicy {
     Always,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// A long-running process. Needs either `run` or `compose`; lint enforces it.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct ServiceSpec {
     /// Shell command, run through `/bin/sh -c`. Required unless `compose:` is set.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -226,8 +260,8 @@ pub struct ServiceSpec {
     pub runtime: Option<Runtime>,
     #[serde(default)]
     pub env: Map<String>,
-    /// Named ports this service listens on. `None` means "infer from the run command and env",
-    /// which is what [`ServiceSpec::listening_ports`] does.
+    /// Named ports this service listens on. Omitted means "infer from the run command and env",
+    /// which is what [`service_ports`] does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -260,7 +294,8 @@ fn default_stop_timeout() -> Duration {
 }
 
 /// Exactly one of `http`, `tcp` or `cmd` must be set; lint enforces it.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct HealthCheck {
     /// GET this URL; 2xx and 3xx are healthy. Templates allowed (`${ports.api}`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -293,6 +328,7 @@ fn default_retries() -> u32 {
 
 /// `tcp: 5432` and `tcp: "${ports.api}"` are both valid.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(untagged)]
 pub enum TcpTarget {
     Port(u16),
@@ -308,7 +344,9 @@ impl TcpTarget {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// `runtime: docker` settings. Needs `image` or `dockerfile`; lint enforces it.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct DockerSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
@@ -331,7 +369,9 @@ fn default_workdir() -> String {
     "/workspace".to_owned()
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// `runtime: compose` settings.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct ComposeSpec {
     #[serde(default = "default_compose_file")]
     pub file: String,
@@ -352,13 +392,28 @@ fn default_compose_file() -> String {
 
 /// A setup step. `setup: [npm ci]` and the object form both land here — the bare string is the
 /// overwhelmingly common case and making people write `- run:` for it would be noise.
-#[derive(Debug, Clone, Serialize)]
+///
+/// Serialized — by `canopywt config show --json`, and so by the TypeScript binding — a step is
+/// always the object form, since that is the normalised one.
+// The derive only sees the struct, so `schema::a_step_may_be_a_bare_command` widens the result
+// to the `oneOf` the hand-written `Deserialize` below actually accepts. A `///` line here would
+// be published as the schema's description, which is why this note is not one.
+#[derive(Debug, Clone, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
+#[schemars(transform = schema::a_step_may_be_a_bare_command)]
 pub struct SetupStep {
+    /// Shell command, run through `/bin/sh -c` in the worktree.
     pub run: String,
+    /// For logs and `--only`. Defaults to `step 1`, `step 2`, …
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Relative to the worktree root; created if absent.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
+    /// On top of the resolved environment.
+    // The hand-written `Deserialize` already defaults this; the attribute is what tells the
+    // schema it is optional, which is otherwise the one place the two would disagree.
+    #[schemars(default)]
     pub env: Map<String>,
     /// Skip when these files have the same content as in the source checkout.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -398,7 +453,9 @@ impl SetupStep {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+/// The database a fork is made from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 #[serde(rename_all = "lowercase")]
 pub enum DbAdapter {
     Postgres,
@@ -407,7 +464,9 @@ pub enum DbAdapter {
     Redis,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// A database fork. Recognised today, acted on in a later milestone.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct DatabaseSpec {
     pub adapter: DbAdapter,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -426,7 +485,9 @@ pub struct DatabaseSpec {
     pub options: Map<String>,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// At most one of `dump`, `sql` or `command`; lint enforces it.
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[cfg_attr(feature = "ts", derive(TS))]
 pub struct DbSeed {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dump: Option<String>,

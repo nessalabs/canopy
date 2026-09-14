@@ -189,3 +189,37 @@ fn human_output_says_what_happened_to_each_path() {
     assert!(text.contains(".env"), "{text}");
     assert!(text.contains("bytes"), "{text}");
 }
+
+#[test]
+fn an_explicit_rule_overrides_the_config() {
+    // The flag an embedder uses when it keeps its own rules. It was once accepted and silently
+    // ignored, which is the worst possible outcome for a flag: the caller believes it worked.
+    let (fx, wt) = prepared();
+    // The config copies `.env`; the flag asks for something else entirely.
+    fx.write("other.ignored", "picked by the flag\n");
+    fx.write(".gitignore", "deps/\n.env*\nother.ignored\n");
+
+    let out = fx.cwt().args(["copy", "feat/x", "--rule", "other.ignored", "--json"]).output().unwrap();
+    let data = ok_envelope(&out.stdout)["data"].clone();
+
+    assert_eq!(paths_of(&data), ["other.ignored"], "the flag did not replace the config's rules");
+    assert!(wt.join("other.ignored").exists());
+    assert!(!wt.join(".env").exists(), "a config rule ran even though --rule was given");
+}
+
+#[test]
+fn an_explicit_rule_accepts_a_strategy() {
+    let (fx, _wt) = prepared();
+    let out = fx.cwt().args(["copy", "feat/x", "--rule", "deps=clone", "--json"]).output().unwrap();
+    let data = ok_envelope(&out.stdout)["data"].clone();
+    let entry = data["entries"].as_array().unwrap().first().cloned().expect("one entry");
+    assert_eq!(entry["strategy"], "clone");
+}
+
+#[test]
+fn an_unknown_strategy_is_rejected_rather_than_assumed() {
+    let (fx, _wt) = prepared();
+    let out = fx.cwt().args(["copy", "feat/x", "--rule", "deps=teleport", "--json"]).output().unwrap();
+    let value = err_envelope(&out.stdout, "config_invalid");
+    assert!(value["error"]["message"].as_str().unwrap().contains("teleport"));
+}

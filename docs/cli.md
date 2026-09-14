@@ -132,6 +132,30 @@ $ canopywt config path
 
 Worth asking before editing. See [where the file is found](configuration.md#where-the-file-is-found).
 
+## `canopywt config schema`
+
+The JSON Schema for `canopy.yaml`, generated from the Rust types so it cannot drift from the
+parser.
+
+```bash
+canopywt config schema > canopy.schema.json
+```
+
+Point an editor at it and you get completion and inline validation for free:
+
+```yaml
+# yaml-language-server: $schema=./canopy.schema.json
+version: 1
+```
+
+It is also how a program in any language validates a config without running `canopywt`. Two
+deliberate limits: the schema cannot express what the linter checks (`depends_on` cycles,
+exactly-one-probe in `health`, unresolvable `${ports.x}`), and it leaves `additionalProperties`
+open because unknown keys are warnings here, not errors. `config check` remains the authority.
+
+Generated TypeScript bindings ship alongside it in `types/`, so a consumer stops hand-writing
+types that have to match a Rust struct by eyeball.
+
 ## `canopywt config init`
 
 Print a starter `canopy.yaml` on stdout. **Writes nothing** — redirect it yourself:

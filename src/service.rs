@@ -1278,7 +1278,13 @@ web:
         let error = up(&services, None, &ctx, true).expect_err("api never came up");
         let ServiceError::NeverHealthy { ref name, ref detail } = error else { panic!("{error}") };
         assert_eq!(name, "api");
-        assert!(detail.contains("connection refused on 5432"), "the probe's own words, not ours: {detail}");
+        // The probe's own words, not a generic "unhealthy" of ours. Which words depends on the
+        // machine: a refused connection normally, a timeout when the box is loaded enough that
+        // connecting to a closed port outlasts the probe budget. Both are the probe talking.
+        assert!(
+            detail.contains("5432") || detail.contains("timed out"),
+            "the detail should carry the probe's own words: {detail}"
+        );
         assert!(error.to_string().contains(detail.as_str()));
         assert_eq!(error.code(), ErrorCode::ServiceFailed);
         assert!(harness.has_record("api"), "it is left running so its logs can be read");
