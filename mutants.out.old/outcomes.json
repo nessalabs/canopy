@@ -8,7 +8,7 @@
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 11.0851475,
+          "duration": 52.923712959,
           "process_status": "Success",
           "argv": [
             "/opt/homebrew/bin/cargo",
@@ -20,7 +20,7 @@
         },
         {
           "phase": "Test",
-          "duration": 5.926521833,
+          "duration": 6.391930958,
           "process_status": {
             "Failure": 101
           },
@@ -28,7 +28,9 @@
             "/opt/homebrew/bin/cargo",
             "test",
             "--verbose",
-            "--package=canopy-worktree@0.1.0"
+            "--package=canopy-worktree@0.1.0",
+            "--lib",
+            "health::"
           ]
         }
       ]
@@ -40,7 +42,7 @@
   "timeout": 0,
   "unviable": 0,
   "success": 0,
-  "start_time": "2026-09-14T03:39:50.292447Z",
-  "end_time": "2026-09-14T03:40:07.344466Z",
+  "start_time": "2026-09-14T05:06:49.619765Z",
+  "end_time": "2026-09-14T05:07:49.002329Z",
   "cargo_mutants_version": "27.1.0"
 }

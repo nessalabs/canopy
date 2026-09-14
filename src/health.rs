@@ -1494,6 +1494,58 @@ mod tests {
     }
 
     #[test]
+    fn reap_briefly_collects_a_dead_child_and_gives_up_on_a_live_one() {
+        // `reap_briefly` is what stops a finished probe becoming a zombie, and what stops a
+        // probe that backgrounded something from blocking forever. Both halves are timing, so
+        // nothing else in the suite notices if either bound goes wrong.
+        let mut dead = Command::new("/bin/sh")
+            .arg("-c")
+            .arg("exit 0")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn");
+        // Establish that it has finished before measuring, rather than sleeping a fixed guess:
+        // on a loaded machine the child may not have been scheduled yet, and this would become
+        // a test of process start-up time. Observing the exit without consuming it needs
+        // WNOWAIT, which macOS offers on `waitid` but not `waitpid`, so collect it here and
+        // rely on `Child` caching the status — `reap_briefly` must return at once either way.
+        let settled = Instant::now();
+        while dead.try_wait().expect("try_wait").is_none() {
+            assert!(settled.elapsed() < std::time::Duration::from_secs(10), "the child never exited");
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+
+        let began = Instant::now();
+        reap_briefly(&mut dead);
+        assert!(began.elapsed() < REAP_GRACE, "waited {:?} on a child that had already finished", began.elapsed());
+        assert!(dead.try_wait().expect("try_wait").is_some(), "the dead child was never collected");
+
+        // A child the signal never reached: the wait is bounded and it is left alone.
+        let token = token(5);
+        reap(&token);
+        let mut live = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!("sleep {token}"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .expect("spawn");
+        let began = Instant::now();
+        reap_briefly(&mut live);
+        let took = began.elapsed();
+        assert!(took >= REAP_GRACE, "gave up after only {took:?}");
+        assert!(took < REAP_GRACE * 8, "waited {took:?}, which is not bounded");
+        assert!(live.try_wait().expect("try_wait").is_none(), "the live child should still be running");
+        kill_group(live.id());
+        reap_briefly(&mut live);
+        reap(&token);
+    }
+
+    #[test]
     fn kill_group_takes_the_backgrounded_children_too() {
         let token = token(4);
         let token = token.as_str();

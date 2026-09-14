@@ -150,6 +150,55 @@ mod tests {
     }
 
     #[test]
+    fn run_bytes_reports_a_failure_the_same_way_run_does() {
+        // The two entry points duplicate their error construction; if they drift, a caller
+        // gets a different shape depending on which one it happened to call.
+        let error = Git::new("/usr/bin/false").run_bytes(anywhere(), ["worktree", "list"]).unwrap_err();
+        match error {
+            Error::GitFailed { args, status, .. } => {
+                assert_eq!(args, "worktree list");
+                assert_eq!(status, "exit code 1");
+            }
+            other => panic!("expected GitFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_command_killed_by_a_signal_says_so_rather_than_claiming_an_exit_code() {
+        // There is no exit code to report, and inventing one (0? 255?) would be a lie a
+        // caller might act on.
+        let error = Git::new("/bin/sh").run(anywhere(), ["-c", "kill -TERM $$"]).unwrap_err();
+        match error {
+            Error::GitFailed { status, .. } => assert_eq!(status, "a signal"),
+            other => panic!("expected GitFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_utf8_output_is_an_error_rather_than_a_lossy_string() {
+        // Every path this crate reads from git ends up in JSON. Replacing the bad bytes with
+        // U+FFFD would produce a path that looks fine and does not exist.
+        let error = Git::new("/bin/sh").run(anywhere(), ["-c", "printf '\\377\\376'"]).unwrap_err();
+        assert!(matches!(error, Error::NonUtf8Path(_)), "got {error:?}");
+    }
+
+    #[test]
+    fn run_bytes_hands_back_exactly_what_git_wrote() {
+        // The `-z` formats are NUL-delimited and may carry bytes that are not UTF-8 until each
+        // field is validated on its own, so this entry point must not touch them.
+        let raw = Git::new("/bin/sh").run_bytes(anywhere(), ["-c", "printf 'a\\0b\\0'"]).unwrap();
+        assert_eq!(raw, b"a\0b\0");
+    }
+
+    #[test]
+    fn output_is_not_reshaped_by_the_users_locale() {
+        // Porcelain parsing depends on git's C-locale wording; inheriting a translated locale
+        // would break it in a way that only reproduces on one machine.
+        let out = Git::new("/bin/sh").run(anywhere(), ["-c", "printf %s \"$LC_ALL\""]).unwrap();
+        assert_eq!(out, "C");
+    }
+
+    #[test]
     fn a_missing_git_is_an_io_error_not_a_git_failure() {
         // Worth distinguishing: "git is not installed" and "git said no" need different fixes.
         let error = Git::new("/nonexistent/git").run(anywhere(), ["status"]).unwrap_err();

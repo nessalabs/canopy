@@ -148,8 +148,49 @@ mod tests {
         assert_eq!(Duration::from_millis(90_000).to_string(), "90s");
     }
 
+    #[rstest]
+    // Each unit multiplies by a different factor, so each needs its own overflow guard.
+    #[case(&format!("{}m", u64::MAX))]
+    #[case(&format!("{}s", u64::MAX))]
+    // More digits than a u64 can hold at all: the parse itself fails before any multiply.
+    #[case("99999999999999999999999999ms")]
+    fn an_absurd_value_errors_instead_of_wrapping(#[case] text: &str) {
+        assert!(Duration::parse(text).is_err(), "{text:?} should not parse");
+    }
+
     #[test]
-    fn an_absurd_value_errors_instead_of_wrapping() {
-        assert!(Duration::parse(&format!("{}m", u64::MAX)).is_err());
+    fn the_largest_representable_value_still_parses() {
+        // The complement of the overflow tests: a guard that rejected everything large would
+        // otherwise pass them all.
+        assert_eq!(Duration::parse(&format!("{}ms", u64::MAX)).unwrap().as_millis(), u64::MAX);
+    }
+
+    #[test]
+    fn a_duration_deserializes_from_yaml_and_reports_a_useful_error() {
+        #[derive(Debug, serde::Deserialize)]
+        struct Holder {
+            timeout: Duration,
+        }
+        assert_eq!(serde_saphyr::from_str::<Holder>("timeout: 2m").unwrap().timeout.as_millis(), 120_000);
+
+        // The message a user sees when they write `timeout: 5` has to name the grammar.
+        let error = serde_saphyr::from_str::<Holder>("timeout: \"5\"").unwrap_err().to_string();
+        assert!(error.contains("5s"), "the error should show the accepted spelling: {error}");
+    }
+
+    #[test]
+    fn a_duration_serializes_back_to_its_spelling() {
+        #[derive(serde::Serialize)]
+        struct Holder {
+            timeout: Duration,
+        }
+        let json = serde_json::to_value(Holder { timeout: Duration::from_secs(90) }).unwrap();
+        assert_eq!(json["timeout"], "90s");
+    }
+
+    #[test]
+    fn as_std_converts_without_losing_the_value() {
+        assert_eq!(Duration::from_secs(2).as_std(), std::time::Duration::from_millis(2000));
+        assert_eq!(Duration::ZERO.as_std(), std::time::Duration::ZERO);
     }
 }

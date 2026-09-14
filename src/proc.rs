@@ -430,15 +430,22 @@ fn kill_group(record: &ProcessRecord, sig: Signal) -> bool {
 }
 
 /// Polls until the pid is gone or the deadline passes. `true` when it exited.
+///
+/// The last poll lands on the deadline rather than before it: the final sleep is shortened to
+/// whatever time is left, so a process that exits just inside its grace period is seen to have
+/// exited instead of being escalated against a moment too early.
 fn wait_for_exit(pid: i32, timeout: Duration) -> bool {
     let deadline = Instant::now() + timeout.as_std();
-    while Instant::now() < deadline {
+    loop {
         if !alive(pid) {
             return true;
         }
-        std::thread::sleep(POLL);
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        std::thread::sleep(POLL.min(remaining));
     }
-    !alive(pid)
 }
 
 // ---------------------------------------------------------------------------------------
@@ -575,13 +582,18 @@ mod tests {
     }
 
     /// Spawns into `dir/log.txt` with no extra environment.
+    ///
+    /// The long-lived children below sleep for a minute rather than an hour: a test binary that
+    /// is killed outright (a mutation run's timeout, a `^C`) never gets to run its cleanup, and a
+    /// leaked `sleep` that tidies itself up in a minute is a much better neighbour on a machine
+    /// that is also running everybody else's tests.
     fn start(dir: &Utf8Path, command: &str) -> ProcessRecord {
         let env = BTreeMap::new();
         spawn(&SpawnRequest { command, cwd: dir, env: &env, log: &dir.join("log.txt") }).expect("spawn")
     }
 
     /// Kills whatever a record points at when the test ends, so a failed assertion does not
-    /// leave a `sleep 300` behind.
+    /// leave a `sleep 60` behind.
     struct Cleanup(ProcessRecord);
 
     impl Drop for Cleanup {
@@ -656,13 +668,13 @@ mod tests {
     #[test]
     fn spawn_returns_a_live_record() {
         let (_dir, path) = workspace();
-        let record = start(&path, "sleep 300");
+        let record = start(&path, "sleep 60");
         let _cleanup = Cleanup(record.clone());
 
         assert!(record.pid > 0, "{record:?}");
         assert_eq!(record.pgid, record.pid, "the child is its own group leader");
         assert!(record.start_time.is_some(), "the kernel's start time is what makes the pid safe to use later");
-        assert_eq!(record.command, "sleep 300");
+        assert_eq!(record.command, "sleep 60");
         assert_eq!(record.cwd, path);
         assert_eq!(record.log, path.join("log.txt"));
         assert!(record.started_at > 1_600_000_000, "{}", record.started_at);
@@ -677,7 +689,7 @@ mod tests {
         // disappearance could take the service with it.
         let (_dir, path) = workspace();
         let pid = {
-            let record = start(&path, "sleep 300");
+            let record = start(&path, "sleep 60");
             let pid = record.pid;
             drop(record);
             pid
@@ -813,7 +825,7 @@ mod tests {
         // The bug process groups exist to prevent: `sh -c 'a & b'` leaves `a` running when only
         // the pid we spawned is signalled, and `a` is the thing still holding the port.
         let (_dir, path) = workspace();
-        let record = start(&path, "sleep 300 & sleep 300");
+        let record = start(&path, "sleep 60 & sleep 60");
         let _cleanup = Cleanup(record.clone());
 
         assert!(eventually(|| group_members(record.pgid).len() >= 2), "the group never filled out");
@@ -832,7 +844,7 @@ mod tests {
         // SIGTERM. (Without the explicit `exec`, whether the shell stayed around to be escalated
         // against would depend on the shell.)
         let (_dir, path) = workspace();
-        let record = start(&path, "trap '' TERM; exec sleep 300");
+        let record = start(&path, "trap '' TERM; exec sleep 60");
         let _cleanup = Cleanup(record.clone());
         assert!(eventually(|| !gone(record.pid)));
 
@@ -860,7 +872,7 @@ mod tests {
             pgid: me,
             start_time: Some("Thu Jan 1 00:00:00 1970".to_owned()),
             launch_id: "0".repeat(32),
-            command: "sleep 300".to_owned(),
+            command: "sleep 60".to_owned(),
             cwd: Utf8PathBuf::from("/"),
             log: Utf8PathBuf::from("/dev/null"),
             started_at: 0,
@@ -879,7 +891,7 @@ mod tests {
     #[test]
     fn stop_refuses_when_the_start_time_is_unreadable_but_one_was_recorded() {
         let (_dir, path) = workspace();
-        let record = start(&path, "sleep 300");
+        let record = start(&path, "sleep 60");
         let _cleanup = Cleanup(record.clone());
         assert!(record.start_time.is_some());
 
@@ -902,7 +914,7 @@ mod tests {
         // way, and refusing here would make a process that we merely failed to measure
         // unstoppable forever.
         let (_dir, path) = workspace();
-        let record = ProcessRecord { start_time: None, ..start(&path, "sleep 300") };
+        let record = ProcessRecord { start_time: None, ..start(&path, "sleep 60") };
         let _cleanup = Cleanup(record.clone());
 
         assert_eq!(state(&record), ProcessState::Running { pid: record.pid });
@@ -927,7 +939,7 @@ mod tests {
         assert!(eventually(|| gone(finished.pid)));
         let empty_group = finished.pid;
 
-        let live = start(&path, "sleep 300");
+        let live = start(&path, "sleep 60");
         let record = ProcessRecord { pgid: empty_group, ..live };
         let _cleanup = Cleanup(record.clone());
 
@@ -961,7 +973,7 @@ mod tests {
     #[test]
     fn stop_refuses_a_signal_it_does_not_understand() {
         let (_dir, path) = workspace();
-        let record = start(&path, "sleep 300");
+        let record = start(&path, "sleep 60");
         let _cleanup = Cleanup(record.clone());
 
         let outcome = stop(&record, "SIGNOPE", Duration::from_millis(200));
@@ -998,7 +1010,7 @@ mod tests {
             pgid,
             start_time: None,
             launch_id: "0".repeat(32),
-            command: "sleep 300".to_owned(),
+            command: "sleep 60".to_owned(),
             cwd: Utf8PathBuf::from("/"),
             log: Utf8PathBuf::from("/dev/null"),
             started_at: 0,
@@ -1055,7 +1067,7 @@ mod tests {
     #[test]
     fn a_record_round_trips_through_disk() {
         let (_dir, path) = workspace();
-        let record = start(&path, "sleep 300");
+        let record = start(&path, "sleep 60");
         let _cleanup = Cleanup(record.clone());
         let file = path.join("state").join("web.json");
         fs::create_dir_all(file.parent().unwrap()).expect("mkdir");
@@ -1068,7 +1080,7 @@ mod tests {
     #[test]
     fn an_atomic_write_leaves_no_temp_file_behind() {
         let (_dir, path) = workspace();
-        let record = start(&path, "sleep 300");
+        let record = start(&path, "sleep 60");
         let _cleanup = Cleanup(record.clone());
         let file = path.join("web.json");
 
@@ -1129,9 +1141,10 @@ mod tests {
         assert_eq!(lines.len(), 255);
         assert_eq!(lines[254], format!("line {:026}", count - 1));
         assert_eq!(lines[0], format!("line {:026}", count - 255));
-        // The whole point: one chunk (plus the one byte that checks for a trailing newline) was
-        // enough, and a 5 MB file cost 8 KiB of reading.
-        assert!(read <= TAIL_CHUNK as u64 + 1, "read {read} bytes of a {} byte file", body.len());
+        // The whole point, stated exactly: one byte to see whether the file ends in a newline,
+        // then a single chunk — 8191 bytes of it, that final newline having been trimmed off the
+        // end. A 5 MB file for 8 KiB of reading.
+        assert_eq!(read, 1 + (TAIL_CHUNK as u64 - 1), "read {read} bytes of a {} byte file", body.len());
         assert!(elapsed < std::time::Duration::from_millis(500), "{elapsed:?}");
     }
 

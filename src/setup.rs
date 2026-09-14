@@ -618,10 +618,11 @@ mod tests {
         String::from_utf8_lossy(&out.stdout).lines().filter(|line| line.contains(needle)).count()
     }
 
-    /// Kills any `sleep <token>` left behind by an interrupted earlier run, so the "the children
-    /// really started" assertions cannot be satisfied by a ghost.
-    fn reap(token: &str) {
-        let _ = Command::new("pkill").args(["-f", &format!("sleep {token}")]).status();
+    /// Kills anything left behind by an interrupted earlier run, so the "the children really
+    /// started" assertions cannot be satisfied by a ghost — and so a test that proves a step was
+    /// *not* killed does not leave that step running on the machine forever.
+    fn reap(needle: &str) {
+        let _ = Command::new("pkill").args(["-f", needle]).status();
         std::thread::sleep(StdDuration::from_millis(100));
     }
 
@@ -1141,7 +1142,7 @@ mod tests {
         });
         assert!(started, "the children never started");
 
-        let outcome = running.recv_timeout(StdDuration::from_secs(10)).expect("the timeout never ended the run");
+        let outcome = running.recv_timeout(StdDuration::from_secs(6)).expect("the timeout never ended the run");
         assert!(!outcome.ok);
         assert!(
             matches!(&outcome.steps[0].result, StepResult::Failed { status, .. } if status == "timed out after 900ms"),
@@ -1159,10 +1160,16 @@ mod tests {
     #[test]
     fn a_timeout_escalates_to_sigkill() {
         // The shell ignores SIGTERM and keeps looping, so only SIGKILL can end it. Without the
-        // escalation this run would never finish.
-        let running = spawn_run("trap '' TERM; while true; do sleep 0.05; done", Duration::from_millis(200));
+        // escalation this run would never finish. The token is there so a regression leaves a
+        // findable process rather than an anonymous spinner nobody can clean up.
+        let token = "canopywt-31045";
+        reap(token);
+        let running =
+            spawn_run(&format!("trap '' TERM; while true; do sleep 0.05; done # {token}"), Duration::from_millis(200));
 
-        let outcome = running.recv_timeout(StdDuration::from_secs(6)).expect("SIGKILL never landed");
+        let outcome = running.recv_timeout(StdDuration::from_secs(4));
+        reap(token);
+        let outcome = outcome.expect("SIGKILL never landed");
 
         assert!(!outcome.ok);
         assert!(
