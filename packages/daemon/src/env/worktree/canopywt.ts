@@ -8,6 +8,11 @@
  *
  * Everything here is a `--json` call, so failures arrive as a stable `error.code` rather than
  * as text to match against, and every result is one object rather than a stream to parse.
+ *
+ * Every call runs with `cwd` set to the **worktree**, not the main checkout. The crate resolves
+ * `canopy.yaml` the way Canopy does — the worktree's own copy wins — and it resolves it relative
+ * to where it was invoked, so running from the main checkout would silently use the wrong file
+ * for a branch that changed what it runs.
  */
 import { spawn } from 'node:child_process'
 
@@ -41,11 +46,24 @@ export interface CopyResult {
 export interface Canopywt {
   available(): Promise<boolean>
   /** Carries gitignored files from `source` into the worktree, with explicit rules. */
-  copy(input: { repoPath: string; branch: string; source: string; rules: Array<{ pattern: string; strategy: string }>; onLine?: OnLine }): Promise<CopyResult>
+  copy(input: { cwd: string; branch: string; source: string; rules: Array<{ pattern: string; strategy: string }>; onLine?: OnLine }): Promise<CopyResult>
   /** Allocate-if-absent for every declared port; idempotent, and the numbers never move. */
-  ports(input: { repoPath: string; branch: string; onLine?: OnLine }): Promise<Record<string, number>>
+  ports(input: { cwd: string; branch: string; onLine?: OnLine }): Promise<Record<string, number>>
   /** Hands a branch's ports back to the pool. */
-  releasePorts(input: { repoPath: string; branch: string }): Promise<number>
+  releasePorts(input: { cwd: string; branch: string }): Promise<number>
+  /** Runs the worktree's `setup:` steps, with Canopy's resolved environment layered on top. */
+  setup(input: { cwd: string; branch: string; env: Record<string, string>; force?: boolean; onLine?: OnLine }): Promise<SetupResult>
+}
+
+export interface SetupStepOutcome {
+  name: string
+  command: string
+  result: { kind: 'ran'; millis: number } | { kind: 'skipped'; reason: string } | { kind: 'failed'; status: string; tail: string[]; millis: number }
+}
+
+export interface SetupResult {
+  steps: SetupStepOutcome[]
+  ok: boolean
 }
 
 type OnLine = (stream: 'out' | 'err', text: string) => void
@@ -150,20 +168,38 @@ export function createCanopywt(opts: { bin?: string } = {}): Canopywt {
       }
     },
 
-    async copy({ repoPath, branch, source, rules, onLine }) {
+    async copy({ cwd, branch, source, rules, onLine }) {
       if (rules.length === 0) return { entries: [], failures: [] }
       const args = ['copy', branch, '--from', source, '--json']
       for (const rule of rules) args.push('--rule', `${rule.pattern}=${rule.strategy}`)
-      return unwrap<CopyResult>('copy', await run(bin, args, repoPath, onLine))
+      return unwrap<CopyResult>('copy', await run(bin, args, cwd, onLine))
     },
 
-    async ports({ repoPath, branch, onLine }) {
-      return unwrap<Record<string, number>>('ports', await run(bin, ['ports', branch, '--json'], repoPath, onLine))
+    async ports({ cwd, branch, onLine }) {
+      return unwrap<Record<string, number>>('ports', await run(bin, ['ports', branch, '--json'], cwd, onLine))
     },
 
-    async releasePorts({ repoPath, branch }) {
-      const data = unwrap<{ released: number }>('ports', await run(bin, ['ports', branch, '--release', '--json'], repoPath))
+    async releasePorts({ cwd, branch }) {
+      const data = unwrap<{ released: number }>('ports', await run(bin, ['ports', branch, '--release', '--json'], cwd))
       return data.released
+    },
+
+    async setup({ cwd, branch, env, force, onLine }) {
+      const args = ['setup', branch, '--json']
+      if (force) args.push('--force')
+      // Canopy's environment is richer than the crate can resolve on its own — database URLs
+      // come from forks it knows nothing about — so it is passed through rather than re-derived.
+      for (const [key, value] of Object.entries(env)) args.push('--env', `${key}=${value}`)
+
+      const result = await run(bin, args, cwd, onLine)
+      const envelope = parseEnvelope<SetupResult>(result.stdout)
+      if (!envelope) {
+        throw conflict('setup_failed', result.stderr.trim() || `canopywt setup exited with ${result.exitCode}`)
+      }
+      // A failing step is a verdict, not a fault: the data is still there, and the caller wants
+      // to show which step failed and why rather than just that something did.
+      if (envelope.data) return envelope.data
+      throw conflict(envelope.error?.code ?? 'setup_failed', envelope.error?.message ?? 'canopywt setup failed')
     }
   }
 }

@@ -99,7 +99,7 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
       const rules = rulesFor(ctx.settings.copyFiles, ctx.settings.caches.rules)
       const branch = ctx.branch ?? ctx.worktreeName
       const outcome = await deps.canopywt.copy({
-        repoPath: ctx.project.path,
+        cwd: ctx.worktreePath,
         branch,
         source: ctx.sourcePath,
         rules,
@@ -133,7 +133,7 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
       // The crate owns the registry, in the repository's common git dir. Keeping a second
       // allocator here would mean two tables that can disagree about who holds what.
       const allocated = await deps.canopywt.ports({
-        repoPath: ctx.project.path,
+        cwd: ctx.worktreePath,
         branch: ctx.branch ?? ctx.worktreeName,
         onLine: (_stream, text) => ctx.logs.out(text)
       })
@@ -217,6 +217,9 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
       const resolved = deps.resolve(ctx)
       const shellEnv = { ...resolved.envMap, ...(ctx.settings.caches.sharedStores ? SHARED_STORE_ENV : {}) }
       const ran: string[] = []
+
+      // Reinstalls stay here: which command reinstalls a Node or Python project is Canopy's
+      // ecosystem detection, which the crate has no notion of.
       for (const ecosystem of ctx.state.reinstall) {
         const command = installCommand(ctx.worktreePath, ecosystem)
         if (!command) continue
@@ -224,20 +227,29 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
         await runShell(ctx, command, ctx.worktreePath, shellEnv)
         ran.push(command)
       }
-      for (const step of resolved.setup) {
-        if (step.if_changed && step.if_changed.length > 0 && !same(ctx.sourcePath, ctx.worktreePath)) {
-          const changed = await anyChanged(ctx.sourcePath, ctx.worktreePath, step.if_changed)
-          if (!changed) {
-            ctx.logs.sys(`${step.name}: skipped — ${step.if_changed.join(', ')} unchanged`)
-            continue
-          }
+
+      if ((ctx.config as NonNullable<ProvisionContext['config']>).setup.length > 0) {
+        // The steps themselves are the crate's, so `if_changed` has one implementation rather
+        // than two that can disagree about whether a lockfile moved.
+        const outcome = await deps.canopywt.setup({
+          cwd: ctx.worktreePath,
+          branch: ctx.branch ?? ctx.worktreeName,
+          env: shellEnv,
+          onLine: (_stream, text) => ctx.logs.out(text)
+        })
+        for (const step of outcome.steps) {
+          if (step.result.kind === 'ran') ran.push(step.name)
+          else if (step.result.kind === 'skipped') ctx.logs.sys(`${step.name}: skipped — ${step.result.reason}`)
         }
-        mkdirSync(step.cwd, { recursive: true })
-        await runShell(ctx, step.run, step.cwd, { ...shellEnv, ...step.env })
-        ran.push(step.run)
+        const failed = outcome.steps.find((step) => step.result.kind === 'failed')
+        if (failed && failed.result.kind === 'failed') {
+          const tail = failed.result.tail.slice(-3).join(' | ')
+          throw new Error(`setup step ${failed.name} failed (${failed.result.status})${tail ? `: ${tail}` : ''}`)
+        }
       }
-      const normalized = (ctx.config as NonNullable<ProvisionContext['config']>).setup.map(normalizeSetupStep)
-      return { detail: ran.length > 0 ? ran.join(' · ') : normalized.length > 0 ? 'all steps up to date' : 'nothing to run' }
+
+      const declared = (ctx.config as NonNullable<ProvisionContext['config']>).setup.length
+      return { detail: ran.length > 0 ? ran.join(' · ') : declared > 0 ? 'all steps up to date' : 'nothing to run' }
     }
   }
 
@@ -258,26 +270,3 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
   return [createWorktree, copy, ports, databases, env, setup, start]
 }
 
-/** True when any of the globbed files differs between the two roots (content hash), or exists in one only. */
-async function anyChanged(sourceRoot: string, targetRoot: string, patterns: string[]): Promise<boolean> {
-  const { createHash } = await import('node:crypto')
-  const { readFileSync, statSync } = await import('node:fs')
-  const picomatch = (await import('picomatch')).default
-  const hash = (path: string): string | null => {
-    try {
-      if (!statSync(path).isFile()) return null
-      return createHash('sha1').update(readFileSync(path)).digest('hex')
-    } catch {
-      return null
-    }
-  }
-  const { execa: run } = await import('execa')
-  const list = async (root: string): Promise<string[]> => {
-    const out = await run('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, reject: false })
-    return String(out.stdout ?? '').split('\0').filter(Boolean)
-  }
-  const matchers = patterns.map((pattern) => picomatch(pattern, { dot: true }))
-  const files = new Set([...(await list(sourceRoot)), ...(await list(targetRoot))].filter((file) => matchers.some((m) => m(file))))
-  for (const file of files) if (hash(join(sourceRoot, file)) !== hash(join(targetRoot, file))) return true
-  return false
-}
