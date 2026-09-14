@@ -1,0 +1,1 @@
+src/config/lint.rs:116:32: replace + with * in template_refs

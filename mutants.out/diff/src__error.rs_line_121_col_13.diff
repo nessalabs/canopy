@@ -1,0 +1,17 @@
+--- src/error.rs
++++ delete match arm Error::ConfigInvalid(errors) in Error::details
+@@ -113,13 +113,13 @@
+ 
+     /// Extra machine-readable context for the `error.details` field. `None` means the
+     /// message is the whole story.
+     pub fn details(&self) -> Option<serde_json::Value> {
+         match self {
+             Error::GitFailed { args, status, stderr } => Some(serde_json::json!({
+                 "args": args, "status": status, "stderr": stderr
+             })),
+-            Error::ConfigInvalid(errors) => Some(serde_json::json!({ "errors": errors })),
++             /* ~ changed by cargo-mutants ~ */
+             _ => None,
+         }
+     }
+ }

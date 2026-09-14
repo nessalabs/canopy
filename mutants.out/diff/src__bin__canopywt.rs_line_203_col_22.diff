@@ -1,0 +1,21 @@
+--- src/bin/canopywt.rs
++++ delete ! in run_config
+@@ -195,17 +195,17 @@
+             if cli.json {
+                 // One envelope, whatever the verdict. `ok` is the verdict and `data` always
+                 // carries the diagnostics, so a caller reads warnings off a passing file the
+                 // same way it reads errors off a failing one.
+                 let envelope = Envelope::verdict(
+                     "config check",
+                     parsed.is_valid(),
+                     &report,
+-                    (!parsed.is_valid()).then(|| canopy_worktree::wire::ErrorBody {
++                    ( /* ~ changed by cargo-mutants ~ */parsed.is_valid()).then(|| canopy_worktree::wire::ErrorBody {
+                         code: canopy_worktree::ErrorCode::ConfigInvalid.as_str(),
+                         message: format!("canopy.yaml has {} error(s)", parsed.error_count()),
+                         details: None,
+                     }),
+                 );
+                 println!("{}", serde_json::to_string(&envelope).expect("envelope is serializable"));
+             } else {
+                 for diagnostic in &parsed.diagnostics {

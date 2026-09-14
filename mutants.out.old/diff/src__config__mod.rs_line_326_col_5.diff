@@ -1,0 +1,21 @@
+--- src/config/mod.rs
++++ replace default_compose_file -> String with String::new()
+@@ -318,17 +318,17 @@
+     /// Subset of compose services to bring up; empty means all.
+     #[serde(default)]
+     pub services: Vec<String>,
+     #[serde(default)]
+     pub profiles: Vec<String>,
+ }
+ 
+ fn default_compose_file() -> String {
+-    "docker-compose.yml".to_owned()
++    String::new() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ // ---------------------------------------------------------------------------------------
+ // Setup and databases
+ // ---------------------------------------------------------------------------------------
+ 
+ /// A setup step. `setup: [npm ci]` and the object form both land here — the bare string is the
+ /// overwhelmingly common case and making people write `- run:` for it would be noise.

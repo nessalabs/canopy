@@ -4,8 +4,6 @@
 //! message text. Adding a variant therefore means adding a code string, and the
 //! `error_codes_are_exhaustive` test fails to compile until you do.
 
-use std::fmt;
-
 use camino::Utf8PathBuf;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -52,7 +50,7 @@ impl ErrorCode {
 
     /// Process exit status. `3` is reserved for lock contention so a caller can retry it
     /// without parsing anything.
-    pub const fn exit_code(self) -> i32 {
+    pub const fn exit_code(self) -> u8 {
         match self {
             ErrorCode::Locked => 3,
             _ => 1,
@@ -76,12 +74,6 @@ impl ErrorCode {
         ErrorCode::Locked,
         ErrorCode::Io,
     ];
-}
-
-impl fmt::Display for ErrorCode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
 }
 
 #[derive(Debug, thiserror::Error)]

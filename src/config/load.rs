@@ -55,12 +55,18 @@ fn first_existing(dir: &Utf8Path) -> Option<Utf8PathBuf> {
 
 /// `$XDG_CONFIG_HOME/canopywt`, falling back to `~/.config/canopywt`.
 pub fn user_config_dir() -> Option<Utf8PathBuf> {
-    if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME")
-        && !xdg.is_empty()
-    {
+    user_config_dir_from(std::env::var("XDG_CONFIG_HOME").ok(), std::env::var("HOME").ok())
+}
+
+/// The pure half, so the rule can be tested without mutating the process environment —
+/// which parallel tests cannot do safely.
+fn user_config_dir_from(xdg: Option<String>, home: Option<String>) -> Option<Utf8PathBuf> {
+    // An empty variable is treated as unset, which is what the XDG spec requires and what
+    // a `XDG_CONFIG_HOME=` line in a shell profile actually means.
+    if let Some(xdg) = xdg.filter(|value| !value.is_empty()) {
         return Some(Utf8PathBuf::from(xdg).join("canopywt"));
     }
-    let home = std::env::var("HOME").ok().filter(|h| !h.is_empty())?;
+    let home = home.filter(|value| !value.is_empty())?;
     Some(Utf8PathBuf::from(home).join(".config").join("canopywt"))
 }
 
@@ -121,6 +127,33 @@ mod tests {
         assert!(parsed.is_valid(), "starter has errors: {:?}", parsed.errors().collect::<Vec<_>>());
         let warnings: Vec<&str> = parsed.warnings().map(|d| d.message.as_str()).collect();
         assert!(warnings.is_empty(), "starter has warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn user_config_dir_prefers_xdg() {
+        let got = user_config_dir_from(Some("/xdg".to_owned()), Some("/home/me".to_owned()));
+        assert_eq!(got.unwrap(), "/xdg/canopywt");
+    }
+
+    #[test]
+    fn user_config_dir_falls_back_to_home() {
+        let got = user_config_dir_from(None, Some("/home/me".to_owned()));
+        assert_eq!(got.unwrap(), "/home/me/.config/canopywt");
+    }
+
+    #[test]
+    fn an_empty_variable_counts_as_unset() {
+        // `XDG_CONFIG_HOME=` in a shell profile means "unset", not "the root directory".
+        assert_eq!(
+            user_config_dir_from(Some(String::new()), Some("/home/me".to_owned())).unwrap(),
+            "/home/me/.config/canopywt"
+        );
+        assert_eq!(user_config_dir_from(None, Some(String::new())), None);
+    }
+
+    #[test]
+    fn no_home_and_no_xdg_means_no_user_config() {
+        assert_eq!(user_config_dir_from(None, None), None);
     }
 
     #[test]

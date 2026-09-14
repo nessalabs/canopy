@@ -1,0 +1,21 @@
+--- src/repo.rs
++++ delete match arm "detached" in parse_worktree_list
+@@ -149,17 +149,17 @@
+             // something else is malformed; ignoring it beats panicking on a future git version
+             // that adds a header we do not know about.
+             _ => {
+                 let Some(entry) = current.as_mut() else { continue };
+                 match key {
+                     "HEAD" => entry.head = Some(value.to_owned()),
+                     "branch" => entry.branch = Some(value.strip_prefix("refs/heads/").unwrap_or(value).to_owned()),
+                     "bare" => entry.bare = true,
+-                    "detached" => entry.detached = true,
++                     /* ~ changed by cargo-mutants ~ */
+                     "locked" => entry.locked = Some(value.to_owned()),
+                     "prunable" => entry.prunable = Some(value.to_owned()),
+                     _ => {}
+                 }
+             }
+         }
+     }
+     if let Some(entry) = current.take() {

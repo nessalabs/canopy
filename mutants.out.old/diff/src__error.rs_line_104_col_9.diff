@@ -1,0 +1,28 @@
+--- src/error.rs
++++ replace Error::code -> ErrorCode with Default::default()
+@@ -96,24 +96,17 @@
+     ConfigInvalid(usize),
+ 
+     #[error("{0}")]
+     Io(#[from] std::io::Error),
+ }
+ 
+ impl Error {
+     pub fn code(&self) -> ErrorCode {
+-        match self {
+-            Error::NotARepository(_) => ErrorCode::NotARepository,
+-            Error::GitFailed { .. } => ErrorCode::GitFailed,
+-            Error::NonUtf8Path(_) => ErrorCode::Io,
+-            Error::ConfigNotFound(_) => ErrorCode::ConfigNotFound,
+-            Error::ConfigInvalid(_) => ErrorCode::ConfigInvalid,
+-            Error::Io(_) => ErrorCode::Io,
+-        }
++        Default::default() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// Extra machine-readable context for the `error.details` field. `None` means the
+     /// message is the whole story.
+     pub fn details(&self) -> Option<serde_json::Value> {
+         match self {
+             Error::GitFailed { args, status, stderr } => Some(serde_json::json!({
+                 "args": args, "status": status, "stderr": stderr

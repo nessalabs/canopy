@@ -1,0 +1,21 @@
+--- src/git.rs
++++ replace Git::succeeds -> bool with false
+@@ -77,17 +77,17 @@
+ 
+     /// Whether the command succeeded. For questions git answers with an exit code
+     /// (`merge-base --is-ancestor`), where a non-zero status is the answer, not an error.
+     pub fn succeeds<I, S>(&self, cwd: &Utf8Path, args: I) -> bool
+     where
+         I: IntoIterator<Item = S>,
+         S: AsRef<OsStr>,
+     {
+-        self.output(cwd, args).map(|o| o.status.success()).unwrap_or(false)
++        false /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     fn output<I, S>(&self, cwd: &Utf8Path, args: I) -> Result<GitOutput>
+     where
+         I: IntoIterator<Item = S>,
+         S: AsRef<OsStr>,
+     {
+         let args: Vec<String> = args.into_iter().map(|a| a.as_ref().to_string_lossy().into_owned()).collect();

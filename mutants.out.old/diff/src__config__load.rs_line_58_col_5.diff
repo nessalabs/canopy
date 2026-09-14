@@ -1,0 +1,21 @@
+--- src/config/load.rs
++++ replace user_config_dir -> Option<Utf8PathBuf> with None
+@@ -50,17 +50,17 @@
+ }
+ 
+ fn first_existing(dir: &Utf8Path) -> Option<Utf8PathBuf> {
+     FILE_NAMES.iter().map(|name| dir.join(name)).find(|path| path.is_file())
+ }
+ 
+ /// `$XDG_CONFIG_HOME/canopywt`, falling back to `~/.config/canopywt`.
+ pub fn user_config_dir() -> Option<Utf8PathBuf> {
+-    user_config_dir_from(std::env::var("XDG_CONFIG_HOME").ok(), std::env::var("HOME").ok())
++    None /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// The pure half, so the rule can be tested without mutating the process environment —
+ /// which parallel tests cannot do safely.
+ fn user_config_dir_from(xdg: Option<String>, home: Option<String>) -> Option<Utf8PathBuf> {
+     // An empty variable is treated as unset, which is what the XDG spec requires and what
+     // a `XDG_CONFIG_HOME=` line in a shell profile actually means.
+     if let Some(xdg) = xdg.filter(|value| !value.is_empty()) {

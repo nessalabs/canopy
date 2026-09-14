@@ -226,6 +226,27 @@ fn health_needs_exactly_one_probe() {
 #[test]
 fn docker_runtime_needs_an_image_or_dockerfile() {
     error_mentioning("version: 1\nservices:\n  a:\n    run: x\n    runtime: docker\n", "docker.image");
+    // An empty docker block is as unusable as none at all.
+    error_mentioning(
+        "version: 1\nservices:\n  a:\n    run: x\n    runtime: docker\n    docker:\n      user: root\n",
+        "docker.image",
+    );
+}
+
+#[test]
+fn either_an_image_or_a_dockerfile_satisfies_the_docker_runtime() {
+    // The complement: requiring *both* would be just as wrong, and no test above notices.
+    valid("version: 1\nservices:\n  a:\n    run: x\n    runtime: docker\n    docker:\n      image: node:22\n");
+    valid("version: 1\nservices:\n  a:\n    run: x\n    runtime: docker\n    docker:\n      dockerfile: Dockerfile\n");
+}
+
+#[test]
+fn docker_and_compose_defaults_are_filled_in() {
+    let config = valid(
+        "version: 1\nservices:\n  a:\n    run: x\n    runtime: docker\n    docker:\n      image: node:22\n  b:\n    compose:\n      services: [db]\n",
+    );
+    assert_eq!(config.services["a"].docker.as_ref().unwrap().workdir, "/workspace");
+    assert_eq!(config.services["b"].compose.as_ref().unwrap().file, "docker-compose.yml");
 }
 
 #[test]
@@ -238,6 +259,18 @@ fn a_bad_duration_is_an_error() {
 fn a_bad_resource_name_is_an_error() {
     error_mentioning("version: 1\nports:\n  Web: {}\n", "lowercase");
     error_mentioning("version: 1\nservices:\n  my.service:\n    run: x\n", "lowercase");
+    error_mentioning("version: 1\nports:\n  _lead: {}\n", "lowercase");
+    error_mentioning("version: 1\nports:\n  \"-lead\": {}\n", "lowercase");
+}
+
+#[test]
+fn a_good_resource_name_may_contain_digits_underscores_and_dashes() {
+    // The complement of the rule above. Without this, a validator that rejected `_` and `-`
+    // outright would still pass every test.
+    let config = valid(
+        "version: 1\nports:\n  web: {}\n  web2: {}\n  my_port: {}\n  my-port: {}\n  9lives: {}\nservices:\n  a:\n    run: x ${ports.web} ${ports.web2} ${ports.my_port} ${ports.my-port} ${ports.9lives}\n",
+    );
+    assert_eq!(config.ports.len(), 5);
 }
 
 // -------------------------------------------------------------------------------------
@@ -278,6 +311,30 @@ fn no_services_is_a_warning() {
 #[test]
 fn an_unknown_template_scope_is_a_warning() {
     warning_mentioning("version: 1\nservices:\n  a:\n    run: echo ${bogus.thing}\n", "unknown template scope");
+}
+
+#[test]
+fn a_declared_database_may_be_referenced_without_error() {
+    // The other half of "unknown database is an error". Without this, a lint that rejected
+    // *every* ${db.…} reference would pass the whole suite.
+    let parsed = parse_str(
+        "version: 1\ndatabases:\n  main:\n    adapter: postgres\nservices:\n  a:\n    run: x\n    env:\n      URL: ${db.main.url}\n",
+    );
+    assert!(parsed.is_valid(), "a declared database should resolve: {:?}", parsed.errors().collect::<Vec<_>>());
+}
+
+#[test]
+fn a_database_may_have_exactly_one_seed_source() {
+    // One is fine; two is ambiguous.
+    let one = parse_str(
+        "version: 1\ndatabases:\n  main:\n    adapter: postgres\n    seed:\n      dump: ./seed.dump\nservices:\n  a:\n    run: x\n",
+    );
+    assert!(one.is_valid(), "one seed source is fine: {:?}", one.errors().collect::<Vec<_>>());
+
+    error_mentioning(
+        "version: 1\ndatabases:\n  main:\n    adapter: postgres\n    seed:\n      dump: ./seed.dump\n      sql: ./seed.sql\nservices:\n  a:\n    run: x\n",
+        "one of `dump`",
+    );
 }
 
 #[test]
@@ -334,6 +391,31 @@ fn a_bare_env_port_reference_counts_but_an_embedded_one_does_not() {
 }
 
 #[test]
+fn a_bare_env_port_reference_allows_the_full_name_alphabet() {
+    let config = valid(
+        "version: 1\nports:\n  my_port: {}\n  my-port: {}\nservices:\n  a:\n    run: serve\n    env:\n      A: \"${ports.my_port}\"\n      B: \"${ports.my-port}\"\n",
+    );
+    assert_eq!(config::service_ports(&config.services["a"]), ["my-port", "my_port"]);
+}
+
+#[test]
+fn an_uppercase_env_reference_is_not_a_port_declaration() {
+    let config = valid(
+        "version: 1\nports:\n  web: {}\nservices:\n  a:\n    run: serve ${ports.web}\n    env:\n      P: \"${ports.WEB}\"\n",
+    );
+    // Only the real reference counts; the lookalike is left as literal text.
+    assert_eq!(config::service_ports(&config.services["a"]), ["web"]);
+}
+
+#[test]
+fn a_padded_bare_reference_still_counts() {
+    let config = valid(
+        "version: 1\nports:\n  web: {}\nservices:\n  a:\n    run: serve\n    env:\n      PORT: \"  ${ports.web}  \"\n",
+    );
+    assert_eq!(config::service_ports(&config.services["a"]), ["web"]);
+}
+
+#[test]
 fn explicit_ports_override_inference() {
     let config = valid(
         "version: 1\nports:\n  web: {}\n  api: {}\nservices:\n  a:\n    run: serve ${ports.api}\n    ports: [web]\n",
@@ -364,6 +446,32 @@ fn template_refs_reads_all_three_shapes() {
 }
 
 #[test]
+fn a_reference_name_may_contain_digits_underscores_and_dashes() {
+    // Each of these characters is a separate arm of the validator, and a mutation that drops
+    // any one of them turns a legitimate reference into invisible literal text.
+    for name in ["web", "web2", "my_port", "my-port", "a1_b-c2"] {
+        let refs = config::template_refs(&format!("serve ${{ports.{name}}}"));
+        assert_eq!(refs.len(), 1, "${{ports.{name}}} should be a reference");
+        assert_eq!(refs[0].name, name);
+    }
+}
+
+#[test]
+fn an_uppercase_reference_is_not_a_reference() {
+    // `${ports.WEB}` is shaped like a reference but is not one, and the difference matters:
+    // treating it as a reference would report "unknown port WEB" for what is plain text.
+    assert!(config::template_refs("serve ${ports.WEB}").is_empty());
+    assert!(config::template_refs("serve ${Ports.web}").is_empty());
+}
+
+#[test]
+fn a_reference_needs_both_a_scope_and_a_name() {
+    assert!(config::template_refs("${.web}").is_empty(), "empty scope");
+    assert!(config::template_refs("${ports.}").is_empty(), "empty name");
+    assert!(config::template_refs("${ports}").is_empty(), "no dot at all");
+}
+
+#[test]
 fn shell_expansions_are_not_template_refs() {
     // `${CANOPY_HOME}` and `$(cat …)` appear in real run commands; mistaking them for
     // references would produce a flood of bogus "unknown scope" warnings.
@@ -371,6 +479,16 @@ fn shell_expansions_are_not_template_refs() {
     assert!(config::template_refs("$(cat \"$CANOPY_HOME/token\")").is_empty());
     assert!(config::template_refs("${}").is_empty());
     assert!(config::template_refs("${a.b.c.d}").is_empty());
+}
+
+#[test]
+fn counts_match_the_diagnostics_actually_produced() {
+    // `version: 1` alone yields exactly two warnings: nothing will run, and no ports are used.
+    let parsed = parse_str("version: 1\nports:\n  idle: {}\n");
+    assert_eq!(parsed.warning_count(), 2, "got {:?}", parsed.diagnostics);
+    assert_eq!(parsed.error_count(), 0);
+    assert_eq!(parsed.warning_count(), parsed.warnings().count());
+    assert_eq!(parsed.error_count(), parsed.errors().count());
 }
 
 #[test]

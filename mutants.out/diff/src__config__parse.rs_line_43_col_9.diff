@@ -1,0 +1,21 @@
+--- src/config/parse.rs
++++ replace Parsed::error_count -> usize with 0
+@@ -35,17 +35,17 @@
+         self.diagnostics.iter().filter(|d| d.severity == Severity::Error)
+     }
+ 
+     pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
+         self.diagnostics.iter().filter(|d| d.severity == Severity::Warning)
+     }
+ 
+     pub fn error_count(&self) -> usize {
+-        self.errors().count()
++        0 /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     pub fn warning_count(&self) -> usize {
+         self.warnings().count()
+     }
+ }
+ 
+ /// Parses and lints `canopy.yaml` text. Pure: no I/O, so the same call serves a file on disk,

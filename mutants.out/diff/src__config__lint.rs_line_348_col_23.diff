@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ delete ! in lint
+@@ -340,17 +340,17 @@
+         for port in service.ports.iter().flatten() {
+             if !port_names.contains(port) {
+                 out.push(Diagnostic::error(&format!("{where_}.ports"), format!("unknown port `{port}`")));
+             }
+         }
+         for dep in &service.depends_on {
+             if dep == name {
+                 out.push(Diagnostic::error(&where_, "depends on itself"));
+-            } else if !service_names.contains(dep) {
++            } else if  /* ~ changed by cargo-mutants ~ */service_names.contains(dep) {
+                 out.push(Diagnostic::error(&where_, format!("depends_on unknown service `{dep}`")));
+             }
+         }
+     }
+ 
+     if let Err(cycle) = start_order(&config.services, None) {
+         out.push(Diagnostic::error("services", cycle));
+     }

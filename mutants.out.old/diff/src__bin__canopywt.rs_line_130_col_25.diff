@@ -1,0 +1,21 @@
+--- src/bin/canopywt.rs
++++ delete match arm (None, _, true) in run
+@@ -122,17 +122,17 @@
+             let worktrees = canopy.list()?;
+             if cli.json {
+                 emit("list", &worktrees);
+             } else {
+                 for entry in &worktrees {
+                     let what = match (&entry.branch, entry.bare, entry.detached) {
+                         (Some(branch), _, _) => branch.clone(),
+                         (None, true, _) => "(bare)".to_owned(),
+-                        (None, _, true) => format!("(detached {})", short(entry.head.as_deref())),
++                         /* ~ changed by cargo-mutants ~ */
+                         _ => "(no branch)".to_owned(),
+                     };
+                     println!("{:<24} {}", what, entry.path);
+                 }
+             }
+         }
+         Command::Config(ref config_command) => return run_config(cli, &canopy, config_command),
+     }

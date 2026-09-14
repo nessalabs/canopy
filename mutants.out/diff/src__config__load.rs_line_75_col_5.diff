@@ -1,0 +1,21 @@
+--- src/config/load.rs
++++ replace load_file -> Result<Parsed> with Ok(Default::default())
+@@ -67,17 +67,17 @@
+         return Some(Utf8PathBuf::from(xdg).join("canopywt"));
+     }
+     let home = home.filter(|value| !value.is_empty())?;
+     Some(Utf8PathBuf::from(home).join(".config").join("canopywt"))
+ }
+ 
+ /// Reads and parses a specific file.
+ pub fn load_file(path: &Utf8Path) -> Result<Parsed> {
+-    Ok(parse_str(&std::fs::read_to_string(path)?))
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// A starter file, written by `canopywt config init`.
+ ///
+ /// Commented rather than minimal: the first question after "how do I start" is always "what
+ /// else can go in here", and the answer belongs next to the example.
+ pub const STARTER: &str = r#"version: 1
+ # name: my-app

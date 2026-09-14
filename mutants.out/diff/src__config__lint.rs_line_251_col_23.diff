@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ replace != with == in lint
+@@ -243,17 +243,17 @@
+     }
+     Ok(order)
+ }
+ 
+ /// Every semantic rule, in the order a reader would want them.
+ pub fn lint(config: &CanopyConfig) -> Vec<Diagnostic> {
+     let mut out = Vec::new();
+ 
+-    if config.version != 1 {
++    if config.version == /* ~ changed by cargo-mutants ~ */ 1 {
+         out.push(Diagnostic::error(
+             "version",
+             format!("unsupported version {} — this tool understands version 1", config.version),
+         ));
+         // Every other rule assumes the v1 shape; reporting them too would be noise.
+         return out;
+     }
+ 

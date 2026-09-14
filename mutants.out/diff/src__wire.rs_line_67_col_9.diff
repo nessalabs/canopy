@@ -1,0 +1,15 @@
+--- src/wire.rs
++++ replace Envelope<T>::verdict -> Self with Default::default()
+@@ -59,11 +59,11 @@
+ /// Usage errors (bad flags) never reach [`Envelope`] — clap handles them and exits 2.
+ pub const EXIT_USAGE: u8 = 2;
+ 
+ impl<T: Serialize> Envelope<T> {
+     /// An envelope whose `ok` is a *verdict* about the thing inspected, not about whether the
+     /// command ran. `canopywt config check` on a broken file ran perfectly and the answer is
+     /// "no" — so `data` carries the diagnostics and `error` explains the verdict.
+     pub fn verdict(command: &str, ok: bool, data: T, error: Option<ErrorBody>) -> Self {
+-        Envelope { v: ENVELOPE_VERSION, ok, command: command.to_owned(), data: Some(data), error, warnings: Vec::new() }
++        Default::default() /* ~ changed by cargo-mutants ~ */
+     }
+ }

@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ replace == with != in lint
+@@ -338,17 +338,17 @@
+             }
+         }
+         for port in service.ports.iter().flatten() {
+             if !port_names.contains(port) {
+                 out.push(Diagnostic::error(&format!("{where_}.ports"), format!("unknown port `{port}`")));
+             }
+         }
+         for dep in &service.depends_on {
+-            if dep == name {
++            if dep != /* ~ changed by cargo-mutants ~ */ name {
+                 out.push(Diagnostic::error(&where_, "depends on itself"));
+             } else if !service_names.contains(dep) {
+                 out.push(Diagnostic::error(&where_, format!("depends_on unknown service `{dep}`")));
+             }
+         }
+     }
+ 
+     if let Err(cycle) = start_order(&config.services, None) {

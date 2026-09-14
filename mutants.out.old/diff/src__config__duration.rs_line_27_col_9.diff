@@ -1,0 +1,21 @@
+--- src/config/duration.rs
++++ replace Duration::as_millis -> u64 with 0
+@@ -19,17 +19,17 @@
+         Duration(ms)
+     }
+ 
+     pub const fn from_secs(secs: u64) -> Duration {
+         Duration(secs * 1000)
+     }
+ 
+     pub const fn as_millis(self) -> u64 {
+-        self.0
++        0 /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     pub const fn as_std(self) -> std::time::Duration {
+         std::time::Duration::from_millis(self.0)
+     }
+ 
+     /// Parses `<digits><ms|s|m>`. The error text is what the user sees in a lint message.
+     pub fn parse(text: &str) -> Result<Duration, DurationError> {

@@ -1,0 +1,37 @@
+--- src/config/lint.rs
++++ replace service_ports -> Vec<String> with vec![]
+@@ -147,33 +147,17 @@
+ 
+ /// Named ports a service listens on.
+ ///
+ /// Explicit `ports:` wins. Otherwise: every `${ports.x}` in the run command, plus env values
+ /// that are a *bare* port reference. `API_URL: http://h:${ports.api}` is deliberately excluded —
+ /// a port embedded in a URL points at some *other* service, and counting it would have two
+ /// services claiming the same port.
+ pub fn service_ports(service: &ServiceSpec) -> Vec<String> {
+-    if let Some(ports) = &service.ports {
+-        return ports.clone();
+-    }
+-    let mut names = BTreeSet::new();
+-    if let Some(run) = &service.run {
+-        for reference in template_refs(run) {
+-            if reference.scope == "ports" {
+-                names.insert(reference.name);
+-            }
+-        }
+-    }
+-    for value in service.env.values() {
+-        if let Some(name) = bare_port_ref(value) {
+-            names.insert(name);
+-        }
+-    }
+-    names.into_iter().collect()
++    vec![] /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// `"${ports.web}"` and nothing else (surrounding whitespace allowed).
+ fn bare_port_ref(value: &str) -> Option<String> {
+     let trimmed = value.trim();
+     let inner = trimmed.strip_prefix("${")?.strip_suffix('}')?;
+     let name = inner.strip_prefix("ports.")?;
+     let ok = !name.is_empty()

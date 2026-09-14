@@ -116,6 +116,9 @@ mod tests {
     #[case("s")]
     #[case("ms")]
     #[case("-5s")]
+    // `u64::from_str` accepts a leading `+`, so without an explicit digits-only check this
+    // would quietly parse as 5 seconds.
+    #[case("+5s")]
     #[case("5 s")]
     #[case("5.5s")]
     #[case("five")]

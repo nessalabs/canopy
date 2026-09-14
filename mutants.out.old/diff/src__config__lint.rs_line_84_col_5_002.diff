@@ -1,0 +1,30 @@
+--- src/config/lint.rs
++++ replace parse_position -> (Option<u32>, Option<u32>) with (None, Some(1))
+@@ -76,26 +76,17 @@
+         self.line = Some(line);
+         self.column = Some(column);
+         self
+     }
+ }
+ 
+ /// Reads `line 3 column 12: …` out of a parser message.
+ fn parse_position(text: &str) -> (Option<u32>, Option<u32>) {
+-    let rest = match text.strip_prefix("line ") {
+-        Some(rest) => rest,
+-        None => return (None, None),
+-    };
+-    let (line, rest) = match rest.split_once(" column ") {
+-        Some(pair) => pair,
+-        None => return (None, None),
+-    };
+-    let column = rest.split(|c: char| !c.is_ascii_digit()).next().unwrap_or("");
+-    (line.parse().ok(), column.parse().ok())
++    (None, Some(1)) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// A `${scope.name.field}` reference found in a string.
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct TemplateRef {
+     pub scope: String,
+     pub name: String,
+     pub field: Option<String>,

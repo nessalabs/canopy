@@ -1,0 +1,36 @@
+--- src/bin/canopywt.rs
++++ replace main -> ExitCode with Default::default()
+@@ -65,32 +65,17 @@
+             Command::Config(ConfigCommand::Show) => "config show",
+             Command::Config(ConfigCommand::Path) => "config path",
+             Command::Config(ConfigCommand::Init) => "config init",
+         }
+     }
+ }
+ 
+ fn main() -> ExitCode {
+-    let cli = Cli::parse();
+-    let name = cli.command.name();
+-    match run(&cli) {
+-        Ok(code) => ExitCode::from(code),
+-        Err(error) => {
+-            if cli.json {
+-                // A failure is still a well-formed envelope on stdout: a consumer parses one
+-                // shape whatever happened, and reads `ok` to find out which.
+-                let envelope = Envelope::err(name, &error);
+-                println!("{}", serde_json::to_string(&envelope).expect("envelope is serializable"));
+-            } else {
+-                let _ = writeln!(std::io::stderr(), "canopywt: {error}");
+-            }
+-            ExitCode::from(error.code().exit_code())
+-        }
+-    }
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Returns the process exit code. Commands that report a *verdict* rather than a fault —
+ /// `config check` on an invalid file — print their own envelope and return a non-zero code,
+ /// so exactly one envelope reaches stdout either way.
+ fn run(cli: &Cli) -> Result<u8> {
+     // `config init` is the one command that must work before there is a repository: it is
+     // what you run to create the file, possibly in a directory you have just made.

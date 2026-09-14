@@ -107,37 +107,42 @@ pub struct TemplateRef {
 /// `${scope.name.field}` with lowercase-ish identifiers, and a malformed one is simply not a
 /// reference (it stays in the string verbatim, which is what interpolation does too).
 pub fn template_refs(text: &str) -> Vec<TemplateRef> {
-    let bytes = text.as_bytes();
     let mut refs = Vec::new();
-    let mut i = 0;
-    while let Some(start) = text[i..].find("${") {
-        let open = i + start + 2;
-        let Some(close) = text[open..].find('}') else { break };
-        let close = open + close;
-        let inner = &text[open..close];
-        i = close + 1;
-        // Only `[a-z0-9_.-]` is a reference; anything else is a shell expansion or literal
-        // text that happens to look similar, and must be left alone.
-        if inner.is_empty()
-            || !inner
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-' || b == b'.')
-        {
-            continue;
+    let mut rest = text;
+    // Index arithmetic would say the same thing, but every offset is a place to be off by one
+    // and there is no way to write a test that proves you were not.
+    while let Some((_, after_open)) = rest.split_once("${") {
+        let Some((inner, tail)) = after_open.split_once('}') else { break };
+        rest = tail;
+        if let Some(reference) = parse_ref(inner) {
+            refs.push(reference);
         }
-        let mut parts = inner.split('.');
-        let (Some(scope), Some(name)) = (parts.next(), parts.next()) else { continue };
-        if scope.is_empty() || name.is_empty() {
-            continue;
-        }
-        let field = parts.next().map(str::to_owned);
-        if parts.next().is_some() {
-            continue; // more than three segments is not our grammar
-        }
-        refs.push(TemplateRef { scope: scope.to_owned(), name: name.to_owned(), field });
     }
-    let _ = bytes;
     refs
+}
+
+/// The inside of a `${…}`, if it is a reference at all.
+///
+/// Only `[a-z0-9_-]` segments count. `${CANOPY_HOME}` and `${ports.WEB}` are shaped like
+/// references but are not ones — they are shell expansions or literal text, and reporting
+/// "unknown port WEB" for them would be worse than useless.
+fn parse_ref(inner: &str) -> Option<TemplateRef> {
+    let mut parts = inner.split('.');
+    let scope = parts.next().filter(|part| is_ref_segment(part))?;
+    let name = parts.next().filter(|part| is_ref_segment(part))?;
+    let field = match parts.next() {
+        Some(field) => Some(field.to_owned()).filter(|part| is_ref_segment(part))?.into(),
+        None => None,
+    };
+    // More than three segments is not our grammar.
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(TemplateRef { scope: scope.to_owned(), name: name.to_owned(), field })
+}
+
+fn is_ref_segment(part: &str) -> bool {
+    !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
 }
 
 /// Named ports a service listens on.

@@ -72,3 +72,67 @@ fn only_lock_contention_is_retryable() {
         assert_eq!(code.exit_code(), expected, "{} has the wrong exit code", code.as_str());
     }
 }
+
+#[test]
+fn a_git_failure_carries_gits_own_stderr() {
+    // Translating git's message would lose the part the user needs ("fatal: a branch named 'x'
+    // already exists"), so it is passed through in `error.details`.
+    let fx = Fixture::new();
+    let out = fx.cwt().args(["list", "--json"]).env("CANOPYWT_GIT", "/usr/bin/false").output().unwrap();
+
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["ok"], false);
+    // Crucially *not* `not_a_repository`: a git that fails for some other reason must not be
+    // reported as "you are not in a repo", which would send the user looking in the wrong place.
+    assert_eq!(value["error"]["code"], "git_failed");
+    let details = &value["error"]["details"];
+    assert!(details["args"].as_str().unwrap().contains("rev-parse"), "details name the command: {details}");
+    assert!(details["status"].is_string(), "details carry the exit status: {details}");
+}
+
+#[test]
+fn an_invalid_config_error_says_how_many() {
+    let fx = Fixture::new();
+    fx.write("canopy.yaml", "version: 1\nservices:\n  a:\n    run: x ${ports.nope}\n");
+    let out = fx.cwt().args(["config", "show", "--json"]).output().unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["error"]["code"], "config_invalid");
+    assert_eq!(value["error"]["details"]["errors"], 1);
+}
+
+#[test]
+fn human_list_output_shortens_a_detached_head() {
+    let fx = Fixture::new();
+    let head = fx.git(["rev-parse", "HEAD"]).trim().to_owned();
+    let wt = fx.root.parent().unwrap().join("loose");
+    fx.git(["worktree", "add", "--detach", wt.as_str(), &head]);
+
+    let out = fx.cwt().arg("list").output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    // A full 40-character sha in a column would push the path off the screen.
+    assert!(text.contains(&format!("(detached {})", &head[..8])), "got: {text}");
+    assert!(!text.contains(&head), "the full sha should not appear: {text}");
+}
+
+#[test]
+fn human_config_path_output_names_the_source_in_words() {
+    let fx = Fixture::new();
+    fx.write("canopy.yaml", CONFIG);
+    let out = fx.cwt().args(["config", "path"]).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    // "worktree" is the enum's wire name; the human form should read like a sentence.
+    assert!(text.contains("this worktree"), "got: {text}");
+}
+
+#[test]
+fn human_list_output_labels_a_bare_repo() {
+    let fx = Fixture::new();
+    let bare = fx.root.parent().unwrap().join("bare.git");
+    fx.git_in(fx.root.parent().unwrap(), ["clone", "--bare", fx.root.as_str(), bare.as_str()]);
+
+    let out = fx.cwt_in(&bare).arg("list").output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    // A bare entry has neither branch nor head, so without its own arm it would print as a
+    // blank column.
+    assert!(text.contains("(bare)"), "got: {text}");
+}

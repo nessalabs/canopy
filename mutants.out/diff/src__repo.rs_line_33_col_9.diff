@@ -1,0 +1,41 @@
+--- src/repo.rs
++++ replace Repo::discover -> Result<Repo> with Ok(Default::default())
+@@ -25,37 +25,17 @@
+ 
+ impl Repo {
+     /// Discovers the repository containing `cwd`.
+     pub fn discover(git: Git, cwd: &Utf8Path) -> Result<Repo> {
+         // Two calls, not one. `--show-toplevel` cannot be batched with the others: in a bare
+         // repo it fails the *whole* rev-parse with "this operation must be run in a work tree",
+         // which would make every bare repo look like an error instead of a repo without a
+         // checkout.
+-        let out = git.run(cwd, ["rev-parse", "--path-format=absolute", "--git-common-dir", "--git-dir"]).map_err(
+-            |error| match error {
+-                // git says "not a git repository"; say which directory, which git does not.
+-                Error::GitFailed { ref stderr, .. } if stderr.contains("not a git repository") => {
+-                    Error::NotARepository(cwd.to_owned())
+-                }
+-                other => other,
+-            },
+-        )?;
+-        let mut lines = out.lines();
+-        let common_dir = next_path(&mut lines, cwd)?;
+-        let git_dir = next_path(&mut lines, cwd)?;
+-
+-        // We already know this is a repository, so the only thing a failure here can mean is
+-        // "no work tree" — a bare repo, or a worktree whose checkout has been deleted.
+-        let root = git
+-            .run(cwd, ["rev-parse", "--path-format=absolute", "--show-toplevel"])
+-            .ok()
+-            .and_then(|out| out.lines().next().filter(|l| !l.is_empty()).map(Utf8PathBuf::from));
+-
+-        Ok(Repo { root, common_dir, git_dir, git })
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// True when this repo has no main checkout of its own.
+     pub fn is_bare(&self) -> bool {
+         self.root.is_none()
+     }
+ 
+     /// A stable name for the repository: the common dir's parent directory, or the bare repo's

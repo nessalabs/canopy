@@ -1,0 +1,29 @@
+--- src/lib.rs
++++ replace Canopy::config -> Option<&(LocatedConfig, Parsed)> with None
+@@ -49,25 +49,17 @@
+         Ok(Canopy { repo: Repo::discover(git, cwd)?, config: std::cell::OnceCell::new() })
+     }
+ 
+     /// The `canopy.yaml` in effect, parsed and linted, with the path it came from.
+     ///
+     /// `None` means no config exists anywhere in the search path — a normal state for a repo
+     /// nobody has configured yet, not an error.
+     pub fn config(&self) -> Option<&(LocatedConfig, Parsed)> {
+-        self.config
+-            .get_or_init(|| {
+-                let root = self.repo.root.as_deref()?;
+-                let main = self.repo.worktrees().ok().and_then(|list| list.first().map(|e| e.path.clone()));
+-                let located = config::locate(root, main.as_deref(), &self.repo.name())?;
+-                let parsed = config::load::load_file(&located.path).ok()?;
+-                Some((located, parsed))
+-            })
+-            .as_ref()
++        None /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     pub fn repo(&self) -> &Repo {
+         &self.repo
+     }
+ 
+     /// What this repository is and where its pieces live.
+     pub fn info(&self) -> Result<RepoInfo> {

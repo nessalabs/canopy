@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ replace match guard !db_names.contains(&reference.name) with true in lint
+@@ -262,17 +262,17 @@
+     let service_names: BTreeSet<&String> = config.services.keys().collect();
+ 
+     let check_refs = |out: &mut Vec<Diagnostic>, where_: &str, text: &str| {
+         for reference in template_refs(text) {
+             match reference.scope.as_str() {
+                 "ports" if !port_names.contains(&reference.name) => {
+                     out.push(Diagnostic::error(where_, format!("unknown port `${{ports.{}}}`", reference.name)));
+                 }
+-                "db" if !db_names.contains(&reference.name) => {
++                "db" if true /* ~ changed by cargo-mutants ~ */ => {
+                     let field = reference.field.as_deref().unwrap_or("url");
+                     out.push(Diagnostic::error(
+                         where_,
+                         format!("unknown database `${{db.{}.{field}}}`", reference.name),
+                     ));
+                 }
+                 "ports" | "db" | "worktree" | "project" | "env" => {}
+                 other => out.push(Diagnostic::warning(where_, format!("unknown template scope `${{{other}.…}}`"))),

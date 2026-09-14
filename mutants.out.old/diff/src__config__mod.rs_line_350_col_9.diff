@@ -1,0 +1,40 @@
+--- src/config/mod.rs
++++ replace <impl Deserialize<'de> for SetupStep>::deserialize -> std::result::Result<Self, D::Error> with Ok(Default::default())
+@@ -342,36 +342,17 @@
+     pub env: Map<String>,
+     /// Skip when these files have the same content as in the source checkout.
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub if_changed: Option<Vec<String>>,
+ }
+ 
+ impl<'de> Deserialize<'de> for SetupStep {
+     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> std::result::Result<Self, D::Error> {
+-        #[derive(Deserialize)]
+-        #[serde(untagged)]
+-        enum Raw {
+-            Bare(String),
+-            Full {
+-                run: String,
+-                #[serde(default)]
+-                name: Option<String>,
+-                #[serde(default)]
+-                cwd: Option<String>,
+-                #[serde(default)]
+-                env: Map<String>,
+-                #[serde(default)]
+-                if_changed: Option<Vec<String>>,
+-            },
+-        }
+-        Ok(match Raw::deserialize(deserializer)? {
+-            Raw::Bare(run) => SetupStep { run, name: None, cwd: None, env: Map::new(), if_changed: None },
+-            Raw::Full { run, name, cwd, env, if_changed } => SetupStep { run, name, cwd, env, if_changed },
+-        })
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ impl SetupStep {
+     /// A name for logs and `--only`: the declared one, else `step N` (1-based), matching the
+     /// daemon's `normalizeSetupStep`.
+     pub fn label(&self, index: usize) -> String {
+         self.name.clone().unwrap_or_else(|| format!("step {}", index + 1))

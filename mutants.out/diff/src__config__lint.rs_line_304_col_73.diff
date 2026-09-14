@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ replace && with || in lint
+@@ -296,17 +296,17 @@
+             out.push(Diagnostic::error(&where_, NAME_RULE));
+         }
+         let runtime = service_runtime(service, config);
+ 
+         if service.run.is_none() && service.compose.is_none() {
+             out.push(Diagnostic::error(&where_, "needs `run:` (or `compose:`)"));
+         }
+         if runtime == Runtime::Docker
+-            && service.docker.as_ref().is_none_or(|d| d.image.is_none() && d.dockerfile.is_none())
++            && service.docker.as_ref().is_none_or(|d| d.image.is_none() || /* ~ changed by cargo-mutants ~ */ d.dockerfile.is_none())
+         {
+             out.push(Diagnostic::error(&where_, "runtime `docker` needs `docker.image` or `docker.dockerfile`"));
+         }
+         if service.compose.is_some() && service.run.is_some() {
+             out.push(Diagnostic::warning(&where_, "`run:` is ignored for a compose service"));
+         }
+ 
+         check_refs(&mut out, &format!("{where_}.run"), service.run.as_deref().unwrap_or(""));

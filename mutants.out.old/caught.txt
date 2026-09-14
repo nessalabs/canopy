@@ -1,0 +1,195 @@
+src/bin/canopywt.rs:61:9: replace Command::name -> &'static str with ""
+src/bin/canopywt.rs:97:5: replace run -> Result<u8> with Ok(1)
+src/bin/canopywt.rs:128:25: delete match arm (Some(branch), _, _) in run
+src/bin/canopywt.rs:129:25: delete match arm (None, true, _) in run
+src/bin/canopywt.rs:73:5: replace main -> ExitCode with Default::default()
+src/bin/canopywt.rs:143:5: replace run_config -> Result<u8> with Ok(0)
+src/bin/canopywt.rs:130:25: delete match arm (None, _, true) in run
+src/bin/canopywt.rs:143:5: replace run_config -> Result<u8> with Ok(1)
+src/bin/canopywt.rs:97:5: replace run -> Result<u8> with Ok(0)
+src/bin/canopywt.rs:203:22: delete ! in run_config
+src/bin/canopywt.rs:61:9: replace Command::name -> &'static str with "xyzzy"
+src/bin/canopywt.rs:217:25: delete match arm (Some(line), Some(column)) in run_config
+src/bin/canopywt.rs:248:5: replace source_label -> &'static str with "xyzzy"
+src/bin/canopywt.rs:248:5: replace source_label -> &'static str with ""
+src/bin/canopywt.rs:257:5: replace searched_description -> String with "xyzzy".into()
+src/bin/canopywt.rs:257:5: replace searched_description -> String with String::new()
+src/bin/canopywt.rs:264:5: replace emit with ()
+src/bin/canopywt.rs:274:5: replace current_dir -> Result<Utf8PathBuf> with Ok(Default::default())
+src/bin/canopywt.rs:269:5: replace short -> String with String::new()
+src/bin/canopywt.rs:269:5: replace short -> String with "xyzzy".into()
+src/lib.rs:57:9: replace Canopy::config -> Option<&(LocatedConfig, Parsed)> with None
+src/config/mod.rs:35:5: replace default_true -> bool with false
+src/lib.rs:86:9: replace Canopy::list -> Result<Vec<WorktreeEntry>> with Ok(vec![])
+src/config/mod.rs:104:9: replace EnvFile::path -> Option<&str> with None
+src/config/mod.rs:104:9: replace EnvFile::path -> Option<&str> with Some("")
+src/config/mod.rs:130:5: replace default_worktree_path -> String with String::new()
+src/config/mod.rs:104:9: replace EnvFile::path -> Option<&str> with Some("xyzzy")
+src/config/mod.rs:130:5: replace default_worktree_path -> String with "xyzzy".into()
+src/config/mod.rs:235:5: replace default_stop_signal -> String with String::new()
+src/config/mod.rs:235:5: replace default_stop_signal -> String with "xyzzy".into()
+src/config/mod.rs:267:5: replace default_interval -> Duration with Default::default()
+src/config/mod.rs:239:5: replace default_stop_timeout -> Duration with Default::default()
+src/config/mod.rs:271:5: replace default_retries -> u32 with 1
+src/config/mod.rs:284:9: replace TcpTarget::as_text -> String with String::new()
+src/config/mod.rs:311:5: replace default_workdir -> String with String::new()
+src/config/mod.rs:271:5: replace default_retries -> u32 with 0
+src/config/mod.rs:284:9: replace TcpTarget::as_text -> String with "xyzzy".into()
+src/config/mod.rs:311:5: replace default_workdir -> String with "xyzzy".into()
+src/config/mod.rs:326:5: replace default_compose_file -> String with String::new()
+src/config/mod.rs:326:5: replace default_compose_file -> String with "xyzzy".into()
+src/config/mod.rs:377:9: replace SetupStep::label -> String with "xyzzy".into()
+src/config/mod.rs:377:9: replace SetupStep::label -> String with String::new()
+src/error.rs:33:9: replace ErrorCode::as_str -> &'static str with "xyzzy"
+src/error.rs:33:9: replace ErrorCode::as_str -> &'static str with ""
+src/error.rs:54:9: replace ErrorCode::exit_code -> u8 with 0
+src/error.rs:54:9: replace ErrorCode::exit_code -> u8 with 1
+src/error.rs:55:13: delete match arm ErrorCode::Locked in ErrorCode::exit_code
+src/error.rs:117:9: replace Error::details -> Option<serde_json::Value> with None
+src/error.rs:118:13: delete match arm Error::GitFailed{args, status, stderr} in Error::details
+src/error.rs:117:9: replace Error::details -> Option<serde_json::Value> with Some(Default::default())
+src/git.rs:43:9: replace Git::run -> Result<String> with Ok(String::new())
+src/error.rs:121:13: delete match arm Error::ConfigInvalid(errors) in Error::details
+src/git.rs:43:9: replace Git::run -> Result<String> with Ok("xyzzy".into())
+src/git.rs:64:9: replace Git::run_bytes -> Result<Vec<u8>> with Ok(vec![0])
+src/git.rs:85:9: replace Git::succeeds -> bool with true
+src/git.rs:64:9: replace Git::run_bytes -> Result<Vec<u8>> with Ok(vec![])
+src/git.rs:64:9: replace Git::run_bytes -> Result<Vec<u8>> with Ok(vec![1])
+src/git.rs:85:9: replace Git::succeeds -> bool with false
+src/repo.rs:51:59: delete ! in Repo::discover
+src/repo.rs:36:56: replace match guard stderr.contains("not a git repository") with true in Repo::discover
+src/repo.rs:36:56: replace match guard stderr.contains("not a git repository") with false in Repo::discover
+src/repo.rs:58:9: replace Repo::is_bare -> bool with true
+src/repo.rs:65:9: replace Repo::name -> String with String::new()
+src/repo.rs:65:51: replace == with != in Repo::name
+src/repo.rs:58:9: replace Repo::is_bare -> bool with false
+src/repo.rs:65:9: replace Repo::name -> String with "xyzzy".into()
+src/repo.rs:75:9: replace Repo::worktrees -> Result<Vec<WorktreeEntry>> with Ok(vec![])
+src/repo.rs:116:5: replace parse_worktree_list -> Result<Vec<WorktreeEntry>> with Ok(vec![])
+src/repo.rs:119:35: replace == with != in parse_worktree_list
+src/repo.rs:87:5: replace next_path -> Result<Utf8PathBuf> with Ok(Default::default())
+src/repo.rs:134:13: delete match arm "worktree" in parse_worktree_list
+src/repo.rs:87:29: delete ! in next_path
+src/repo.rs:155:21: delete match arm "branch" in parse_worktree_list
+src/repo.rs:154:21: delete match arm "HEAD" in parse_worktree_list
+src/repo.rs:156:21: delete match arm "bare" in parse_worktree_list
+src/repo.rs:157:21: delete match arm "detached" in parse_worktree_list
+src/repo.rs:158:21: delete match arm "locked" in parse_worktree_list
+src/repo.rs:159:21: delete match arm "prunable" in parse_worktree_list
+src/config/duration.rs:27:9: replace Duration::as_millis -> u64 with 0
+src/config/duration.rs:23:23: replace * with / in Duration::from_secs
+src/config/duration.rs:23:23: replace * with + in Duration::from_secs
+src/config/duration.rs:27:9: replace Duration::as_millis -> u64 with 1
+src/config/duration.rs:38:30: replace || with && in Duration::parse
+src/config/duration.rs:36:9: replace Duration::parse -> Result<Duration, DurationError> with Ok(Default::default())
+src/config/duration.rs:38:33: delete ! in Duration::parse
+src/config/duration.rs:43:13: delete match arm "ms" in Duration::parse
+src/config/duration.rs:44:13: delete match arm "s" in Duration::parse
+src/config/duration.rs:45:13: delete match arm "m" in Duration::parse
+src/config/duration.rs:57:9: replace <impl fmt::Display for Duration>::fmt -> fmt::Result with Ok(Default::default())
+src/config/duration.rs:58:20: replace && with || in <impl fmt::Display for Duration>::fmt
+src/config/duration.rs:58:15: replace != with == in <impl fmt::Display for Duration>::fmt
+src/config/duration.rs:60:27: replace && with || in <impl fmt::Display for Duration>::fmt
+src/config/duration.rs:60:22: replace != with == in <impl fmt::Display for Duration>::fmt
+src/config/duration.rs:73:9: replace <impl fmt::Display for DurationError>::fmt -> fmt::Result with Ok(Default::default())
+src/config/duration.rs:81:9: replace <impl Deserialize<'de> for Duration>::deserialize -> Result<Self, D::Error> with Ok(Default::default())
+src/config/lint.rs:69:13: delete match arm (Some(l), Some(c)) in Diagnostic::from_yaml_error
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (None, None)
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (None, Some(0))
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (None, Some(1))
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (Some(0), None)
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (Some(0), Some(1))
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (Some(0), Some(0))
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (Some(1), None)
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (Some(1), Some(0))
+src/config/lint.rs:110:5: replace template_refs -> Vec<TemplateRef> with vec![]
+src/config/lint.rs:84:5: replace parse_position -> (Option<u32>, Option<u32>) with (Some(1), Some(1))
+src/config/lint.rs:113:37: replace + with - in template_refs
+src/config/lint.rs:92:39: delete ! in parse_position
+src/config/lint.rs:113:37: replace + with * in template_refs
+src/config/lint.rs:130:5: replace parse_ref -> Option<TemplateRef> with None
+src/config/lint.rs:116:32: replace + with - in template_refs
+src/config/lint.rs:145:5: replace is_ref_segment -> bool with false
+src/config/lint.rs:145:5: replace is_ref_segment -> bool with true
+src/config/lint.rs:145:22: replace && with || in is_ref_segment
+src/config/lint.rs:145:5: delete ! in is_ref_segment
+src/config/lint.rs:145:69: replace || with && in is_ref_segment
+src/config/lint.rs:145:96: replace == with != in is_ref_segment
+src/config/lint.rs:145:91: replace || with && in is_ref_segment
+src/config/lint.rs:145:104: replace || with && in is_ref_segment
+src/config/lint.rs:145:109: replace == with != in is_ref_segment
+src/config/lint.rs:155:5: replace service_ports -> Vec<String> with vec![]
+src/config/lint.rs:155:5: replace service_ports -> Vec<String> with vec![String::new()]
+src/config/lint.rs:155:5: replace service_ports -> Vec<String> with vec!["xyzzy".into()]
+src/config/lint.rs:161:32: replace == with != in service_ports
+src/config/lint.rs:180:9: replace && with || in bare_port_ref
+src/config/lint.rs:176:5: replace bare_port_ref -> Option<String> with None
+src/config/lint.rs:176:5: replace bare_port_ref -> Option<String> with Some("xyzzy".into())
+src/config/lint.rs:176:5: replace bare_port_ref -> Option<String> with Some(String::new())
+src/config/lint.rs:179:14: delete ! in bare_port_ref
+src/config/lint.rs:180:91: replace || with && in bare_port_ref
+src/config/lint.rs:180:78: replace || with && in bare_port_ref
+src/config/lint.rs:180:56: replace || with && in bare_port_ref
+src/config/lint.rs:180:96: replace == with != in bare_port_ref
+src/config/lint.rs:180:83: replace == with != in bare_port_ref
+src/config/lint.rs:186:5: replace service_runtime -> Runtime with Default::default()
+src/config/lint.rs:197:5: replace start_order -> Result<Vec<String>, String> with Ok(vec![])
+src/config/lint.rs:197:5: replace start_order -> Result<Vec<String>, String> with Ok(vec![String::new()])
+src/config/lint.rs:197:5: replace start_order -> Result<Vec<String>, String> with Ok(vec!["xyzzy".into()])
+src/config/lint.rs:215:9: replace start_order::visit -> Result<(), String> with Ok(())
+src/config/lint.rs:229:20: delete ! in start_order::visit
+src/config/lint.rs:251:23: replace != with == in lint
+src/config/lint.rs:267:28: replace match guard !port_names.contains(&reference.name) with true in lint
+src/config/lint.rs:249:5: replace lint -> Vec<Diagnostic> with vec![]
+src/config/lint.rs:267:28: replace match guard !port_names.contains(&reference.name) with false in lint
+src/config/lint.rs:267:28: delete ! in lint
+src/config/lint.rs:270:25: replace match guard !db_names.contains(&reference.name) with true in lint
+src/config/lint.rs:270:25: replace match guard !db_names.contains(&reference.name) with false in lint
+src/config/lint.rs:270:25: delete ! in lint
+src/config/lint.rs:284:12: delete ! in lint
+src/config/lint.rs:300:34: replace && with || in lint
+src/config/lint.rs:295:12: delete ! in lint
+src/config/lint.rs:304:13: replace && with || in lint
+src/config/lint.rs:303:20: replace == with != in lint
+src/config/lint.rs:308:38: replace && with || in lint
+src/config/lint.rs:304:73: replace && with || in lint
+src/config/lint.rs:319:20: replace != with == in lint
+src/config/lint.rs:341:16: delete ! in lint
+src/config/lint.rs:346:20: replace == with != in lint
+src/config/lint.rs:361:114: replace > with < in lint
+src/config/lint.rs:361:114: replace > with == in lint
+src/config/lint.rs:348:23: delete ! in lint
+src/config/lint.rs:361:114: replace > with >= in lint
+src/config/lint.rs:383:12: delete ! in lint
+src/config/lint.rs:398:8: delete ! in is_resource_name
+src/config/lint.rs:396:5: replace is_resource_name -> bool with false
+src/config/lint.rs:396:5: replace is_resource_name -> bool with true
+src/config/lint.rs:401:42: replace || with && in is_resource_name
+src/config/lint.rs:398:37: replace || with && in is_resource_name
+src/config/lint.rs:401:64: replace || with && in is_resource_name
+src/config/lint.rs:401:77: replace || with && in is_resource_name
+src/config/lint.rs:401:69: replace == with != in is_resource_name
+src/config/lint.rs:401:82: replace == with != in is_resource_name
+src/config/load.rs:39:5: replace locate -> Option<LocatedConfig> with None
+src/config/load.rs:43:17: replace != with == in locate
+src/config/load.rs:53:5: replace first_existing -> Option<Utf8PathBuf> with Some(Default::default())
+src/config/load.rs:53:5: replace first_existing -> Option<Utf8PathBuf> with None
+src/config/load.rs:58:5: replace user_config_dir -> Option<Utf8PathBuf> with None
+src/config/load.rs:58:5: replace user_config_dir -> Option<Utf8PathBuf> with Some(Default::default())
+src/config/load.rs:66:5: replace user_config_dir_from -> Option<Utf8PathBuf> with None
+src/config/load.rs:66:5: replace user_config_dir_from -> Option<Utf8PathBuf> with Some(Default::default())
+src/config/load.rs:69:36: delete ! in user_config_dir_from
+src/config/load.rs:66:43: delete ! in user_config_dir_from
+src/config/parse.rs:31:9: replace Parsed::is_valid -> bool with true
+src/config/parse.rs:31:9: replace Parsed::is_valid -> bool with false
+src/config/parse.rs:35:9: replace Parsed::errors -> impl Iterator<Item =&Diagnostic> with ::std::iter::empty()
+src/config/parse.rs:39:9: replace Parsed::warnings -> impl Iterator<Item =&Diagnostic> with ::std::iter::empty()
+src/config/parse.rs:35:55: replace == with != in Parsed::errors
+src/config/parse.rs:43:9: replace Parsed::error_count -> usize with 0
+src/config/parse.rs:39:55: replace == with != in Parsed::warnings
+src/config/parse.rs:43:9: replace Parsed::error_count -> usize with 1
+src/config/parse.rs:47:9: replace Parsed::warning_count -> usize with 0
+src/config/parse.rs:47:9: replace Parsed::warning_count -> usize with 1
+src/config/parse.rs:83:62: replace && with || in parse_str
+src/config/parse.rs:88:17: delete ! in parse_str
+src/config/parse.rs:88:56: replace == with != in parse_str

@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ delete ! in lint
+@@ -276,17 +276,17 @@
+                 }
+                 "ports" | "db" | "worktree" | "project" | "env" => {}
+                 other => out.push(Diagnostic::warning(where_, format!("unknown template scope `${{{other}.…}}`"))),
+             }
+         }
+     };
+ 
+     for name in config.ports.keys() {
+-        if !is_resource_name(name) {
++        if  /* ~ changed by cargo-mutants ~ */is_resource_name(name) {
+             out.push(Diagnostic::error(&format!("ports.{name}"), NAME_RULE));
+         }
+     }
+ 
+     for (key, value) in config.defaults.env.iter().chain(config.env.iter()) {
+         check_refs(&mut out, &format!("env.{key}"), value);
+     }
+ 

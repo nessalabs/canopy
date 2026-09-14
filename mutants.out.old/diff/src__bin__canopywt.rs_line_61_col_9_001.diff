@@ -1,0 +1,28 @@
+--- src/bin/canopywt.rs
++++ replace Command::name -> &'static str with "xyzzy"
+@@ -53,24 +53,17 @@
+     Path,
+     /// Print a starter canopy.yaml on stdout. Never writes; redirect it yourself.
+     Init,
+ }
+ 
+ impl Command {
+     /// The `command` field of the envelope. Stable; consumers match on it.
+     fn name(&self) -> &'static str {
+-        match self {
+-            Command::Info => "info",
+-            Command::List => "list",
+-            Command::Config(ConfigCommand::Check { .. }) => "config check",
+-            Command::Config(ConfigCommand::Show) => "config show",
+-            Command::Config(ConfigCommand::Path) => "config path",
+-            Command::Config(ConfigCommand::Init) => "config init",
+-        }
++        "xyzzy" /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ fn main() -> ExitCode {
+     let cli = Cli::parse();
+     let name = cli.command.name();
+     match run(&cli) {
+         Ok(code) => ExitCode::from(code),

@@ -1,0 +1,24 @@
+--- src/config/mod.rs
++++ replace EnvFile::path -> Option<&str> with None
+@@ -96,20 +96,17 @@
+     fn default() -> Self {
+         EnvFile::Path(".env.canopy".to_owned())
+     }
+ }
+ 
+ impl EnvFile {
+     /// The path to write, or `None` when disabled.
+     pub fn path(&self) -> Option<&str> {
+-        match self {
+-            EnvFile::Path(path) => Some(path),
+-            EnvFile::Disabled(_) => None,
+-        }
++        None /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ // ---------------------------------------------------------------------------------------
+ // Worktrees and copying
+ // ---------------------------------------------------------------------------------------
+ 
+ #[derive(Debug, Clone, Deserialize, Serialize)]

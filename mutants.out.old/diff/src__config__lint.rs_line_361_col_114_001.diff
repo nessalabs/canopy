@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ replace > with < in lint
+@@ -353,17 +353,17 @@
+ 
+     if let Err(cycle) = start_order(&config.services, None) {
+         out.push(Diagnostic::error("services", cycle));
+     }
+ 
+     for (name, db) in &config.databases {
+         let where_ = format!("databases.{name}");
+         out.push(Diagnostic::warning(&where_, "databases are not supported by this version of canopywt — ignored"));
+-        if db.seed.as_ref().is_some_and(|s| [&s.dump, &s.sql, &s.command].iter().filter(|v| v.is_some()).count() > 1) {
++        if db.seed.as_ref().is_some_and(|s| [&s.dump, &s.sql, &s.command].iter().filter(|v| v.is_some()).count() < /* ~ changed by cargo-mutants ~ */ 1) {
+             out.push(Diagnostic::error(&format!("{where_}.seed"), "use one of `dump`, `sql` or `command`"));
+         }
+     }
+ 
+     for (index, step) in config.setup.iter().enumerate() {
+         let where_ = format!("setup.{}", step.label(index));
+         check_refs(&mut out, &where_, &step.run);
+         for (key, value) in &step.env {

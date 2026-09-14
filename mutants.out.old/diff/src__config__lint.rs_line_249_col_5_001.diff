@@ -1,0 +1,160 @@
+--- src/config/lint.rs
++++ replace lint -> Vec<Diagnostic> with vec![Default::default()]
+@@ -241,156 +241,17 @@
+     for name in names {
+         visit(name, services, &selected, &mut state, &mut order, &mut Vec::new())?;
+     }
+     Ok(order)
+ }
+ 
+ /// Every semantic rule, in the order a reader would want them.
+ pub fn lint(config: &CanopyConfig) -> Vec<Diagnostic> {
+-    let mut out = Vec::new();
+-
+-    if config.version != 1 {
+-        out.push(Diagnostic::error(
+-            "version",
+-            format!("unsupported version {} — this tool understands version 1", config.version),
+-        ));
+-        // Every other rule assumes the v1 shape; reporting them too would be noise.
+-        return out;
+-    }
+-
+-    let port_names: BTreeSet<&String> = config.ports.keys().collect();
+-    let db_names: BTreeSet<&String> = config.databases.keys().collect();
+-    let service_names: BTreeSet<&String> = config.services.keys().collect();
+-
+-    let check_refs = |out: &mut Vec<Diagnostic>, where_: &str, text: &str| {
+-        for reference in template_refs(text) {
+-            match reference.scope.as_str() {
+-                "ports" if !port_names.contains(&reference.name) => {
+-                    out.push(Diagnostic::error(where_, format!("unknown port `${{ports.{}}}`", reference.name)));
+-                }
+-                "db" if !db_names.contains(&reference.name) => {
+-                    let field = reference.field.as_deref().unwrap_or("url");
+-                    out.push(Diagnostic::error(
+-                        where_,
+-                        format!("unknown database `${{db.{}.{field}}}`", reference.name),
+-                    ));
+-                }
+-                "ports" | "db" | "worktree" | "project" | "env" => {}
+-                other => out.push(Diagnostic::warning(where_, format!("unknown template scope `${{{other}.…}}`"))),
+-            }
+-        }
+-    };
+-
+-    for name in config.ports.keys() {
+-        if !is_resource_name(name) {
+-            out.push(Diagnostic::error(&format!("ports.{name}"), NAME_RULE));
+-        }
+-    }
+-
+-    for (key, value) in config.defaults.env.iter().chain(config.env.iter()) {
+-        check_refs(&mut out, &format!("env.{key}"), value);
+-    }
+-
+-    for (name, service) in &config.services {
+-        let where_ = format!("services.{name}");
+-        if !is_resource_name(name) {
+-            out.push(Diagnostic::error(&where_, NAME_RULE));
+-        }
+-        let runtime = service_runtime(service, config);
+-
+-        if service.run.is_none() && service.compose.is_none() {
+-            out.push(Diagnostic::error(&where_, "needs `run:` (or `compose:`)"));
+-        }
+-        if runtime == Runtime::Docker
+-            && service.docker.as_ref().is_none_or(|d| d.image.is_none() && d.dockerfile.is_none())
+-        {
+-            out.push(Diagnostic::error(&where_, "runtime `docker` needs `docker.image` or `docker.dockerfile`"));
+-        }
+-        if service.compose.is_some() && service.run.is_some() {
+-            out.push(Diagnostic::warning(&where_, "`run:` is ignored for a compose service"));
+-        }
+-
+-        check_refs(&mut out, &format!("{where_}.run"), service.run.as_deref().unwrap_or(""));
+-        for (key, value) in &service.env {
+-            check_refs(&mut out, &format!("{where_}.env.{key}"), value);
+-        }
+-        if let Some(health) = &service.health {
+-            let set =
+-                [health.http.is_some(), health.tcp.is_some(), health.cmd.is_some()].iter().filter(|x| **x).count();
+-            if set != 1 {
+-                out.push(Diagnostic::error(&format!("{where_}.health"), "exactly one of `http`, `tcp` or `cmd`"));
+-            }
+-            if let Some(http) = &health.http {
+-                check_refs(&mut out, &format!("{where_}.health.http"), http);
+-                // Burned once for real: vite binds 127.0.0.1 while `localhost` resolves to ::1
+-                // first on macOS, so the check fails against a service that is up.
+-                if http.contains("//localhost") {
+-                    out.push(Diagnostic::warning(
+-                        &format!("{where_}.health.http"),
+-                        "`localhost` resolves to ::1 before 127.0.0.1 on macOS — use 127.0.0.1 if the service binds IPv4",
+-                    ));
+-                }
+-            }
+-            if let Some(tcp) = &health.tcp {
+-                check_refs(&mut out, &format!("{where_}.health.tcp"), &tcp.as_text());
+-            }
+-            if let Some(cmd) = &health.cmd {
+-                check_refs(&mut out, &format!("{where_}.health.cmd"), cmd);
+-            }
+-        }
+-        for port in service.ports.iter().flatten() {
+-            if !port_names.contains(port) {
+-                out.push(Diagnostic::error(&format!("{where_}.ports"), format!("unknown port `{port}`")));
+-            }
+-        }
+-        for dep in &service.depends_on {
+-            if dep == name {
+-                out.push(Diagnostic::error(&where_, "depends on itself"));
+-            } else if !service_names.contains(dep) {
+-                out.push(Diagnostic::error(&where_, format!("depends_on unknown service `{dep}`")));
+-            }
+-        }
+-    }
+-
+-    if let Err(cycle) = start_order(&config.services, None) {
+-        out.push(Diagnostic::error("services", cycle));
+-    }
+-
+-    for (name, db) in &config.databases {
+-        let where_ = format!("databases.{name}");
+-        out.push(Diagnostic::warning(&where_, "databases are not supported by this version of canopywt — ignored"));
+-        if db.seed.as_ref().is_some_and(|s| [&s.dump, &s.sql, &s.command].iter().filter(|v| v.is_some()).count() > 1) {
+-            out.push(Diagnostic::error(&format!("{where_}.seed"), "use one of `dump`, `sql` or `command`"));
+-        }
+-    }
+-
+-    for (index, step) in config.setup.iter().enumerate() {
+-        let where_ = format!("setup.{}", step.label(index));
+-        check_refs(&mut out, &where_, &step.run);
+-        for (key, value) in &step.env {
+-            check_refs(&mut out, &format!("{where_}.env.{key}"), value);
+-        }
+-    }
+-
+-    if let EnvFile::Disabled(true) = config.env_file {
+-        out.push(Diagnostic::error("env_file", "use a path or `false`; `true` means nothing"));
+-    }
+-
+-    if config.services.is_empty() {
+-        out.push(Diagnostic::warning("services", "no services — nothing will run"));
+-    }
+-    let exposed: BTreeSet<String> = config.services.values().flat_map(service_ports).collect();
+-    for port in &port_names {
+-        if !exposed.contains(*port) {
+-            out.push(Diagnostic::warning(&format!("ports.{port}"), "not referenced by any service"));
+-        }
+-    }
+-
+-    out
++    vec![Default::default()] /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ const NAME_RULE: &str =
+     "names may contain lowercase letters, digits, `_` and `-`, and must start with a letter or digit";
+ 
+ /// The `ResourceName` rule: safe in env var names, paths and container names alike.
+ fn is_resource_name(name: &str) -> bool {
+     let mut chars = name.bytes();

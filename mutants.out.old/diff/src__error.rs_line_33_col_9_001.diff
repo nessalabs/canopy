@@ -1,0 +1,36 @@
+--- src/error.rs
++++ replace ErrorCode::as_str -> &'static str with "xyzzy"
+@@ -25,32 +25,17 @@
+     ServiceFailed,
+     Locked,
+     Io,
+ }
+ 
+ impl ErrorCode {
+     /// The wire string. Exhaustive by construction: a new variant will not compile without a case.
+     pub const fn as_str(self) -> &'static str {
+-        match self {
+-            ErrorCode::NotARepository => "not_a_repository",
+-            ErrorCode::GitFailed => "git_failed",
+-            ErrorCode::ConfigInvalid => "config_invalid",
+-            ErrorCode::ConfigNotFound => "config_not_found",
+-            ErrorCode::BranchNotFound => "branch_not_found",
+-            ErrorCode::WorktreeExists => "worktree_exists",
+-            ErrorCode::WorktreeNotFound => "worktree_not_found",
+-            ErrorCode::WorktreeDirty => "worktree_dirty",
+-            ErrorCode::WorktreeCreateFailed => "worktree_create_failed",
+-            ErrorCode::WorktreeRemoveFailed => "worktree_remove_failed",
+-            ErrorCode::PortInUse => "port_in_use",
+-            ErrorCode::ServiceFailed => "service_failed",
+-            ErrorCode::Locked => "locked",
+-            ErrorCode::Io => "io",
+-        }
++        "xyzzy" /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// Process exit status. `3` is reserved for lock contention so a caller can retry it
+     /// without parsing anything.
+     pub const fn exit_code(self) -> u8 {
+         match self {
+             ErrorCode::Locked => 3,
+             _ => 1,

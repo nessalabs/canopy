@@ -1,0 +1,21 @@
+--- src/repo.rs
++++ delete ! in next_path
+@@ -79,17 +79,17 @@
+     /// A directory we can run git from. The common dir always exists, even when the repo is
+     /// bare or the checkout we were invoked from has been deleted underneath us.
+     fn any_cwd(&self) -> &Utf8Path {
+         self.root.as_deref().unwrap_or(&self.common_dir)
+     }
+ }
+ 
+ fn next_path<'a>(lines: &mut impl Iterator<Item = &'a str>, cwd: &Utf8Path) -> Result<Utf8PathBuf> {
+-    lines.next().filter(|l| !l.is_empty()).map(Utf8PathBuf::from).ok_or_else(|| Error::NotARepository(cwd.to_owned()))
++    lines.next().filter(|l|  /* ~ changed by cargo-mutants ~ */l.is_empty()).map(Utf8PathBuf::from).ok_or_else(|| Error::NotARepository(cwd.to_owned()))
+ }
+ 
+ /// One entry of `git worktree list --porcelain`.
+ #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+ pub struct WorktreeEntry {
+     pub path: Utf8PathBuf,
+     /// Absent for a worktree that has never been checked out, and for a bare entry.
+     #[serde(skip_serializing_if = "Option::is_none")]

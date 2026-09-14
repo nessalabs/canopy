@@ -1,0 +1,24 @@
+--- src/config/lint.rs
++++ replace service_runtime -> Runtime with Default::default()
+@@ -178,20 +178,17 @@
+     let name = inner.strip_prefix("ports.")?;
+     let ok = !name.is_empty()
+         && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+     ok.then(|| name.to_owned())
+ }
+ 
+ /// The effective runtime for a service, given the file's defaults.
+ pub fn service_runtime(service: &ServiceSpec, config: &CanopyConfig) -> Runtime {
+-    if service.compose.is_some() {
+-        return Runtime::Compose;
+-    }
+-    service.runtime.unwrap_or(config.defaults.runtime)
++    Default::default() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Topological start order. `Err` names the cycle.
+ pub fn start_order(
+     services: &BTreeMap<String, ServiceSpec>,
+     include: Option<&BTreeSet<String>>,
+ ) -> Result<Vec<String>, String> {
+     #[derive(Clone, Copy, PartialEq)]

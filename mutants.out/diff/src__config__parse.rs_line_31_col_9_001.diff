@@ -1,0 +1,21 @@
+--- src/config/parse.rs
++++ replace Parsed::is_valid -> bool with false
+@@ -23,17 +23,17 @@
+     /// `None` when the file could not be understood, or when lint found an error. A caller
+     /// that has a config can act on it without checking anything else.
+     pub config: Option<CanopyConfig>,
+     pub diagnostics: Vec<Diagnostic>,
+ }
+ 
+ impl Parsed {
+     pub fn is_valid(&self) -> bool {
+-        self.config.is_some()
++        false /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
+         self.diagnostics.iter().filter(|d| d.severity == Severity::Error)
+     }
+ 
+     pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
+         self.diagnostics.iter().filter(|d| d.severity == Severity::Warning)

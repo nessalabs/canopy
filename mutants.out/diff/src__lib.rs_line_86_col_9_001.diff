@@ -1,0 +1,21 @@
+--- src/lib.rs
++++ replace Canopy::list -> Result<Vec<WorktreeEntry>> with Ok(vec![Default::default()])
+@@ -78,17 +78,17 @@
+             git_dir: self.repo.git_dir.clone(),
+             bare: self.repo.is_bare(),
+             worktrees: self.repo.worktrees()?.len(),
+         })
+     }
+ 
+     /// Every worktree git knows about.
+     pub fn list(&self) -> Result<Vec<WorktreeEntry>> {
+-        self.repo.worktrees()
++        Ok(vec![Default::default()]) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ /// `canopywt info`.
+ #[derive(Debug, Clone, Serialize)]
+ pub struct RepoInfo {
+     /// Stable repository name — the common dir's parent.
+     pub name: String,

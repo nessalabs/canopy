@@ -1,0 +1,20 @@
+--- src/config/parse.rs
++++ replace && with || in parse_str
+@@ -75,16 +75,16 @@
+         .map(|path| {
+             let leaf = path.rsplit('.').next().unwrap_or(&path).to_owned();
+             Diagnostic::warning(&path, format!("unknown key `{leaf}` — ignored"))
+         })
+         .collect();
+ 
+     // A tab in YAML indentation is legal inside a scalar and illegal as indentation; the
+     // parser's message for it is obscure enough to be worth calling out separately.
+-    if text.lines().any(|line| line.starts_with(['\t', ' ']) && line.contains('\t')) {
++    if text.lines().any(|line| line.starts_with(['\t', ' ']) || /* ~ changed by cargo-mutants ~ */ line.contains('\t')) {
+         diagnostics.push(Diagnostic::warning("<root>", "tab characters found — YAML indentation must use spaces"));
+     }
+ 
+     diagnostics.extend(lint(&config));
+     let valid = !diagnostics.iter().any(|d| d.severity == Severity::Error);
+     Parsed { config: valid.then_some(config), diagnostics }
+ }

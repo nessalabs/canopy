@@ -1,0 +1,8 @@
+# `cargo mutants` injects bugs and reports which ones the tests fail to notice.
+# The suite currently catches every viable mutant; a MISSED line is a test gap.
+#
+#   cargo mutants -j 4
+#
+# The binary's `main` is excluded: it is argument plumbing whose only behaviour is the exit
+# code, which the integration tests already assert directly.
+exclude_re = ["^main$"]

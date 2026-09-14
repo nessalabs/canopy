@@ -1,0 +1,28 @@
+--- src/config/duration.rs
++++ replace <impl fmt::Display for Duration>::fmt -> fmt::Result with Ok(Default::default())
+@@ -49,24 +49,17 @@
+         };
+         Ok(Duration(millis))
+     }
+ }
+ 
+ impl fmt::Display for Duration {
+     /// Round-trips: the shortest spelling that parses back to the same value.
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+-        let ms = self.0;
+-        if ms != 0 && ms.is_multiple_of(60_000) {
+-            write!(f, "{}m", ms / 60_000)
+-        } else if ms != 0 && ms.is_multiple_of(1000) {
+-            write!(f, "{}s", ms / 1000)
+-        } else {
+-            write!(f, "{ms}ms")
+-        }
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ #[derive(Debug, Clone, PartialEq, Eq)]
+ pub struct DurationError(String);
+ 
+ impl fmt::Display for DurationError {
+     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

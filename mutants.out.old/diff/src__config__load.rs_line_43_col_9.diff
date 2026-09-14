@@ -1,0 +1,21 @@
+--- src/config/load.rs
++++ replace && with || in locate
+@@ -35,17 +35,17 @@
+ }
+ 
+ /// The config file that applies to `worktree_root`, or `None` when there is none anywhere.
+ pub fn locate(worktree_root: &Utf8Path, main_checkout: Option<&Utf8Path>, repo_name: &str) -> Option<LocatedConfig> {
+     if let Some(path) = first_existing(worktree_root) {
+         return Some(LocatedConfig { path, source: ConfigSource::Worktree });
+     }
+     if let Some(main) = main_checkout
+-        && main != worktree_root
++        || /* ~ changed by cargo-mutants ~ */ main != worktree_root
+         && let Some(path) = first_existing(main)
+     {
+         return Some(LocatedConfig { path, source: ConfigSource::MainCheckout });
+     }
+     let user_dir = user_config_dir()?.join(repo_name);
+     first_existing(&user_dir).map(|path| LocatedConfig { path, source: ConfigSource::UserConfig })
+ }
+ 

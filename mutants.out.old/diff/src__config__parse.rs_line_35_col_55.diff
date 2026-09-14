@@ -1,0 +1,21 @@
+--- src/config/parse.rs
++++ replace == with != in Parsed::errors
+@@ -27,17 +27,17 @@
+ }
+ 
+ impl Parsed {
+     pub fn is_valid(&self) -> bool {
+         self.config.is_some()
+     }
+ 
+     pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
+-        self.diagnostics.iter().filter(|d| d.severity == Severity::Error)
++        self.diagnostics.iter().filter(|d| d.severity != /* ~ changed by cargo-mutants ~ */ Severity::Error)
+     }
+ 
+     pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
+         self.diagnostics.iter().filter(|d| d.severity == Severity::Warning)
+     }
+ 
+     pub fn error_count(&self) -> usize {
+         self.errors().count()

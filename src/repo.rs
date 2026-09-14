@@ -53,10 +53,6 @@ impl Repo {
         Ok(Repo { root, common_dir, git_dir, git })
     }
 
-    pub fn git(&self) -> &Git {
-        &self.git
-    }
-
     /// True when this repo has no main checkout of its own.
     pub fn is_bare(&self) -> bool {
         self.root.is_none()

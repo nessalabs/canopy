@@ -1,0 +1,21 @@
+--- src/config/duration.rs
++++ replace Duration::as_std -> std::time::Duration with Default::default()
+@@ -23,17 +23,17 @@
+         Duration(secs * 1000)
+     }
+ 
+     pub const fn as_millis(self) -> u64 {
+         self.0
+     }
+ 
+     pub const fn as_std(self) -> std::time::Duration {
+-        std::time::Duration::from_millis(self.0)
++        Default::default() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     /// Parses `<digits><ms|s|m>`. The error text is what the user sees in a lint message.
+     pub fn parse(text: &str) -> Result<Duration, DurationError> {
+         let digits = text.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+         let unit = &text[digits.len()..];
+         if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+             return Err(DurationError(text.to_owned()));

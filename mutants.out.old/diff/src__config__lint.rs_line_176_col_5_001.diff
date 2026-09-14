@@ -1,0 +1,26 @@
+--- src/config/lint.rs
++++ replace bare_port_ref -> Option<String> with Some(String::new())
+@@ -168,22 +168,17 @@
+             names.insert(name);
+         }
+     }
+     names.into_iter().collect()
+ }
+ 
+ /// `"${ports.web}"` and nothing else (surrounding whitespace allowed).
+ fn bare_port_ref(value: &str) -> Option<String> {
+-    let trimmed = value.trim();
+-    let inner = trimmed.strip_prefix("${")?.strip_suffix('}')?;
+-    let name = inner.strip_prefix("ports.")?;
+-    let ok = !name.is_empty()
+-        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-');
+-    ok.then(|| name.to_owned())
++    Some(String::new()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// The effective runtime for a service, given the file's defaults.
+ pub fn service_runtime(service: &ServiceSpec, config: &CanopyConfig) -> Runtime {
+     if service.compose.is_some() {
+         return Runtime::Compose;
+     }
+     service.runtime.unwrap_or(config.defaults.runtime)

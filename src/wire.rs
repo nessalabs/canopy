@@ -7,7 +7,7 @@
 
 use serde::Serialize;
 
-use crate::error::{Error, ErrorCode};
+use crate::error::Error;
 
 /// Bumped only for a breaking change to the envelope itself, never for new `data` fields.
 pub const ENVELOPE_VERSION: u32 = 1;
@@ -56,20 +56,8 @@ impl Envelope<()> {
     }
 }
 
-/// Exit status for a failed command; `0` is the caller's business.
-pub fn exit_code_for(error: &Error) -> i32 {
-    error.code().exit_code()
-}
-
 /// Usage errors (bad flags) never reach [`Envelope`] — clap handles them and exits 2.
-pub const EXIT_USAGE: i32 = 2;
-
-#[allow(dead_code)]
-fn _codes_are_reachable() {
-    // Keeps `ErrorCode::ALL` honest: if a variant is added to the enum but not to ALL, the
-    // `error_codes_are_exhaustive` test catches it at runtime.
-    let _ = ErrorCode::ALL;
-}
+pub const EXIT_USAGE: u8 = 2;
 
 impl<T: Serialize> Envelope<T> {
     /// An envelope whose `ok` is a *verdict* about the thing inspected, not about whether the

@@ -1,0 +1,27 @@
+--- src/config/lint.rs
++++ replace Diagnostic::error -> Diagnostic with Default::default()
+@@ -31,23 +31,17 @@
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub line: Option<u32>,
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub column: Option<u32>,
+ }
+ 
+ impl Diagnostic {
+     pub fn error(path: &str, message: impl Into<String>) -> Diagnostic {
+-        Diagnostic {
+-            severity: Severity::Error,
+-            path: path.to_owned(),
+-            message: message.into(),
+-            line: None,
+-            column: None,
+-        }
++        Default::default() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     pub fn warning(path: &str, message: impl Into<String>) -> Diagnostic {
+         Diagnostic {
+             severity: Severity::Warning,
+             path: path.to_owned(),
+             message: message.into(),
+             line: None,

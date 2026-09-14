@@ -1,0 +1,21 @@
+--- src/config/mod.rs
++++ replace default_worktree_path -> String with String::new()
+@@ -122,17 +122,17 @@
+     /// current default branch, discovered at the time it is needed.
+     #[serde(default, skip_serializing_if = "Option::is_none")]
+     pub base: Option<String>,
+ }
+ 
+ fn default_worktree_path() -> String {
+     // Sibling of the repo rather than inside it: a worktree nested under the checkout shows up
+     // in every `git status`, every file watcher and every `rg`.
+-    "{{ repo_path }}/../{{ repo }}.{{ branch | sanitize }}".to_owned()
++    String::new() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ impl Default for WorktreeSpec {
+     fn default() -> Self {
+         WorktreeSpec { path: default_worktree_path(), base: None }
+     }
+ }
+ 

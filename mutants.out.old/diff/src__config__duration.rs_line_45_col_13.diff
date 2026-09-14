@@ -1,0 +1,21 @@
+--- src/config/duration.rs
++++ delete match arm "m" in Duration::parse
+@@ -37,17 +37,17 @@
+         let unit = &text[digits.len()..];
+         if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+             return Err(DurationError(text.to_owned()));
+         }
+         let value: u64 = digits.parse().map_err(|_| DurationError(text.to_owned()))?;
+         let millis = match unit {
+             "ms" => value,
+             "s" => value.checked_mul(1000).ok_or_else(|| DurationError(text.to_owned()))?,
+-            "m" => value.checked_mul(60_000).ok_or_else(|| DurationError(text.to_owned()))?,
++             /* ~ changed by cargo-mutants ~ */
+             // A bare number is rejected rather than assumed to be seconds: `timeout: 5` meaning
+             // 5ms in one tool and 5s in another is exactly the kind of thing that wastes an hour.
+             _ => return Err(DurationError(text.to_owned())),
+         };
+         Ok(Duration(millis))
+     }
+ }
+ 

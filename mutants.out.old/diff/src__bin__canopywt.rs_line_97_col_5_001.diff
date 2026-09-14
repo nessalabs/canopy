@@ -1,0 +1,63 @@
+--- src/bin/canopywt.rs
++++ replace run -> Result<u8> with Ok(1)
+@@ -89,59 +89,17 @@
+ }
+ 
+ /// Returns the process exit code. Commands that report a *verdict* rather than a fault —
+ /// `config check` on an invalid file — print their own envelope and return a non-zero code,
+ /// so exactly one envelope reaches stdout either way.
+ fn run(cli: &Cli) -> Result<u8> {
+     // `config init` is the one command that must work before there is a repository: it is
+     // what you run to create the file, possibly in a directory you have just made.
+-    if let Command::Config(ConfigCommand::Init) = cli.command {
+-        print!("{}", canopy_worktree::config::STARTER);
+-        return Ok(0);
+-    }
+-
+-    let cwd = match &cli.directory {
+-        Some(dir) => dir.clone(),
+-        None => current_dir()?,
+-    };
+-    let canopy = Canopy::open(&cwd)?;
+-
+-    match cli.command {
+-        Command::Info => {
+-            let info = canopy.info()?;
+-            if cli.json {
+-                emit("info", &info);
+-            } else {
+-                println!("name        {}", info.name);
+-                println!("root        {}", info.root.as_ref().map(|p| p.as_str()).unwrap_or("(bare)"));
+-                println!("common dir  {}", info.common_dir);
+-                println!("git dir     {}", info.git_dir);
+-                println!("worktrees   {}", info.worktrees);
+-            }
+-        }
+-        Command::List => {
+-            let worktrees = canopy.list()?;
+-            if cli.json {
+-                emit("list", &worktrees);
+-            } else {
+-                for entry in &worktrees {
+-                    let what = match (&entry.branch, entry.bare, entry.detached) {
+-                        (Some(branch), _, _) => branch.clone(),
+-                        (None, true, _) => "(bare)".to_owned(),
+-                        (None, _, true) => format!("(detached {})", short(entry.head.as_deref())),
+-                        _ => "(no branch)".to_owned(),
+-                    };
+-                    println!("{:<24} {}", what, entry.path);
+-                }
+-            }
+-        }
+-        Command::Config(ref config_command) => return run_config(cli, &canopy, config_command),
+-    }
+-    Ok(0)
++    Ok(1) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ fn run_config(cli: &Cli, canopy: &Canopy, command: &ConfigCommand) -> Result<u8> {
+     match command {
+         // Handled before the repo is opened.
+         ConfigCommand::Init => unreachable!("config init is handled earlier"),
+ 
+         ConfigCommand::Path => {

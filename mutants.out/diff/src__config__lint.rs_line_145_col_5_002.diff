@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ delete ! in is_ref_segment
+@@ -137,17 +137,17 @@
+     // More than three segments is not our grammar.
+     if parts.next().is_some() {
+         return None;
+     }
+     Some(TemplateRef { scope: scope.to_owned(), name: name.to_owned(), field })
+ }
+ 
+ fn is_ref_segment(part: &str) -> bool {
+-    !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
++     /* ~ changed by cargo-mutants ~ */part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+ }
+ 
+ /// Named ports a service listens on.
+ ///
+ /// Explicit `ports:` wins. Otherwise: every `${ports.x}` in the run command, plus env values
+ /// that are a *bare* port reference. `API_URL: http://h:${ports.api}` is deliberately excluded —
+ /// a port embedded in a URL points at some *other* service, and counting it would have two
+ /// services claiming the same port.

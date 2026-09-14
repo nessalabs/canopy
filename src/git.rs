@@ -112,3 +112,47 @@ struct GitOutput {
     stdout: Vec<u8>,
     stderr: Vec<u8>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A directory that certainly exists, for commands that do not care where they run.
+    fn anywhere() -> &'static Utf8Path {
+        Utf8Path::new("/")
+    }
+
+    #[test]
+    fn succeeds_reports_the_exit_status_as_the_answer() {
+        // For questions git answers with a status (`merge-base --is-ancestor`), a non-zero
+        // exit is the answer "no", not a failure to ask.
+        assert!(Git::new("/usr/bin/true").succeeds(anywhere(), ["ignored"]));
+        assert!(!Git::new("/usr/bin/false").succeeds(anywhere(), ["ignored"]));
+    }
+
+    #[test]
+    fn succeeds_is_false_when_the_binary_cannot_be_spawned() {
+        // "I could not ask" and "the answer is no" collapse to the same thing here, because
+        // every caller of `succeeds` is asking an optional question.
+        assert!(!Git::new("/nonexistent/git").succeeds(anywhere(), ["ignored"]));
+    }
+
+    #[test]
+    fn a_failing_git_becomes_an_error_carrying_its_stderr() {
+        let error = Git::new("/usr/bin/false").run(anywhere(), ["rev-parse"]).unwrap_err();
+        match error {
+            Error::GitFailed { args, status, .. } => {
+                assert_eq!(args, "rev-parse");
+                assert_eq!(status, "exit code 1");
+            }
+            other => panic!("expected GitFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_git_is_an_io_error_not_a_git_failure() {
+        // Worth distinguishing: "git is not installed" and "git said no" need different fixes.
+        let error = Git::new("/nonexistent/git").run(anywhere(), ["status"]).unwrap_err();
+        assert!(matches!(error, Error::Io(_)), "got {error:?}");
+    }
+}

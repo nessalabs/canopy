@@ -83,7 +83,7 @@ fn main() -> ExitCode {
             } else {
                 let _ = writeln!(std::io::stderr(), "canopywt: {error}");
             }
-            ExitCode::from(canopy_worktree::wire::exit_code_for(&error) as u8)
+            ExitCode::from(error.code().exit_code())
         }
     }
 }

@@ -1,0 +1,21 @@
+--- src/config/parse.rs
++++ replace Parsed::errors -> impl Iterator<Item =&Diagnostic> with ::std::iter::empty()
+@@ -27,17 +27,17 @@
+ }
+ 
+ impl Parsed {
+     pub fn is_valid(&self) -> bool {
+         self.config.is_some()
+     }
+ 
+     pub fn errors(&self) -> impl Iterator<Item = &Diagnostic> {
+-        self.diagnostics.iter().filter(|d| d.severity == Severity::Error)
++        ::std::iter::empty() /* ~ changed by cargo-mutants ~ */
+     }
+ 
+     pub fn warnings(&self) -> impl Iterator<Item = &Diagnostic> {
+         self.diagnostics.iter().filter(|d| d.severity == Severity::Warning)
+     }
+ 
+     pub fn error_count(&self) -> usize {
+         self.errors().count()

@@ -1,0 +1,25 @@
+--- src/bin/canopywt.rs
++++ replace source_label -> &'static str with "xyzzy"
+@@ -240,21 +240,17 @@
+     path: &'a str,
+     valid: bool,
+     errors: usize,
+     warnings: usize,
+     diagnostics: &'a [canopy_worktree::Diagnostic],
+ }
+ 
+ fn source_label(source: canopy_worktree::ConfigSource) -> &'static str {
+-    match source {
+-        canopy_worktree::ConfigSource::Worktree => "this worktree",
+-        canopy_worktree::ConfigSource::MainCheckout => "the main checkout",
+-        canopy_worktree::ConfigSource::UserConfig => "your user config",
+-    }
++    "xyzzy" /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Where we looked, so "no config" is actionable rather than just a refusal.
+ fn searched_description(canopy: &Canopy) -> String {
+     let root = canopy.repo().root.as_ref().map(|p| p.to_string()).unwrap_or_else(|| "(bare repo)".to_owned());
+     format!(
+         "looked in {root}, the main checkout, and your user config; `canopywt config init > canopy.yaml` writes a starter"
+     )

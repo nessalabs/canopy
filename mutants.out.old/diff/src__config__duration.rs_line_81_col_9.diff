@@ -1,0 +1,22 @@
+--- src/config/duration.rs
++++ replace <impl Deserialize<'de> for Duration>::deserialize -> Result<Self, D::Error> with Ok(Default::default())
+@@ -73,18 +73,17 @@
+         write!(f, "{:?} is not a duration like 5s, 500ms or 2m", self.0)
+     }
+ }
+ 
+ impl std::error::Error for DurationError {}
+ 
+ impl<'de> Deserialize<'de> for Duration {
+     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+-        let text = String::deserialize(deserializer)?;
+-        Duration::parse(&text).map_err(D::Error::custom)
++        Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+     }
+ }
+ 
+ impl Serialize for Duration {
+     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+         serializer.serialize_str(&self.to_string())
+     }
+ }

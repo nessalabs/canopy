@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ delete match arm (Some(l), Some(c)) in Diagnostic::from_yaml_error
+@@ -61,17 +61,17 @@
+     /// wrong in a JSON field, so the first line becomes the message and the position is lifted
+     /// out into `line`/`column` where a consumer can use it.
+     pub fn from_yaml_error(error: &impl std::fmt::Display) -> Diagnostic {
+         let text = error.to_string();
+         let first = text.lines().next().unwrap_or(&text).trim_start_matches("error: ").to_owned();
+         let (line, column) = parse_position(&first);
+         // Strip the redundant "line N column M: " prefix once it is captured structurally.
+         let message = match (line, column) {
+-            (Some(l), Some(c)) => first.strip_prefix(&format!("line {l} column {c}: ")).unwrap_or(&first).to_owned(),
++             /* ~ changed by cargo-mutants ~ */
+             _ => first,
+         };
+         Diagnostic { severity: Severity::Error, path: "<root>".to_owned(), message, line, column }
+     }
+ 
+     pub fn at(mut self, line: u32, column: u32) -> Diagnostic {
+         self.line = Some(line);
+         self.column = Some(column);

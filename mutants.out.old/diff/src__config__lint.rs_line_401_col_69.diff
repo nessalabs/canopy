@@ -1,0 +1,14 @@
+--- src/config/lint.rs
++++ replace == with != in is_resource_name
+@@ -393,10 +393,10 @@
+ 
+ /// The `ResourceName` rule: safe in env var names, paths and container names alike.
+ fn is_resource_name(name: &str) -> bool {
+     let mut chars = name.bytes();
+     let Some(first) = chars.next() else { return false };
+     if !(first.is_ascii_lowercase() || first.is_ascii_digit()) {
+         return false;
+     }
+-    chars.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
++    chars.all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b != /* ~ changed by cargo-mutants ~ */ b'_' || b == b'-')
+ }

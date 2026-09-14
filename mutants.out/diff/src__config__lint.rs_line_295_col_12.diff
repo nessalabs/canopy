@@ -1,0 +1,21 @@
+--- src/config/lint.rs
++++ delete ! in lint
+@@ -287,17 +287,17 @@
+     }
+ 
+     for (key, value) in config.defaults.env.iter().chain(config.env.iter()) {
+         check_refs(&mut out, &format!("env.{key}"), value);
+     }
+ 
+     for (name, service) in &config.services {
+         let where_ = format!("services.{name}");
+-        if !is_resource_name(name) {
++        if  /* ~ changed by cargo-mutants ~ */is_resource_name(name) {
+             out.push(Diagnostic::error(&where_, NAME_RULE));
+         }
+         let runtime = service_runtime(service, config);
+ 
+         if service.run.is_none() && service.compose.is_none() {
+             out.push(Diagnostic::error(&where_, "needs `run:` (or `compose:`)"));
+         }
+         if runtime == Runtime::Docker

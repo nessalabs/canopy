@@ -1,0 +1,32 @@
+--- src/config/lint.rs
++++ replace parse_ref -> Option<TemplateRef> with Some(Default::default())
+@@ -122,28 +122,17 @@
+ }
+ 
+ /// The inside of a `${…}`, if it is a reference at all.
+ ///
+ /// Only `[a-z0-9_-]` segments count. `${CANOPY_HOME}` and `${ports.WEB}` are shaped like
+ /// references but are not ones — they are shell expansions or literal text, and reporting
+ /// "unknown port WEB" for them would be worse than useless.
+ fn parse_ref(inner: &str) -> Option<TemplateRef> {
+-    let mut parts = inner.split('.');
+-    let scope = parts.next().filter(|part| is_ref_segment(part))?;
+-    let name = parts.next().filter(|part| is_ref_segment(part))?;
+-    let field = match parts.next() {
+-        Some(field) => Some(field.to_owned()).filter(|part| is_ref_segment(part))?.into(),
+-        None => None,
+-    };
+-    // More than three segments is not our grammar.
+-    if parts.next().is_some() {
+-        return None;
+-    }
+-    Some(TemplateRef { scope: scope.to_owned(), name: name.to_owned(), field })
++    Some(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ fn is_ref_segment(part: &str) -> bool {
+     !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+ }
+ 
+ /// Named ports a service listens on.
+ ///

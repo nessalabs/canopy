@@ -215,3 +215,35 @@ fn init_works_outside_a_repository() {
     assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
     assert!(String::from_utf8_lossy(&out.stdout).contains("version: 1"));
 }
+
+#[test]
+fn a_user_level_config_is_found_when_the_repo_has_none() {
+    // The third search tier, for a repo that should not carry a canopy.yaml of its own —
+    // someone else's project you still want to run this way.
+    let fx = Fixture::new();
+    // The fixture pins XDG_CONFIG_HOME, and the repo's directory is named `repo`.
+    let user_dir = fx.home.join(".config").join("canopywt").join("repo");
+    std::fs::create_dir_all(&user_dir).unwrap();
+    std::fs::write(user_dir.join("canopy.yaml"), "version: 1\nname: from-user-config\nservices:\n  a:\n    run: x\n")
+        .unwrap();
+
+    let out = fx.cwt().args(["config", "path", "--json"]).output().unwrap();
+    let data = ok_envelope(&out.stdout)["data"].clone();
+    assert_eq!(data["source"], "user-config");
+    assert_eq!(data["path"], user_dir.join("canopy.yaml").as_str());
+}
+
+#[test]
+fn a_committed_config_beats_the_user_level_one() {
+    // Ordering matters: a file the team committed must win over one machine's preference,
+    // or two developers on the same branch get different environments.
+    let fx = Fixture::new();
+    fx.write("canopy.yaml", "version: 1\nname: committed\nservices:\n  a:\n    run: x\n");
+    let user_dir = fx.home.join(".config").join("canopywt").join("repo");
+    std::fs::create_dir_all(&user_dir).unwrap();
+    std::fs::write(user_dir.join("canopy.yaml"), "version: 1\nname: from-user-config\nservices:\n  a:\n    run: x\n")
+        .unwrap();
+
+    let out = fx.cwt().args(["config", "show", "--json"]).output().unwrap();
+    assert_eq!(ok_envelope(&out.stdout)["data"]["name"], "committed");
+}

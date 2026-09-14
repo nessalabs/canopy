@@ -1,0 +1,21 @@
+--- src/config/duration.rs
++++ replace || with && in Duration::parse
+@@ -30,17 +30,17 @@
+     pub const fn as_std(self) -> std::time::Duration {
+         std::time::Duration::from_millis(self.0)
+     }
+ 
+     /// Parses `<digits><ms|s|m>`. The error text is what the user sees in a lint message.
+     pub fn parse(text: &str) -> Result<Duration, DurationError> {
+         let digits = text.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+         let unit = &text[digits.len()..];
+-        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
++        if digits.is_empty() && /* ~ changed by cargo-mutants ~ */ !digits.bytes().all(|b| b.is_ascii_digit()) {
+             return Err(DurationError(text.to_owned()));
+         }
+         let value: u64 = digits.parse().map_err(|_| DurationError(text.to_owned()))?;
+         let millis = match unit {
+             "ms" => value,
+             "s" => value.checked_mul(1000).ok_or_else(|| DurationError(text.to_owned()))?,
+             "m" => value.checked_mul(60_000).ok_or_else(|| DurationError(text.to_owned()))?,
+             // A bare number is rejected rather than assumed to be seconds: `timeout: 5` meaning
