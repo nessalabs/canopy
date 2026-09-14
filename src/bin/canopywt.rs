@@ -150,6 +150,30 @@ enum Command {
         #[arg(long = "env")]
         env_overrides: Vec<String>,
     },
+    /// Keep a worktree's services alive in the foreground until Ctrl-C.
+    Run {
+        /// Defaults to the branch of the worktree you are in.
+        branch: Option<String>,
+        /// Supervise only these services. Repeatable.
+        #[arg(long)]
+        only: Vec<String>,
+        /// Report exits without restarting anything.
+        #[arg(long)]
+        no_restart: bool,
+        /// How often to check on things, e.g. `250ms`.
+        #[arg(long)]
+        poll: Option<String>,
+        /// First restart delay; it doubles up to `--backoff-max`.
+        #[arg(long)]
+        backoff: Option<String>,
+        #[arg(long)]
+        backoff_max: Option<String>,
+        /// Give up after this many restarts inside `--restart-window`.
+        #[arg(long)]
+        restarts: Option<u32>,
+        #[arg(long)]
+        restart_window: Option<String>,
+    },
     /// Report anything wrong with this repository's canopywt state.
     Doctor,
     /// Sweep what `doctor` reports as debris. Removes only what it can prove is dead.
@@ -246,6 +270,7 @@ impl Command {
             Command::Logs { .. } => "logs",
             Command::Copy { .. } => "copy",
             Command::Setup { .. } => "setup",
+            Command::Run { .. } => "run",
             Command::Doctor => "doctor",
             Command::Gc { .. } => "gc",
             Command::Hook(HookCommand::Install) => "hook install",
@@ -601,6 +626,81 @@ fn run(cli: &Cli) -> Result<u8> {
             return Ok(if outcome.ok { 0 } else { 1 });
         }
 
+        Command::Run {
+            ref branch,
+            ref only,
+            no_restart,
+            ref poll,
+            ref backoff,
+            ref backoff_max,
+            restarts,
+            ref restart_window,
+        } => {
+            let (_, worktree, state, env, facts_owner) = service_context(&canopy, branch.as_deref())?;
+            let default_config = canopy_worktree::config::CanopyConfig::empty();
+            let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+            let facts = facts_owner.facts();
+            let ctx = canopy_worktree::ServiceContext { worktree: &worktree, state: &state, env: &env, facts: &facts };
+
+            let mut opts = canopy_worktree::SuperviseOptions { restart: !no_restart, ..Default::default() };
+            if let Some(text) = poll {
+                opts.poll = duration_arg(text)?;
+            }
+            if let Some(text) = backoff {
+                opts.backoff.base = duration_arg(text)?;
+            }
+            if let Some(text) = backoff_max {
+                opts.backoff.max = duration_arg(text)?;
+            }
+            if let Some(count) = restarts {
+                opts.budget.restarts = count;
+            }
+            if let Some(text) = restart_window {
+                opts.budget.window = duration_arg(text)?;
+            }
+
+            // Ctrl-C has to reach a supervisor that may be asleep between polls, so it flips a
+            // flag the loop checks rather than killing us where we stand — services would
+            // otherwise be left running with nothing watching them.
+            let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+            for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
+                signal_hook::flag::register(signal, stopping.clone()).map_err(Error::Io)?;
+            }
+
+            let quiet = cli.quiet;
+            let json = cli.json;
+            let mut on_event = |event: canopy_worktree::Event| {
+                if json {
+                    // One event per line on stderr: stdout is the final envelope, and a caller
+                    // following along wants the events as they happen rather than at the end.
+                    let _ = writeln!(
+                        std::io::stderr(),
+                        "{}",
+                        serde_json::to_string(&event).expect("event is serializable")
+                    );
+                } else if !quiet {
+                    let _ = writeln!(std::io::stderr(), "{event}");
+                }
+            };
+
+            let clock = canopy_worktree::health::SystemClock::new();
+            let outcome = canopy_worktree::supervise::run(
+                &config.services,
+                selection(only).as_ref(),
+                &ctx,
+                &opts,
+                &clock,
+                &|| stopping.load(std::sync::atomic::Ordering::Relaxed),
+                &mut on_event,
+            )?;
+
+            if cli.json {
+                emit("run", &outcome);
+            } else {
+                println!("stopped after {} restart(s)", outcome.restarts);
+            }
+        }
+
         Command::Doctor => {
             let report = canopy_worktree::doctor::diagnose(canopy.repo(), &canopy.state_root(), &canopy.ports_path())?;
             // Only an error fails the command. A warning is debris `gc` sweeps as a matter of
@@ -909,6 +1009,12 @@ fn service_context(canopy: &Canopy, given: Option<&str>) -> Result<ServiceSetup>
         ports: canopy.ports_for(&branch)?,
     };
     Ok((branch, worktree, state, env, owner))
+}
+
+/// A `--flag 5s` value, with the grammar named in the error rather than a bare "invalid".
+fn duration_arg(text: &str) -> Result<canopy_worktree::config::Duration> {
+    canopy_worktree::config::Duration::parse(text)
+        .map_err(|error| Error::Module { code: canopy_worktree::ErrorCode::ConfigInvalid, message: error.to_string() })
 }
 
 /// git's answer for the hooks directory, which honours `core.hooksPath`. Guessing

@@ -29,6 +29,8 @@ const ENVELOPE_COMMANDS: &[(&[&str], &str)] = &[
     (&["new", "feat/new-one"], "new"),
     (&["rm", "feat/x"], "rm"),
     (&["doctor"], "doctor"),
+    // `run` blocks until interrupted, so it is covered by its own test in service_cli.rs
+    // rather than here; classify it so the accounting guard stays satisfied.
     (&["gc"], "gc"),
     (&["hook", "status"], "hook status"),
 ];
@@ -92,6 +94,9 @@ fn every_subcommand_is_accounted_for() {
         .iter()
         .map(|(args, _)| args[0].to_owned())
         .chain(DOCUMENT_COMMANDS.iter().map(|args| args[0].to_owned()))
+        // `run` blocks until it is interrupted, so driving it here would hang the suite. It is
+        // covered by `run_supervises_in_the_foreground_and_shuts_down_cleanly` instead.
+        .chain(std::iter::once("run".to_owned()))
         .collect();
 
     let unclassified: Vec<&String> = listed.difference(&classified).collect();

@@ -252,3 +252,70 @@ fn removing_a_worktree_stops_its_services_and_releases_its_ports() {
     assert_eq!(processes_matching(&tag), 0, "the service outlived its worktree");
     assert!(run(&fx, &["ports", "--all"]).as_array().unwrap().is_empty());
 }
+
+#[test]
+fn run_supervises_in_the_foreground_and_shuts_down_cleanly() {
+    // `run` is the only place restart policy lives, and the only one that blocks. The promise
+    // it must keep is the mirror of `up`'s: nothing survives it.
+    let bg = marker("run-bg");
+    let fg = marker("run-fg");
+    let (fx, _wt) = prepared(&format!("  grand:\n    run: {} &\n      {}\n", sleeper(&bg), sleeper(&fg)));
+
+    let mut child = fx
+        .cwt()
+        .args(["run", "feat/x", "--no-restart"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn run");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while (processes_matching(&bg) == 0 || processes_matching(&fg) == 0) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    if processes_matching(&bg) == 0 || processes_matching(&fg) == 0 {
+        let _ = child.kill();
+        let out = child.wait_with_output().expect("wait");
+        panic!(
+            "children never started.\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    // SIGINT is what Ctrl-C sends; it must reach a supervisor that may be asleep between polls.
+    unsafe_free_sigint(child.id());
+
+    let status = wait_with_timeout(&mut child, std::time::Duration::from_secs(20)).expect("run exited");
+    assert!(status.success(), "a clean shutdown is a clean exit");
+
+    // The whole point: a backgrounded grandchild does not outlive the supervisor.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while (processes_matching(&bg) > 0 || processes_matching(&fg) > 0) && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert_eq!(processes_matching(&bg), 0, "a backgrounded grandchild outlived the supervisor");
+    assert_eq!(processes_matching(&fg), 0, "a child outlived the supervisor");
+}
+
+/// SIGINT without `unsafe`: `kill` the way a shell does it.
+fn unsafe_free_sigint(pid: u32) {
+    std::process::Command::new("kill").args(["-INT", &pid.to_string()]).status().expect("kill");
+}
+
+fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout: std::time::Duration,
+) -> Option<std::process::ExitStatus> {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(status) => return Some(status),
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                return None;
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+}

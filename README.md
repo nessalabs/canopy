@@ -53,7 +53,7 @@ mutants before the next starts.
 | ✅ **M3–M4** | worktree path template, port allocation, `new` / `rm` |
 | ✅ **M5–M7** | env resolution, `copy`, `setup` |
 | ✅ **M8–M9** | services and health — `up`, `down`, `ps`, `logs` |
-| ⬜ M10 | `run` — foreground supervisor with a restart policy |
+| ✅ **M10** | `run` — foreground supervisor with restart policy and backoff |
 | ✅ **M11–M12** | `doctor`, `gc`, and the opt-in `post-checkout` bridge |
 | ✅ **M2b** | JSON Schema (`config schema`) and generated TypeScript types |
 

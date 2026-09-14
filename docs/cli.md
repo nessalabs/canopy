@@ -321,6 +321,46 @@ A failing step stops the run; later steps do not run. Exit is `1`, and `--json` 
 verdict: `ok: false` with `setup_failed`, while `data` still carries every step with the tail of
 the failing one's output.
 
+## `canopywt run [<branch>]`
+
+Keeps the services alive in the foreground until Ctrl-C. This is the **only** place restart
+policy and continuous polling exist.
+
+```console
+$ canopywt run
+api started, pid 48210
+web started, pid 48214
+api exited with code 1
+api restarting in 1000ms, attempt 1
+api started, pid 48260
+^C
+web stopped
+api stopped
+stopped after 1 restart(s)
+```
+
+Separate from `up` on purpose: an agent or a Makefile wants fire-and-forget, and a human in a
+terminal or a CI job wants a process to babysit. Conflating the two is what forces a daemon.
+
+- **restart policy** comes from each service's `restart:` — `never`, `on-failure`, `always`
+- **backoff** starts at `--backoff` (1s) and doubles to `--backoff-max` (30s); a service that
+  outlives the cap has demonstrably started, so its next failure begins at the base again
+- **crash-loop budget**: `--restarts` (5) inside `--restart-window` (60s), then it gives up.
+  Without that, one broken command pins a core forever
+- `--no-restart` reports exits without acting on them
+
+**A failing health check is reported, never acted on.** A subtly wrong check — a `localhost`
+that resolves to `::1` first on macOS — would otherwise become an infinite kill loop against a
+service that is working perfectly.
+
+Ctrl-C flips a flag the loop checks rather than killing the supervisor where it stands, because
+services would otherwise be left running with nothing watching them. Shutdown stops everything
+in reverse dependency order, and a backgrounded grandchild does not survive it — there is a test
+that asserts exactly that.
+
+Events go to stderr as they happen (one JSON object per line under `--json`), so stdout stays
+the final envelope.
+
 ## `canopywt doctor`
 
 What is wrong with this repository's canopywt state. Read-only — it reports, it never fixes.
