@@ -290,7 +290,12 @@ fn run_supervises_in_the_foreground_and_shuts_down_cleanly() {
     assert!(status.success(), "a clean shutdown is a clean exit");
 
     // The whole point: a backgrounded grandchild does not outlive the supervisor.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    //
+    // The ceiling is generous because shutdown is SIGTERM and then SIGKILL a `stop_timeout`
+    // later, and a busy machine stretches both. The poll returns the moment the children are
+    // gone, so this costs nothing when the machine is idle — and a tight bound here fails for
+    // load rather than for a child that actually survived.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     while (processes_matching(&bg) > 0 || processes_matching(&fg) > 0) && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(50));
     }

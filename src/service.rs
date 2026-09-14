@@ -1842,6 +1842,80 @@ chatty:
         assert_eq!(seen.into_inner(), ["one"], "the history is delivered a line at a time and can be cut off");
     }
 
+    #[test]
+    fn logs_follow_stops_partway_through_a_batch_of_new_lines() {
+        // The history loop and the polling loop each check the caller's condition between
+        // lines. This is the second one: a follow interrupted while delivering *new* output
+        // must stop there rather than finishing the batch it had already read.
+        let harness = Harness::new();
+        let log = log_path(&harness.state, "web");
+        fs::create_dir_all(log.parent().expect("logs dir")).expect("logs dir");
+        fs::write(&log, "history\n").expect("seed");
+
+        // Appended after the offset is taken, so these arrive through the polling loop.
+        let seen: std::cell::RefCell<Vec<String>> = std::cell::RefCell::new(Vec::new());
+        let appended = std::cell::Cell::new(false);
+        let stop_by = TestInstant::now() + FOLLOW_LIMIT;
+
+        follow(
+            &harness.state,
+            "web",
+            10,
+            Duration::from_millis(5),
+            &mut |line| seen.borrow_mut().push(line.to_owned()),
+            &|| {
+                if !appended.get() {
+                    // One write, once the history has been delivered.
+                    if seen.borrow().len() == 1 {
+                        fs::write(&log, "history\nfirst\nsecond\nthird\n").expect("append");
+                        appended.set(true);
+                    }
+                    return TestInstant::now() < stop_by;
+                }
+                // Keep going until one new line has arrived, then stop mid-batch.
+                seen.borrow().len() < 2 && TestInstant::now() < stop_by
+            },
+        )
+        .expect("follow");
+
+        let seen = seen.into_inner();
+        assert_eq!(seen, ["history", "first"], "the rest of the batch was delivered after the caller said stop");
+    }
+
+    #[test]
+    fn a_partial_last_line_is_left_for_the_next_read() {
+        // A service writing a line is not atomic: the log can end mid-line. Delivering that
+        // half now would show it twice, once broken and once whole.
+        let harness = Harness::new();
+        let log = log_path(&harness.state, "web");
+        fs::create_dir_all(log.parent().expect("logs dir")).expect("logs dir");
+        fs::write(&log, "complete\nhalf-writt").expect("seed");
+
+        let (lines, offset) = read_from(&log, 0).expect("read");
+        assert_eq!(lines, ["complete"], "an unterminated line was delivered early");
+        assert_eq!(offset, "complete\n".len() as u64, "the offset moved past the partial line");
+
+        // Once the rest arrives, the whole line is delivered exactly once.
+        fs::write(&log, "complete\nhalf-written\n").expect("finish");
+        let (rest, _) = read_from(&log, offset).expect("read");
+        assert_eq!(rest, ["half-written"]);
+    }
+
+    #[test]
+    fn a_healthy_verdict_has_no_detail_to_report() {
+        // `detail` is what went wrong; there is nothing to say about a service that is fine,
+        // and inventing a sentence would put it in the status where a problem belongs.
+        assert_eq!(verdict_detail(&Verdict::Healthy { after: Duration::ZERO, probes: 1 }), "");
+        assert_eq!(
+            verdict_detail(&Verdict::Unhealthy {
+                detail: "connection refused".to_owned(),
+                after: Duration::ZERO,
+                probes: 3
+            }),
+            "connection refused"
+        );
+    }
+
     // -----------------------------------------------------------------------------------
     // Ordering and errors
     // -----------------------------------------------------------------------------------
