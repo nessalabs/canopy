@@ -272,12 +272,12 @@ fn run_step(
     let (sender, lines) = mpsc::channel::<(Stream, String)>();
     // Both pipes are drained on their own threads. A step that fills the stderr pipe while we sit
     // reading stdout would deadlock: it blocks writing, we block reading, and neither moves.
-    let stdout = child.stdout.take().expect("stdout was piped");
-    let stderr = child.stderr.take().expect("stderr was piped");
+    let mut stdout = child.stdout.take().expect("stdout was piped");
+    let mut stderr = child.stderr.take().expect("stderr was piped");
     let stdout_sender = sender.clone();
     let pumps = [
-        std::thread::spawn(move || pump(stdout, Stream::Out, &stdout_sender)),
-        std::thread::spawn(move || pump(stderr, Stream::Err, &sender)),
+        std::thread::spawn(move || pump(&mut stdout, Stream::Out, &stdout_sender)),
+        std::thread::spawn(move || pump(&mut stderr, Stream::Err, &sender)),
     ];
 
     let mut tail: VecDeque<String> = VecDeque::new();
@@ -339,7 +339,10 @@ fn run_step(
 ///
 /// Line-at-a-time rather than read-to-end: the whole reason this runs on a thread is so a caller
 /// sees `npm ci`'s progress while it is happening.
-fn pump(reader: impl Read, stream: Stream, sender: &Sender<(Stream, String)>) {
+///
+/// `dyn` rather than a generic: stdout and stderr would otherwise each get their own copy of this
+/// loop, and a virtual call is nothing beside the `read` syscall it sits on.
+fn pump(reader: &mut dyn Read, stream: Stream, sender: &Sender<(Stream, String)>) {
     let mut reader = BufReader::new(reader);
     let mut buffer = Vec::new();
     loop {
@@ -486,14 +489,10 @@ fn collect(root: &Utf8Path, set: &GlobSet, into: &mut BTreeSet<Utf8PathBuf>) {
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
             continue;
         }
-        // A non-UTF-8 name cannot be named by a UTF-8 glob, so it cannot be one of ours.
-        let Some(path) = Utf8Path::from_path(entry.path()) else {
-            continue;
-        };
-        let Ok(relative) = path.strip_prefix(root) else {
-            continue;
-        };
-        if set.is_match(relative) {
+        // A non-UTF-8 name cannot be named by a UTF-8 glob, and the walk cannot hand back a path
+        // outside the root it was started at. Either way there is nothing here to match against.
+        let relative = Utf8Path::from_path(entry.path()).and_then(|path| path.strip_prefix(root).ok());
+        if let Some(relative) = relative.filter(|relative| set.is_match(relative)) {
             into.insert(relative.to_owned());
         }
     }
@@ -528,6 +527,7 @@ fn read_file(path: &Utf8Path) -> Result<Option<Vec<u8>>, SetupError> {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
     use std::time::Duration as StdDuration;
 
     use rstest::rstest;
@@ -567,12 +567,23 @@ mod tests {
         SetupOptions { worktree, source: None, env, force: false, only: None, timeout: None }
     }
 
-    /// Runs and collects every streamed line alongside the outcome.
-    fn run(steps: &[SetupStep], options: &SetupOptions<'_>) -> (SetupOutcome, Vec<(Stream, String)>) {
+    /// Runs and collects every streamed line alongside whatever came back.
+    ///
+    /// One callback for the whole suite, including the cases that fail before anything is
+    /// printed: a per-test `|_, _| {}` is a line of test code nothing ever runs.
+    fn try_run(
+        steps: &[SetupStep],
+        options: &SetupOptions<'_>,
+    ) -> (Result<SetupOutcome, SetupError>, Vec<(Stream, String)>) {
         let mut lines = Vec::new();
-        let outcome =
-            run_setup(steps, options, &mut |stream, text| lines.push((stream, text.to_owned()))).expect("run_setup");
+        let outcome = run_setup(steps, options, &mut |stream, text| lines.push((stream, text.to_owned())));
         (outcome, lines)
+    }
+
+    /// [`try_run`] for the cases that are supposed to work.
+    fn run(steps: &[SetupStep], options: &SetupOptions<'_>) -> (SetupOutcome, Vec<(Stream, String)>) {
+        let (outcome, lines) = try_run(steps, options);
+        (outcome.expect("run_setup"), lines)
     }
 
     fn write(path: &Utf8Path, contents: &str) {
@@ -606,7 +617,7 @@ mod tests {
             let env = no_env();
             let mut options = options(&worktree, &env);
             options.timeout = Some(timeout);
-            let outcome = run_setup(&[step(&command)], &options, &mut |_, _| {}).expect("run_setup");
+            let outcome = run(&[step(&command)], &options).0;
             let _ = sender.send(outcome);
         });
         receiver
@@ -703,9 +714,24 @@ mod tests {
         let mut step = step("true");
         step.cwd = Some("blocker/inside".to_owned());
 
-        let error = run_setup(&[step], &options(path_of(&dir), &env), &mut |_, _| {}).expect_err("should fail");
+        let error = try_run(&[step], &options(path_of(&dir), &env)).0.expect_err("should fail");
 
         assert!(matches!(error, SetupError::Io { .. }), "{error:?}");
+    }
+
+    #[test]
+    fn a_step_that_cannot_be_spawned_is_an_error_not_a_failed_step() {
+        let dir = temp();
+        let env = no_env();
+        // A NUL cannot cross into an argv, so the shell is never started. That is not a step that
+        // failed — there is no output and no exit status to report on — so it comes back as an
+        // error rather than as a `Failed` with nothing in it.
+        let steps = [step("echo \0 hi")];
+
+        let error = try_run(&steps, &options(path_of(&dir), &env)).0.expect_err("a nul cannot be an argument");
+
+        let SetupError::Shell { command, .. } = &error else { panic!("expected Shell, got {error:?}") };
+        assert_eq!(command, "echo \0 hi", "the error names the step that could not be run");
     }
 
     #[test]
@@ -766,9 +792,7 @@ mod tests {
 
         // Everything was streamed; only the tail was retained.
         assert_eq!(lines.len(), 30);
-        let StepResult::Failed { tail, .. } = &outcome.steps[0].result else {
-            panic!("expected a failure: {outcome:?}");
-        };
+        let StepResult::Failed { tail, .. } = &outcome.steps[0].result else { panic!("{outcome:?}") };
         assert_eq!(tail.len(), TAIL_LINES);
         assert_eq!(tail.first().map(String::as_str), Some("line 11"));
         assert_eq!(tail.last().map(String::as_str), Some("line 30"));
@@ -860,6 +884,30 @@ mod tests {
 
         assert!(outcome.ok, "{outcome:?}");
         assert_eq!(lines.iter().filter(|(stream, _)| *stream == Stream::Err).count(), 2000);
+    }
+
+    /// A pipe with no end, counting how much of it was actually read.
+    struct Endless(std::rc::Rc<std::cell::Cell<usize>>);
+
+    impl Read for Endless {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            self.0.set(self.0.get() + 1);
+            out[..2].copy_from_slice(b"x\n");
+            Ok(2)
+        }
+    }
+
+    #[test]
+    fn the_pump_stops_reading_once_nobody_is_listening() {
+        let reads = std::rc::Rc::new(std::cell::Cell::new(0));
+        let (sender, receiver) = mpsc::channel();
+        // The reader loop is gone — the step overran its timeout, say, and the run moved on.
+        drop(receiver);
+
+        // A pump that ignored the failed send would sit here forever: this pipe has no EOF.
+        pump(&mut Endless(reads.clone()), Stream::Out, &sender);
+
+        assert_eq!(reads.get(), 1, "the pump read on past a send nobody could receive");
     }
 
     // -----------------------------------------------------------------------------------
@@ -1032,6 +1080,39 @@ mod tests {
     }
 
     #[test]
+    fn a_glob_that_cannot_be_compiled_is_an_error() {
+        let source = temp();
+        let target = temp();
+        // Parses as a glob and then cannot be compiled — the failure the per-glob check lets
+        // through, and the reason the assembled set is checked at all.
+        let huge = "?".repeat(200_000);
+
+        let error =
+            any_changed(std::slice::from_ref(&huge), path_of(&source), path_of(&target)).expect_err("should fail");
+
+        let SetupError::BadPattern { pattern, .. } = &error else { panic!("expected BadPattern, got {error:?}") };
+        assert_eq!(pattern, &huge, "the error names the pattern that could not be built");
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_is_an_error_not_unchanged() {
+        let dir = temp();
+        let source = path_of(&dir).join("source");
+        let target = path_of(&dir).join("target");
+        write(&source.join("package-lock.json"), "{}\n");
+        write(&target.join("package-lock.json"), "{}\n");
+        fs::set_permissions(source.join("package-lock.json").as_std_path(), fs::Permissions::from_mode(0o000))
+            .expect("chmod");
+
+        let error = any_changed(&["package-lock.json".to_owned()], &source, &target).expect_err("should fail");
+
+        // The alternative is answering "unchanged" for a file we could not compare, which skips
+        // the very build the lockfile is the key for.
+        let SetupError::Io { path, .. } = &error else { panic!("expected Io, got {error:?}") };
+        assert_eq!(path, &source.join("package-lock.json"));
+    }
+
+    #[test]
     fn same_content_calls_two_directories_unchanged() {
         let dir = temp();
         let left = path_of(&dir).join("left");
@@ -1077,7 +1158,7 @@ mod tests {
         let mut options = options(path_of(&dir), &env);
         options.only = Some(vec!["buidl".to_owned()]);
 
-        let error = run_setup(&steps, &options, &mut |_, _| {}).expect_err("a typo must not be a silent no-op");
+        let error = try_run(&steps, &options).0.expect_err("a typo must not be a silent no-op");
 
         assert!(matches!(&error, SetupError::UnknownStep(label) if label == "buidl"), "{error:?}");
         // Nothing ran.
@@ -1131,29 +1212,32 @@ mod tests {
         assert_eq!(processes_matching(background), 0, "stale process from an earlier run");
         assert_eq!(processes_matching(foreground), 0, "stale process from an earlier run");
 
-        let running = spawn_run(&format!("sleep {background} & sleep {foreground}"), Duration::from_millis(900));
+        // The step's own timeout is the ceiling on how long there is to watch the children,
+        // since it is what kills them. 900ms left barely a second to see two processes appear,
+        // which a loaded machine loses; the seconds here buy the observation real headroom and
+        // cost only this one test.
+        let running = spawn_run(&format!("sleep {background} & sleep {foreground}"), Duration::from_secs(6));
 
         // Mid-run: both children must actually exist, or the "they are gone" assertion below
-        // would be satisfied by a step that never started anything. Polled rather than slept on,
-        // so a loaded machine gets more time instead of a spurious failure.
-        let started = (0..40).any(|_| {
+        // would be satisfied by a step that never started anything.
+        let started = (0..200).any(|_| {
             std::thread::sleep(StdDuration::from_millis(25));
             processes_matching(background) >= 1 && processes_matching(foreground) >= 1
         });
         assert!(started, "the children never started");
 
-        let outcome = running.recv_timeout(StdDuration::from_secs(6)).expect("the timeout never ended the run");
+        let outcome = running.recv_timeout(StdDuration::from_secs(20)).expect("the timeout never ended the run");
         assert!(!outcome.ok);
         assert!(
-            matches!(&outcome.steps[0].result, StepResult::Failed { status, .. } if status == "timed out after 900ms"),
+            matches!(&outcome.steps[0].result, StepResult::Failed { status, .. } if status == "timed out after 6s"),
             "{outcome:?}"
         );
 
         let gone = waits_until_gone(background) && waits_until_gone(foreground);
-        if !gone {
-            reap(background);
-            reap(foreground);
-        }
+        // Unconditional: a no-op when the timeout did its job, and the difference between a
+        // failing test and a failing test that leaves two processes on the machine when not.
+        reap(background);
+        reap(foreground);
         assert!(gone, "the timeout left grandchildren behind");
     }
 
@@ -1213,9 +1297,7 @@ mod tests {
         assert!(signal_group(child.id(), Signal::SIGKILL), "a real pid is a signallable group");
 
         let gone = waits_until_gone(token);
-        if !gone {
-            reap(token);
-        }
+        reap(token);
         let _ = child.wait();
         assert!(gone, "signal_group left the backgrounded children behind");
     }

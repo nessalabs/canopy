@@ -470,20 +470,31 @@ pub fn lock_path(path: &Utf8Path) -> Utf8PathBuf {
     path.with_file_name(format!("{name}.lock"))
 }
 
+/// The lock attempt itself.
+///
+/// A parameter rather than a fixed call because the two failures are answered very differently —
+/// contention is waited out, anything else is reported at once — and there is no arrangement of
+/// files on disk that makes `flock` fail for a reason other than contention.
+type TryLock<'a> = dyn Fn(&File) -> Result<(), TryLockError> + 'a;
+
 /// Holds the lock for as long as the returned file is alive: closing a file descriptor
 /// releases the `flock` on it, so the guard needs no drop glue of its own.
 fn acquire_lock(path: &Utf8Path, timeout: Duration) -> Result<File, PortError> {
+    // UFCS: `File` grew inherent `try_lock` in 1.89 and an inherent method wins over a trait one,
+    // so a plain `file.try_lock()` would silently be a different function returning a different
+    // error type.
+    acquire_lock_with(path, timeout, &|file| FileExt::try_lock(file))
+}
+
+fn acquire_lock_with(path: &Utf8Path, timeout: Duration, try_lock: &TryLock<'_>) -> Result<File, PortError> {
     let lock = lock_path(path);
-    if let Some(parent) = lock.parent().filter(|parent| !parent.as_str().is_empty()) {
-        fs::create_dir_all(parent)?;
-    }
+    // A bare `ports.json` has an empty parent — the current directory, which is already there and
+    // which `create_dir_all` would refuse to be handed.
+    lock.parent().filter(|parent| !parent.as_str().is_empty()).map_or(Ok(()), fs::create_dir_all)?;
     let file = File::options().create(true).read(true).write(true).truncate(false).open(&lock)?;
     let deadline = Instant::now() + timeout;
     loop {
-        // UFCS: `File` grew inherent `try_lock` in 1.89 and an inherent method wins over a
-        // trait one, so a plain `file.try_lock()` would silently be a different function
-        // returning a different error type.
-        match FileExt::try_lock(&file) {
+        match try_lock(&file) {
             Ok(()) => return Ok(file),
             Err(TryLockError::WouldBlock) => {}
             Err(TryLockError::Error(error)) => return Err(PortError::Io(error)),
@@ -573,6 +584,8 @@ fn write_and_sync(temp: &Utf8Path, json: &[u8]) -> Result<(), PortError> {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt;
+
     use rstest::rstest;
 
     use super::*;
@@ -833,28 +846,30 @@ mod tests {
         let held_on_v4 = v4.local_addr().unwrap().port();
         assert!(!probe.is_free(held_on_v4), "a port held on IPv4 was reported free");
 
-        if probe.has_ipv6() {
-            // The kernel assigns an IPv6 ephemeral port without regard to IPv4, so a port held
-            // on `::1` is not guaranteed free on `127.0.0.1`. Confirm it rather than assume it:
-            // under a parallel suite the same number is occasionally taken on the other stack,
-            // and asserting on that assumption is a flake that only shows up under load.
-            let held = (0..32).find_map(|_| {
-                let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)).ok()?;
-                let port = v6.local_addr().ok()?.port();
-                TcpListener::bind((Ipv4Addr::LOCALHOST, port)).ok().map(|v4| {
-                    drop(v4);
-                    (v6, port)
+        // The kernel assigns an IPv6 ephemeral port without regard to IPv4, so a port held on
+        // `::1` is not guaranteed free on `127.0.0.1`. Confirm it rather than assume it: under a
+        // parallel suite the same number is occasionally taken on the other stack, and asserting
+        // on that assumption is a flake that only shows up under load.
+        let held = probe
+            .has_ipv6()
+            .then(|| {
+                (0..32).find_map(|_| {
+                    let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)).ok()?;
+                    let port = v6.local_addr().ok()?.port();
+                    TcpListener::bind((Ipv4Addr::LOCALHOST, port)).ok().map(|v4| {
+                        drop(v4);
+                        (v6, port)
+                    })
                 })
-            });
-
-            if let Some((_v6, held_on_v6)) = held {
-                // The half a single-stack probe misses, and the reason this test exists.
-                assert!(!probe.is_free(held_on_v6), "a port held only on IPv6 was reported free");
-                // On a host with no IPv6 the same port is free: `::1` is unbindable for every
-                // port there, and failing all of them would leave nothing to allocate.
-                assert!(HostProbe::with_ipv6(false).is_free(held_on_v6), "IPv4 was busy for a port we confirmed free");
-            }
-        }
+            })
+            .flatten();
+        held.into_iter().for_each(|(_v6, held_on_v6)| {
+            // The half a single-stack probe misses, and the reason this test exists.
+            assert!(!probe.is_free(held_on_v6), "a port held only on IPv6 was reported free");
+            // On a host with no IPv6 the same port is free: `::1` is unbindable for every port
+            // there, and failing all of them would leave nothing to allocate.
+            assert!(HostProbe::with_ipv6(false).is_free(held_on_v6), "IPv4 was busy for a port we confirmed free");
+        });
 
         let spare = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap().local_addr().unwrap().port();
         assert!(probe.is_free(spare), "a port nobody holds was reported busy");
@@ -929,13 +944,9 @@ mod tests {
             ["a", "b", "c", "d"].iter().map(|name| ((*name).to_owned(), spec(None, Some(tiny)))).collect();
 
         let error = registry.allocate(PROJECT, "main", &ports).unwrap_err();
-        match &error {
-            PortError::RangeExhausted { name, from, to } => {
-                assert_eq!((*from, *to), tiny);
-                assert_eq!(name, "d", "the fourth port is the one that cannot be placed");
-            }
-            other => panic!("expected RangeExhausted, got {other:?}"),
-        }
+        let PortError::RangeExhausted { name, from, to } = &error else { panic!("not exhausted: {error:?}") };
+        assert_eq!((*from, *to), tiny);
+        assert_eq!(name, "d", "the fourth port is the one that cannot be placed");
         assert_eq!(error.code(), ErrorCode::PortInUse);
 
         // All-or-nothing: three ports did fit, and none of them were written down.
@@ -992,14 +1003,10 @@ mod tests {
         registry.reserve("main", "web", 4000).unwrap();
 
         let error = registry.reserve("feat/login", "web", 4000).unwrap_err();
-        match &error {
-            PortError::PortInUse { port, branch, name } => {
-                assert_eq!(*port, 4000);
-                assert_eq!(branch, "main");
-                assert_eq!(name, "web");
-            }
-            other => panic!("expected PortInUse, got {other:?}"),
-        }
+        let PortError::PortInUse { port, branch, name } = &error else { panic!("not a collision: {error:?}") };
+        assert_eq!(*port, 4000);
+        assert_eq!(branch, "main");
+        assert_eq!(name, "web");
         assert_eq!(error.code(), ErrorCode::PortInUse);
         assert_eq!(registry.rows().len(), 1, "a refused reservation still wrote a row");
 
@@ -1201,13 +1208,9 @@ mod tests {
         FileExt::lock(&held).unwrap();
 
         let error = registry.allocate(PROJECT, "main", &specs(&["web"])).unwrap_err();
-        match &error {
-            PortError::Locked { path: reported, timeout } => {
-                assert_eq!(reported, &lock_path(&path));
-                assert_eq!(*timeout, Duration::from_millis(50));
-            }
-            other => panic!("expected Locked, got {other:?}"),
-        }
+        let PortError::Locked { path: reported, timeout } = &error else { panic!("not locked: {error:?}") };
+        assert_eq!(reported, &lock_path(&path));
+        assert_eq!(*timeout, Duration::from_millis(50));
         assert_eq!(error.code(), ErrorCode::Locked);
         assert_eq!(error.code().exit_code(), 3);
         assert!(!path.exists(), "a call that never got the lock still wrote");
@@ -1215,6 +1218,52 @@ mod tests {
         FileExt::unlock(&held).unwrap();
         // The lock was the only obstacle.
         assert_eq!(registry.allocate(PROJECT, "main", &specs(&["web"])).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_write_that_cannot_be_created_is_reported_and_leaves_nothing() {
+        let (_dir, path) = temp_registry();
+        let sealed = path.parent().unwrap().join("sealed");
+        fs::create_dir(&sealed).unwrap();
+        let registry_path = sealed.join("ports.json");
+        // The lock is taken before the write, so it has to already exist — otherwise the run
+        // fails while opening the lock and never reaches the write under test.
+        File::create(lock_path(&registry_path)).unwrap();
+        fs::set_permissions(sealed.as_std_path(), fs::Permissions::from_mode(0o555)).unwrap();
+
+        let mut registry = open(&registry_path, FakeProbe::free());
+        let error = registry.allocate(PROJECT, "main", &specs(&["web"])).unwrap_err();
+
+        assert!(matches!(error, PortError::Io(_)), "{error:?}");
+        assert_eq!(error.code(), ErrorCode::Io);
+        // A write that never landed must not be remembered as one: the in-memory table is what
+        // the caller goes on to write into an env file.
+        assert!(registry.rows().is_empty(), "a failed write still updated the table");
+        assert_eq!(registry.writes(), 0, "a failed write was counted as a write");
+        assert!(!registry_path.exists(), "a failed write left a registry behind");
+        assert!(temp_files(&registry_path).is_empty(), "left {:?} behind", temp_files(&registry_path));
+
+        fs::set_permissions(sealed.as_std_path(), fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[test]
+    fn a_lock_failure_that_is_not_contention_is_reported_at_once() {
+        let (_dir, path) = temp_registry();
+        let attempts = std::cell::Cell::new(0u32);
+        let broken = |_: &File| {
+            attempts.set(attempts.get() + 1);
+            Err(TryLockError::Error(std::io::Error::from(std::io::ErrorKind::PermissionDenied)))
+        };
+
+        let began = Instant::now();
+        let error = acquire_lock_with(&path, Duration::from_secs(30), &broken).unwrap_err();
+
+        // Waiting one out would spend the whole timeout on a lock that is never going to be
+        // granted, and then report contention for something that was not contention.
+        assert!(matches!(error, PortError::Io(_)), "{error:?}");
+        assert_eq!(error.code(), ErrorCode::Io);
+        assert_eq!(attempts.get(), 1, "a lock failure was retried");
+        assert!(began.elapsed() < Duration::from_secs(1), "a lock failure burned the timeout");
     }
 
     #[test]
@@ -1258,6 +1307,16 @@ mod tests {
         assert_eq!(final_rows.rows().len(), 2 * names.len());
         let stored: BTreeSet<u16> = final_rows.rows().iter().map(|row| row.port).collect();
         assert_eq!(stored, left.union(&right).copied().collect::<BTreeSet<u16>>());
+    }
+
+    #[test]
+    fn a_replaced_probe_is_the_one_consulted() {
+        let (_dir, path) = temp_registry();
+        let seed = hash_seed(PROJECT, "main", "web", DEFAULT_RANGE);
+        // Loaded with a probe that calls everything free, then handed one that does not.
+        let mut registry = open(&path, FakeProbe::free()).with_probe(FakeProbe::busy(&[seed]));
+
+        assert_eq!(registry.allocate(PROJECT, "main", &specs(&["web"])).unwrap()["web"], seed + 1);
     }
 
     #[test]

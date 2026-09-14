@@ -219,6 +219,14 @@ fn candidates(git: &Git, source: &Utf8Path) -> Result<Vec<String>, CopyError> {
     let stdout = git
         .run_bytes(source, ["ls-files", "--others", "--ignored", "--exclude-standard", "-z"])
         .map_err(|error| CopyError::Candidates { path: source.to_owned(), error })?;
+    decode(&stdout)
+}
+
+/// Splits a `-z` listing into paths, refusing any that is not UTF-8.
+///
+/// Named separately from the call because the refusal cannot be provoked through git here: APFS
+/// will not hold such a name, while ext4 and git on it will hand one back.
+fn decode(stdout: &[u8]) -> Result<Vec<String>, CopyError> {
     stdout
         .split(|byte| *byte == 0)
         .filter(|entry| !entry.is_empty())
@@ -307,9 +315,10 @@ impl Run<'_> {
             let bytes = size(&from).map_err(&fail)?;
             return Ok(entry(path, strategy, CopyResult::Planned, bytes, started));
         }
-        if let Some(parent) = to.parent() {
-            fs::create_dir_all(parent).map_err(|error| fail(format!("could not create {parent}: {error}")))?;
-        }
+        // `to` is the target joined with a repo-relative path, so it always has a parent; the
+        // fallback is the directory that join started from rather than a branch nothing enters.
+        let parent = to.parent().unwrap_or(self.target);
+        fs::create_dir_all(parent).map_err(|error| fail(format!("could not create {parent}: {error}")))?;
         let (result, bytes) = match strategy {
             CopyStrategy::Copy => {
                 let bytes = fs::copy(&from, &to).map_err(|error| fail(format!("could not copy {from}: {error}")))?;
@@ -432,12 +441,8 @@ mod tests {
                 .env("GIT_COMMITTER_DATE", "2026-01-01T00:00:00+0000")
                 .env("TZ", "UTC");
             let output = command.args(args).current_dir(&self.source).output().expect("spawn git");
-            assert!(
-                output.status.success(),
-                "git {} failed: {}",
-                args.join(" "),
-                String::from_utf8_lossy(&output.stderr)
-            );
+            let (spelled, stderr) = (args.join(" "), String::from_utf8_lossy(&output.stderr));
+            assert!(output.status.success(), "git {spelled} failed: {stderr}");
             String::from_utf8(output.stdout).expect("git output is utf-8")
         }
 
@@ -492,7 +497,9 @@ mod tests {
 
         /// The content that landed in the worktree.
         fn landed(&self, path: &str) -> String {
-            fs::read_to_string(self.target.join(path)).unwrap_or_else(|error| panic!("read {path}: {error}"))
+            let at = self.target.join(path);
+            let Ok(text) = fs::read_to_string(&at) else { panic!("{at} did not land") };
+            text
         }
 
         fn exists(&self, path: &str) -> bool {
@@ -519,11 +526,9 @@ mod tests {
     }
 
     fn entry_for<'a>(outcome: &'a CopyOutcome, path: &str) -> &'a CopiedPath {
-        outcome
-            .entries
-            .iter()
-            .find(|entry| entry.path == path)
-            .unwrap_or_else(|| panic!("no entry for {path} in {:?}", paths(outcome)))
+        let found = outcome.entries.iter().find(|entry| entry.path == path);
+        let Some(entry) = found else { panic!("no {path} in {:?}", paths(outcome)) };
+        entry
     }
 
     // -----------------------------------------------------------------------------------
@@ -691,11 +696,36 @@ mod tests {
 
         let error = checkout.attempt(&[rule("[")]).expect_err("an unclosed class is not a glob");
 
-        match error {
-            CopyError::BadPattern { pattern, .. } => assert_eq!(pattern, "["),
-            other => panic!("expected BadPattern, got {other:?}"),
-        }
+        let CopyError::BadPattern { pattern, .. } = &error else { panic!("expected BadPattern, got {error:?}") };
+        assert_eq!(pattern, "[");
         assert!(!checkout.exists(".env"), "nothing is carried when a rule cannot be understood");
+    }
+
+    #[test]
+    fn a_pattern_the_matcher_cannot_build_is_an_error() {
+        let checkout = Checkout::new();
+        checkout.ignore(".gitignore", ".env\n");
+        checkout.write(".env", "TOKEN=shh\n");
+
+        // Parses as a glob and then cannot be compiled — the failure that survives the per-glob
+        // check and only turns up when the whole matcher is assembled.
+        let error = checkout.attempt(&[rule(&"?".repeat(200_000))]).expect_err("a glob that cannot be built");
+
+        let CopyError::BadPattern { message, .. } = &error else { panic!("expected BadPattern, got {error:?}") };
+        assert!(!message.is_empty(), "the reason has to reach the message");
+        assert!(!checkout.exists(".env"), "nothing is carried when a rule cannot be understood");
+    }
+
+    #[test]
+    fn a_path_git_reports_that_is_not_utf8_is_refused() {
+        assert_eq!(decode(b"a.env\0lib/b.env\0").expect("plain names"), ["a.env", "lib/b.env"]);
+
+        // Every path here ends up in JSON, so one that cannot be spelled is refused at the edge
+        // rather than lossily renamed into something that would not round-trip back to a file.
+        let error = decode(b"a.env\0bad\xff.env\0").expect_err("a name we cannot spell is not a name");
+
+        let CopyError::NonUtf8Path(spelling) = &error else { panic!("expected NonUtf8Path, got {error:?}") };
+        assert_eq!(spelling, "bad\u{fffd}.env", "the message shows what git actually said");
     }
 
     #[test]
@@ -853,6 +883,49 @@ mod tests {
     }
 
     #[test]
+    fn a_clone_that_fails_is_reported_as_a_clone() {
+        let checkout = Checkout::new();
+        checkout.ignore(".gitignore", "*.env\n");
+        checkout.write("a.env", "A=1\n");
+        checkout.write("b.env", "B=1\n");
+        fs::set_permissions(checkout.source.join("b.env").as_std_path(), fs::Permissions::from_mode(0o000))
+            .expect("chmod");
+
+        let outcome = checkout.run(&[rule_with("*.env", CopyStrategy::Clone)]);
+
+        assert_eq!(paths(&outcome), ["a.env"], "the readable file still landed");
+        assert_eq!(outcome.failures.len(), 1, "got {:?}", outcome.failures);
+        // The strategy on the failure is the one that was asked for: "clone failed" and "copy
+        // failed" send a reader to different places.
+        assert_eq!(outcome.failures[0].strategy, CopyStrategy::Clone);
+        let message = &outcome.failures[0].message;
+        assert!(message.starts_with(&format!("could not clone {}/b.env:", checkout.source)), "got {message:?}");
+        assert!(!checkout.exists("b.env"), "a failed clone leaves nothing behind");
+    }
+
+    #[test]
+    fn a_link_that_cannot_be_made_is_reported() {
+        let checkout = Checkout::new();
+        checkout.ignore(".gitignore", "sealed/\n");
+        checkout.write("sealed/a.env", "A=1\n");
+        // The directory the link would go in is there and unwritable.
+        let sealed = checkout.target.join("sealed");
+        fs::create_dir_all(sealed.as_std_path()).expect("create sealed");
+        fs::set_permissions(sealed.as_std_path(), fs::Permissions::from_mode(0o555)).expect("chmod");
+
+        let outcome = checkout.run(&[rule_with("sealed", CopyStrategy::Symlink)]);
+
+        assert_eq!(paths(&outcome), [] as [&str; 0], "nothing was linked");
+        assert_eq!(outcome.failures.len(), 1, "got {:?}", outcome.failures);
+        assert_eq!(outcome.failures[0].strategy, CopyStrategy::Symlink);
+        let message = &outcome.failures[0].message;
+        assert!(message.starts_with(&format!("could not link {sealed}/a.env to ")), "got {message:?}");
+        assert!(!checkout.exists("sealed/a.env"), "a failed link leaves nothing behind");
+
+        fs::set_permissions(sealed.as_std_path(), fs::Permissions::from_mode(0o755)).expect("chmod back");
+    }
+
+    #[test]
     fn reports_bytes_and_a_result_per_path() {
         let checkout = Checkout::new();
         checkout.ignore(".gitignore", "*.env\nlib/\n");
@@ -900,6 +973,30 @@ mod tests {
     }
 
     #[test]
+    fn a_parent_directory_that_cannot_be_created_is_reported_not_swallowed() {
+        let checkout = Checkout::new();
+        checkout.ignore(".gitignore", "sealed/\nok.env\n");
+        checkout.write("sealed/deep/secret.env", "DEEP=1\n");
+        checkout.write("ok.env", "OK=1\n");
+        // A worktree where `sealed/` is already there and unwritable. The nested file's parent
+        // cannot be made; everything beside it still has somewhere to land.
+        let sealed = checkout.target.join("sealed");
+        fs::create_dir_all(sealed.as_std_path()).expect("create sealed");
+        fs::set_permissions(sealed.as_std_path(), fs::Permissions::from_mode(0o555)).expect("chmod");
+
+        let outcome = checkout.run(&[rule("sealed"), rule("ok.env")]);
+
+        assert_eq!(paths(&outcome), ["ok.env"], "the file with a writable parent still landed");
+        assert_eq!(outcome.failures.len(), 1, "got {:?}", outcome.failures);
+        assert_eq!(outcome.failures[0].path, "sealed/deep/secret.env");
+        let message = &outcome.failures[0].message;
+        assert!(message.starts_with(&format!("could not create {sealed}/deep:")), "got {message:?}");
+        assert!(!checkout.exists("sealed/deep"), "a directory that could not be made was reported as made");
+
+        fs::set_permissions(sealed.as_std_path(), fs::Permissions::from_mode(0o755)).expect("chmod back");
+    }
+
+    #[test]
     fn dry_run_writes_nothing_but_reports_the_plan() {
         let checkout = Checkout::new();
         checkout.ignore(".gitignore", "*.env\n");
@@ -926,6 +1023,25 @@ mod tests {
 
         assert_eq!(entry_for(&outcome, ".env").result, CopyResult::Skipped, "the plan is honest about the no-op");
         assert_eq!(checkout.landed(".env"), "WORKTREE=1\n");
+    }
+
+    #[test]
+    fn a_plan_reports_a_file_it_cannot_measure() {
+        let checkout = Checkout::new();
+        checkout.ignore(".gitignore", "*.env\n");
+        checkout.write("good.env", "A=1\n");
+        // A dangling symlink is listed like any other ignored entry and has no size to report.
+        // The plan has to say so rather than quietly leave the path out of it.
+        std::os::unix::fs::symlink("gone", checkout.source.join("broken.env").as_std_path()).expect("symlink");
+
+        let outcome = checkout.plan(&[rule("*.env")]);
+
+        assert_eq!(paths(&outcome), ["good.env"], "the measurable file is still planned");
+        assert_eq!(outcome.failures.len(), 1, "got {:?}", outcome.failures);
+        assert_eq!(outcome.failures[0].path, "broken.env");
+        let message = &outcome.failures[0].message;
+        assert!(message.starts_with(&format!("could not read {}/broken.env:", checkout.source)), "got {message:?}");
+        assert!(!checkout.target.exists(), "a plan that hit a failure still wrote nothing");
     }
 
     // -----------------------------------------------------------------------------------
@@ -1000,10 +1116,23 @@ mod tests {
 
         let error = checkout.attempt(&[rule("**")]).expect_err("a narrowing we cannot read is not a narrowing");
 
-        match error {
-            CopyError::BadInclude { path, .. } => assert_eq!(path, checkout.source.join(INCLUDE_FILE)),
-            other => panic!("expected BadInclude, got {other:?}"),
-        }
+        let CopyError::BadInclude { path, .. } = &error else { panic!("expected BadInclude, got {error:?}") };
+        assert_eq!(path, &checkout.source.join(INCLUDE_FILE));
         assert!(!checkout.exists(".env"), "nothing is carried when the narrowing is unreadable");
+    }
+
+    #[test]
+    fn a_canopyinclude_the_matcher_cannot_build_is_an_error() {
+        let checkout = narrowable();
+        // Accepted line by line and rejected only when the whole matcher is assembled — the one
+        // `.canopyinclude` failure that survives parsing. It has to come back as an error with a
+        // path on it rather than as a panic in the middle of provisioning a worktree.
+        checkout.write(INCLUDE_FILE, &format!("{}\n", "?".repeat(200_000)));
+
+        let error = checkout.attempt(&[rule("**")]).expect_err("a narrowing that cannot be built is not a narrowing");
+
+        let CopyError::BadInclude { path, .. } = &error else { panic!("expected BadInclude, got {error:?}") };
+        assert_eq!(path, &checkout.source.join(INCLUDE_FILE));
+        assert!(!checkout.exists(".env"), "nothing is carried when the narrowing cannot be built");
     }
 }

@@ -182,13 +182,11 @@ pub fn spawn(request: &SpawnRequest<'_>) -> Result<ProcessRecord, ProcError> {
     if let Some(parent) = request.log.parent() {
         fs::create_dir_all(parent).map_err(|source| ProcError::Log { path: request.log.to_owned(), source })?;
     }
-    // Append, so a restart adds to the history instead of erasing the reason for it.
-    let out = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(request.log)
-        .map_err(|source| ProcError::Log { path: request.log.to_owned(), source })?;
-    let err = out.try_clone().map_err(|source| ProcError::Log { path: request.log.to_owned(), source })?;
+    // Opened twice rather than cloned: `dup` fails only when the process is out of descriptors,
+    // an error nothing here could do anything about, and two appending descriptors write to the
+    // end of the file exactly as one shared one does.
+    let out = open_log(request.log)?;
+    let err = open_log(request.log)?;
 
     let child = Command::new("/bin/sh")
         .arg("-c")
@@ -222,6 +220,15 @@ pub fn spawn(request: &SpawnRequest<'_>) -> Result<ProcessRecord, ProcError> {
         log: request.log.to_owned(),
         started_at: SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_secs()).unwrap_or_default(),
     })
+}
+
+/// Append, so a restart adds to the history instead of erasing the reason for it.
+fn open_log(path: &Utf8Path) -> Result<File, ProcError> {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|source| ProcError::Log { path: path.to_owned(), source })
 }
 
 /// 32 hex characters from `/dev/urandom`.
@@ -462,7 +469,9 @@ static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// truncated by a crash is worse than no record: it is a pid without the start time that makes
 /// the pid safe to use.
 pub fn write_record(path: &Utf8Path, record: &ProcessRecord) -> Result<(), ProcError> {
-    let mut json = serde_json::to_vec_pretty(record).map_err(|error| ProcError::Io(error.into()))?;
+    // Nothing in a record can fail to serialize. The `?` keeps that an observation rather than
+    // an invariant this function would panic on if a field ever grew one.
+    let mut json = serde_json::to_vec_pretty(record).map_err(std::io::Error::from)?;
     json.push(b'\n');
 
     let name = path.file_name().unwrap_or("process.json");
@@ -560,6 +569,7 @@ fn tail_read(log: &Utf8Path, lines: usize) -> Result<(Vec<String>, u64), ProcErr
 
 #[cfg(test)]
 mod tests {
+    use std::cell::Cell;
     use std::time::Instant as TestInstant;
 
     use rstest::rstest;
@@ -602,20 +612,29 @@ mod tests {
         }
     }
 
-    /// Polls `condition` until it holds or [`PATIENCE`] runs out.
+    /// Polls `condition` until it holds or `patience` runs out.
     ///
     /// Unhurried on purpose: several of these run at once and most of the conditions below cost
     /// a `ps`, so a tight loop would spend the machine on watching rather than on working — and
     /// slow down the very processes it is waiting for.
-    fn eventually(mut condition: impl FnMut() -> bool) -> bool {
-        let deadline = TestInstant::now() + PATIENCE;
-        while TestInstant::now() < deadline {
+    ///
+    /// The patience is a parameter so that the giving-up half can be tested without spending
+    /// [`PATIENCE`] to do it.
+    fn within(patience: std::time::Duration, mut condition: impl FnMut() -> bool) -> bool {
+        let deadline = TestInstant::now() + patience;
+        loop {
             if condition() {
                 return true;
             }
+            if TestInstant::now() >= deadline {
+                return false;
+            }
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
-        condition()
+    }
+
+    fn eventually(condition: impl FnMut() -> bool) -> bool {
+        within(PATIENCE, condition)
     }
 
     /// Whether the process is gone, asked of the kernel directly rather than through the module
@@ -750,12 +769,8 @@ mod tests {
 
         assert_eq!(record.launch_id.len(), 32, "{}", record.launch_id);
         assert!(record.launch_id.chars().all(|c| c.is_ascii_hexdigit()), "{}", record.launch_id);
-        assert!(
-            eventually(|| log_text(&record).trim() == record.launch_id),
-            "expected {:?}, log has {:?}",
-            record.launch_id,
-            log_text(&record)
-        );
+        let echoed = eventually(|| log_text(&record).trim() == record.launch_id);
+        assert!(echoed, "expected {:?}, log has {:?}", record.launch_id, log_text(&record));
     }
 
     #[test]
@@ -770,14 +785,11 @@ mod tests {
         let (_dir, path) = workspace();
         let record = start(&path, "echo to-stdout; echo to-stderr 1>&2");
 
-        assert!(
-            eventually(|| {
-                let text = log_text(&record);
-                text.contains("to-stdout") && text.contains("to-stderr")
-            }),
-            "{:?}",
-            log_text(&record)
-        );
+        let both = eventually(|| {
+            let text = log_text(&record);
+            text.contains("to-stdout") && text.contains("to-stderr")
+        });
+        assert!(both, "{:?}", log_text(&record));
     }
 
     #[test]
@@ -804,15 +816,38 @@ mod tests {
         assert_eq!(error.code(), ErrorCode::ServiceFailed);
     }
 
-    #[test]
-    fn a_log_that_cannot_be_opened_is_an_error() {
+    /// Which unusable log path a case is about. All three are the same failure to the caller —
+    /// a log we cannot write is a service we cannot supervise — and three different syscalls.
+    #[derive(Debug, Clone, Copy)]
+    enum BadLog {
+        /// A directory is not something stdout can be redirected into.
+        Directory,
+        /// The root is a directory too, and the one path with no parent to create first.
+        Root,
+        /// The directory above it cannot be created: a regular file is in the way.
+        UnmakeableParent,
+    }
+
+    #[rstest]
+    #[case(BadLog::Directory)]
+    #[case(BadLog::Root)]
+    #[case(BadLog::UnmakeableParent)]
+    fn a_log_that_cannot_be_opened_is_an_error(#[case] bad: BadLog) {
         let (_dir, path) = workspace();
         let env = BTreeMap::new();
-        // A directory is not something stdout can be redirected into.
-        let error = spawn(&SpawnRequest { command: "echo hi", cwd: &path, env: &env, log: &path })
-            .expect_err("a directory is not a log");
+        let log = match bad {
+            BadLog::Directory => path.clone(),
+            BadLog::Root => Utf8PathBuf::from("/"),
+            BadLog::UnmakeableParent => {
+                fs::write(path.join("in-the-way"), "").expect("file");
+                path.join("in-the-way").join("web.log")
+            }
+        };
 
-        assert!(matches!(error, ProcError::Log { .. }), "{error:?}");
+        let error = spawn(&SpawnRequest { command: "echo hi", cwd: &path, env: &env, log: &log })
+            .expect_err("an unusable log path must not produce a record");
+
+        assert!(matches!(error, ProcError::Log { .. }), "{bad:?}: {error:?}");
         assert_eq!(error.code(), ErrorCode::ServiceFailed);
     }
 
@@ -1026,6 +1061,14 @@ mod tests {
     }
 
     #[test]
+    fn a_pid_the_system_will_not_talk_about_has_no_start_time() {
+        // `ps` exits non-zero for a pid it cannot look up, and its empty output would otherwise
+        // normalize into a perfectly comparable empty string — which would make every such pid
+        // match every other one and hand `identify` a reason to signal a stranger.
+        assert_eq!(read_start_time(i32::MAX), None);
+    }
+
+    #[test]
     fn a_process_we_may_not_signal_still_counts_as_running() {
         // EPERM means "it exists, it is not yours" — which is alive, and must not be read as
         // "gone" by a supervisor that would then start a second copy of the service.
@@ -1098,6 +1141,43 @@ mod tests {
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.file_name().to_string_lossy().into_owned())
             .filter(|name| name != "web.json" && name != "log.txt")
+            .collect();
+        assert!(left.is_empty(), "{left:?}");
+    }
+
+    #[test]
+    fn a_write_that_fails_leaves_no_temp_file_behind() {
+        // Either half of write/rename can fail, and neither may leave a `.tmp` beside the real
+        // record: `state` lists this directory, and a half-written record is worse than none.
+        let (_dir, path) = workspace();
+        let record = ProcessRecord {
+            pid: 1,
+            pgid: 1,
+            start_time: None,
+            launch_id: "0".repeat(32),
+            command: "sleep 60".to_owned(),
+            cwd: Utf8PathBuf::from("/"),
+            log: Utf8PathBuf::from("/dev/null"),
+            started_at: 0,
+        };
+
+        // Nowhere to put the temp file: the write fails before anything is renamed.
+        let error = write_record(&path.join("nope").join("web.json"), &record).expect_err("no such directory");
+        assert!(matches!(error, ProcError::Io(_)), "{error:?}");
+        assert_eq!(error.code(), ErrorCode::Io);
+
+        // The temp file writes fine and the rename is what cannot land: the name is taken by a
+        // directory. This is the half that has a temp file to clean up.
+        let occupied = path.join("web.json");
+        fs::create_dir(&occupied).expect("mkdir");
+        let error = write_record(&occupied, &record).expect_err("a directory is not a record");
+        assert!(matches!(error, ProcError::Io(_)), "{error:?}");
+
+        let left: Vec<String> = fs::read_dir(&path)
+            .expect("read dir")
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.ends_with(".tmp"))
             .collect();
         assert!(left.is_empty(), "{left:?}");
     }
@@ -1242,5 +1322,28 @@ mod tests {
         let error = tail(&path.join("nope.log"), 10).expect_err("missing");
 
         assert!(matches!(error, ProcError::Io(_)), "{error:?}");
+    }
+
+    // -----------------------------------------------------------------------------------
+    // The suite's own waiting
+    // -----------------------------------------------------------------------------------
+
+    #[test]
+    fn the_wait_helper_keeps_polling_and_then_gives_up() {
+        // Every assertion above about a process dying or output landing goes through this. One
+        // that gave up on the first `false` would turn all of them into races with the
+        // scheduler; one that never gave up would hang the suite instead of failing it.
+        let asked = Cell::new(0u32);
+        let on_the_third_ask = || {
+            asked.set(asked.get() + 1);
+            asked.get() >= 3
+        };
+
+        assert!(within(PATIENCE, on_the_third_ask), "it gave up on a condition that came true");
+        assert_eq!(asked.get(), 3, "it answered without asking three times");
+
+        // The same condition with no time to reach its third ask.
+        asked.set(0);
+        assert!(!within(std::time::Duration::ZERO, on_the_third_ask), "a condition that never holds must return");
     }
 }

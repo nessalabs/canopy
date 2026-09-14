@@ -1,3 +1,7 @@
 /target
 # cargo-llvm-cov
 /lcov.info
+
+# cargo-mutants working directory
+/mutants.out
+/mutants.out.old

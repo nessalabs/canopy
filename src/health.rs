@@ -132,13 +132,12 @@ pub fn resolve(check: &HealthCheck, interpolate: impl Fn(&str) -> String) -> Res
         .filter(|(_, present)| *present)
         .map(|(name, _)| name)
         .collect();
-    if set.is_empty() {
-        return Err(HealthError::NoProbe);
-    }
     if set.len() > 1 {
         return Err(HealthError::MultipleProbes(set.join(", ")));
     }
 
+    // "none of them is set" falls out of the last arm of this chain rather than getting an early
+    // return of its own: two spellings of one refusal is one more than can be kept in agreement.
     let target = if let Some(http) = &check.http {
         let url = interpolate(http);
         if !is_probeable_url(&url) {
@@ -512,11 +511,16 @@ fn group_of(pid: u32) -> Option<Pid> {
     }
 }
 
-/// SIGKILLs the whole group. The group, not the process, is the point: `sh -c 'x & y'` leaves
-/// `x` running for as long as it likes when only the shell is killed.
-fn kill_group(pid: u32) {
-    if let Some(group) = group_of(pid) {
-        let _ = signal::kill(group, Signal::SIGKILL);
+/// SIGKILLs the whole group, and says whether anything was signalled.
+///
+/// The group, not the process, is the point: `sh -c 'x & y'` leaves `x` running for as long as it
+/// likes when only the shell is killed. `false` is the refusal from [`group_of`] — a pid with no
+/// group this process may name — reported rather than swallowed, because the alternative to
+/// naming it is a `kill(-0, …)` that takes the caller and everything sharing its terminal.
+fn kill_group(pid: u32) -> bool {
+    match group_of(pid) {
+        Some(group) => signal::kill(group, Signal::SIGKILL).is_ok(),
+        None => false,
     }
 }
 
@@ -534,6 +538,28 @@ fn reap_briefly(child: &mut std::process::Child) {
         }
         std::thread::sleep(CHILD_POLL.min(deadline - now));
     }
+}
+
+// Overrides the next `try_wait` for one test.
+//
+// A `waitpid` that fails means somebody else collected the child, and the only pid that could be
+// collected behind this probe's back is one it never reveals. The branch it guards decides
+// whether a probe that has lost track of its child still kills the group and still says what
+// went wrong instead of blaming a timeout, so — like `proc`'s start-time reader — it is worth a
+// thread-local.
+#[cfg(test)]
+thread_local! {
+    static FORCED_WAIT_ERROR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn try_wait(child: &mut std::process::Child) -> std::io::Result<Option<ExitStatus>> {
+    #[cfg(test)]
+    {
+        if FORCED_WAIT_ERROR.with(std::cell::Cell::take) {
+            return Err(std::io::Error::from_raw_os_error(nix::errno::Errno::ECHILD as i32));
+        }
+    }
+    child.try_wait()
 }
 
 fn probe_cmd(cmd: &str, cwd: &Utf8Path, env: &BTreeMap<String, String>, timeout: Duration) -> Probe {
@@ -557,19 +583,22 @@ fn probe_cmd(cmd: &str, cwd: &Utf8Path, env: &BTreeMap<String, String>, timeout:
 
     // Drained on a thread: a command that fills the stderr pipe would otherwise block forever
     // while we sit in `try_wait`.
-    let mut pipe = child.stderr.take();
+    let pipe = child.stderr.take();
     let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
     std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(pipe) = pipe.as_mut() {
+        // Piped at spawn, so this is always `Some`; mapping through it rather than unwrapping
+        // costs nothing and keeps a probe from panicking if that ever stops being true.
+        let drained = pipe.map(|mut pipe| {
+            let mut buf = Vec::new();
             let _ = pipe.read_to_end(&mut buf);
-        }
-        let _ = tx.send(buf);
+            buf
+        });
+        let _ = tx.send(drained.unwrap_or_default());
     });
 
     let deadline = Instant::now() + timeout.as_std().max(std::time::Duration::from_millis(1));
     let exited = loop {
-        match child.try_wait() {
+        match try_wait(&mut child) {
             Ok(Some(status)) => break Some(status),
             Ok(None) => {}
             Err(err) => {
@@ -645,6 +674,13 @@ mod tests {
         BTreeMap::new()
     }
 
+    /// The interpolation that changes nothing, shared by every `resolve` test that is not about
+    /// interpolation — one function rather than a lambda each, so the tests below are asking the
+    /// same question of the same code.
+    fn verbatim(text: &str) -> String {
+        text.to_owned()
+    }
+
     fn unhealthy(detail: &str) -> Probe {
         Probe::Unhealthy { detail: detail.to_owned() }
     }
@@ -688,15 +724,13 @@ mod tests {
                 let Ok(peer) = stream.try_clone() else { continue };
                 let mut reader = BufReader::new(peer);
                 let mut line = String::new();
-                loop {
-                    line.clear();
-                    match reader.read_line(&mut line) {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) => {}
-                    }
+                // A read of nothing, or one that fails, means the client went away mid-request;
+                // either way there is no more request to drain.
+                while reader.read_line(&mut line).is_ok_and(|read| read > 0) {
                     if line == "\r\n" || line == "\n" {
                         break;
                     }
+                    line.clear();
                 }
                 let mut stream = stream;
                 let _ = stream.write_all(response.as_bytes());
@@ -888,6 +922,16 @@ mod tests {
     }
 
     #[test]
+    fn a_status_that_is_neither_an_exit_nor_a_kill_still_reads_as_a_sentence() {
+        // A stopped child reports no code and no signal. `probe_cmd` waits without WUNTRACED so
+        // it never sees one, but `describe` is what a detail is built from and a `None, None` it
+        // did not handle would be a panic in the middle of a poll loop.
+        let stopped = ExitStatus::from_raw(0x137f);
+        assert_eq!((stopped.code(), stopped.signal()), (None, None), "{stopped:?} is not a stop");
+        assert_eq!(describe(stopped), "exited abnormally");
+    }
+
+    #[test]
     fn cmd_runs_in_the_given_cwd_with_the_given_env() {
         let dir = tempfile::tempdir().expect("tempdir");
         let dir = Utf8Path::from_path(dir.path()).expect("utf8").to_owned();
@@ -1006,6 +1050,39 @@ mod tests {
         reap(&token);
     }
 
+    /// Makes the next `try_wait` inside `probe_cmd` fail, once. See [`FORCED_WAIT_ERROR`].
+    fn force_wait_error() {
+        FORCED_WAIT_ERROR.with(|armed| armed.set(true));
+    }
+
+    #[test]
+    fn a_wait_that_fails_is_reported_as_itself_and_still_kills_the_child() {
+        // Losing track of the child is not a slow service. Reporting it as a timeout would send
+        // the user to look at something that was answering fine, and returning without the kill
+        // would leave the command running for the whole minute it asked for.
+        let token = token(6);
+        let token = token.as_str();
+        reap(token);
+        assert_eq!(processes_matching(token), 0, "stale process from an earlier run");
+
+        // A minute of timeout, so nothing but the wait failure can end this probe.
+        let health = cmd_check(&format!("sleep {token}"), 60_000);
+        force_wait_error();
+        let began = Instant::now();
+        let probe = health.probe_once(Utf8Path::new("/"), &no_env());
+        let took = began.elapsed();
+
+        assert!(!probe.is_healthy(), "{probe:?}");
+        assert!(!probe.detail().contains("timed out"), "a lost child is not a timeout: {:?}", probe.detail());
+        assert!(probe.detail().starts_with("/bin/sh -c "), "{:?} does not name the command", probe.detail());
+        assert!(took < std::time::Duration::from_secs(10), "waited {took:?} on a wait that had already failed");
+        // The child is the group leader and wears the token on its command line, so it is gone
+        // only if the probe killed it on the way out.
+        let after = snapshot_until(10_000, |snap| count_in(snap, token) == 0);
+        reap(token);
+        assert_eq!(count_in(&after, token), 0, "the child outlived the probe that lost it");
+    }
+
     #[rstest]
     #[case("", None)]
     #[case("\n\n", None)]
@@ -1044,6 +1121,13 @@ mod tests {
         let cmd = check(None, None, Some("curl -sf localhost:${ports.web}"));
         assert_eq!(resolve(&cmd, counting).unwrap().target, Target::Cmd { cmd: "curl -sf localhost:8100".to_owned() });
         assert_eq!(calls.get(), 1, "cmd was interpolated {} times", calls.get());
+
+        // Zero times for a check that is refused: rendering a template only pays off for a check
+        // somebody is going to run, and this one names two probes and will never be run at all.
+        calls.set(0);
+        let both = check(Some("http://127.0.0.1:${ports.web}/"), Some(TcpTarget::Port(1)), None);
+        assert!(resolve(&both, counting).is_err(), "two probes in one check must be refused");
+        assert_eq!(calls.get(), 0, "a check that was refused had its templates rendered anyway");
     }
 
     #[test]
@@ -1054,23 +1138,23 @@ mod tests {
         spec.retries = 4;
         spec.start_period = Duration::from_secs(2);
 
-        let resolved = resolve(&spec, |text| text.to_owned()).unwrap();
+        let resolved = resolve(&spec, verbatim).unwrap();
         assert_eq!(resolved.timing, timing(250, 7000, 4, 2000));
         assert_eq!(resolved.target, Target::Tcp { port: 5432 });
     }
 
     #[test]
     fn resolve_rejects_no_probe_and_more_than_one() {
-        assert_eq!(resolve(&check(None, None, None), |t| t.to_owned()), Err(HealthError::NoProbe));
+        assert_eq!(resolve(&check(None, None, None), verbatim), Err(HealthError::NoProbe));
 
         let both = check(Some("http://127.0.0.1:1/"), Some(TcpTarget::Port(1)), None);
-        assert_eq!(resolve(&both, |t| t.to_owned()), Err(HealthError::MultipleProbes("http, tcp".to_owned())));
+        assert_eq!(resolve(&both, verbatim), Err(HealthError::MultipleProbes("http, tcp".to_owned())));
 
         let all = check(Some("http://127.0.0.1:1/"), Some(TcpTarget::Port(1)), Some("true"));
-        assert_eq!(resolve(&all, |t| t.to_owned()), Err(HealthError::MultipleProbes("http, tcp, cmd".to_owned())));
+        assert_eq!(resolve(&all, verbatim), Err(HealthError::MultipleProbes("http, tcp, cmd".to_owned())));
 
         let tcp_and_cmd = check(None, Some(TcpTarget::Port(1)), Some("true"));
-        assert_eq!(resolve(&tcp_and_cmd, |t| t.to_owned()), Err(HealthError::MultipleProbes("tcp, cmd".to_owned())));
+        assert_eq!(resolve(&tcp_and_cmd, verbatim), Err(HealthError::MultipleProbes("tcp, cmd".to_owned())));
     }
 
     #[rstest]
@@ -1088,7 +1172,7 @@ mod tests {
     #[case("${ports.web}", None)]
     fn resolve_validates_the_tcp_port(#[case] text: &str, #[case] expected: Option<u16>) {
         let spec = check(None, Some(TcpTarget::Template(text.to_owned())), None);
-        match (resolve(&spec, |t| t.to_owned()), expected) {
+        match (resolve(&spec, verbatim), expected) {
             (Ok(resolved), Some(port)) => assert_eq!(resolved.target, Target::Tcp { port }),
             (Err(err), None) => assert_eq!(err, HealthError::BadPort(text.to_owned())),
             (got, _) => panic!("{text:?} resolved to {got:?}, expected {expected:?}"),
@@ -1110,7 +1194,7 @@ mod tests {
     #[case("http://", false)]
     #[case("not a url", false)]
     fn resolve_validates_the_http_url(#[case] url: &str, #[case] ok: bool) {
-        let resolved = resolve(&check(Some(url), None, None), |t| t.to_owned());
+        let resolved = resolve(&check(Some(url), None, None), verbatim);
         assert_eq!(resolved.is_ok(), ok, "{url:?} -> {resolved:?}");
         if !ok {
             assert_eq!(resolved.unwrap_err(), HealthError::BadUrl(url.to_owned()));
@@ -1123,7 +1207,7 @@ mod tests {
     #[case("\n\t", true)]
     #[case("pg_isready -q", false)]
     fn resolve_rejects_an_empty_cmd(#[case] cmd: &str, #[case] empty: bool) {
-        let resolved = resolve(&check(None, None, Some(cmd)), |t| t.to_owned());
+        let resolved = resolve(&check(None, None, Some(cmd)), verbatim);
         assert_eq!(resolved.is_err(), empty, "{cmd:?} -> {resolved:?}");
         if empty {
             assert_eq!(resolved.unwrap_err(), HealthError::EmptyCmd);
@@ -1470,6 +1554,14 @@ mod tests {
     }
 
     #[test]
+    fn the_default_system_clock_starts_where_a_new_one_does() {
+        // `Default` exists so an embedder can write `SystemClock::default()`; one that handed
+        // back an epoch rather than a fresh `Instant` would make every `after` a wrong number.
+        let clock = SystemClock::default();
+        assert!(clock.now() < 1_000, "a fresh clock reads {}, not roughly zero", clock.now());
+    }
+
+    #[test]
     fn the_nap_says_when_the_budget_is_gone() {
         let clock = TestClock::default();
         let timing = timing(100, 0, 1, 0);
@@ -1549,6 +1641,16 @@ mod tests {
         reap(&token);
     }
 
+    #[rstest]
+    // Group 0 is this process's own: `kill(-0, SIGKILL)` would take the test runner, its shell,
+    // and every other test running beside it.
+    #[case(0)]
+    // Too large to be a `pid_t`, so there is no group to name safely.
+    #[case(u32::MAX)]
+    fn a_pid_with_no_group_of_its_own_is_never_signalled(#[case] pid: u32) {
+        assert!(!kill_group(pid), "it reported signalling a group it cannot name");
+    }
+
     #[test]
     fn kill_group_takes_the_backgrounded_children_too() {
         let token = token(4);
@@ -1567,13 +1669,13 @@ mod tests {
         let running = snapshot_until(10_000, |snap| count_in(snap, token) >= 2);
         assert!(count_in(&running, token) >= 2, "the children never started");
 
-        kill_group(child.id());
+        assert!(kill_group(child.id()), "nothing was signalled at all");
 
         let after = snapshot_until(10_000, |snap| count_in(snap, token) == 0);
         let gone = count_in(&after, token) == 0;
-        if !gone {
-            reap(token);
-        }
+        // Unconditional: a `pkill` that matches nothing costs a moment, and a survivor left behind
+        // would trip the stale-process guard at the top of the next run of this test.
+        reap(token);
         reap_briefly(&mut child);
         assert!(gone, "kill_group left the backgrounded child behind");
     }
@@ -1600,6 +1702,9 @@ mod tests {
         assert_eq!(healthy.after(), Duration::from_millis(1));
         assert_eq!(unhealthy.after(), Duration::from_millis(2));
         assert_eq!(timed_out.after(), Duration::from_millis(3));
+        // A healthy verdict has no reason to report, and the two failing ones report their own.
+        assert_eq!(healthy.detail_for_test(), "");
+        assert_eq!((unhealthy.detail_for_test(), timed_out.detail_for_test()), ("a", "b"));
     }
 
     #[test]

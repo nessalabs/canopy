@@ -449,8 +449,9 @@ impl<'a> Supervised<'a> {
     ) {
         let only = BTreeSet::from([self.name.clone()]);
         match service::up(services, Some(&only), ctx, false) {
+            // Asked for this one service by name, so exactly one status comes back.
             Ok(statuses) => {
-                if let Some(status) = statuses.into_iter().next() {
+                for status in statuses {
                     self.attach(status, ctx, opts, now, on_event);
                 }
             }
@@ -650,6 +651,7 @@ mod tests {
     use std::time::Instant as TestInstant;
 
     use camino::Utf8PathBuf;
+    use nix::sys::signal::{self, Signal};
     use rstest::rstest;
     use tempfile::TempDir;
 
@@ -900,16 +902,46 @@ mod tests {
         Session { outcome, events: events.into_inner() }
     }
 
-    /// Polls `condition` until it holds or [`PATIENCE`] runs out.
-    fn eventually(mut condition: impl FnMut() -> bool) -> bool {
-        let deadline = TestInstant::now() + PATIENCE;
-        while TestInstant::now() < deadline {
+    /// An `on_event` that keeps everything it is handed, for the tests below that drive one
+    /// service by hand instead of through [`run`].
+    fn collect(events: &mut Vec<Event>) -> impl FnMut(Event) + '_ {
+        |event| events.push(event)
+    }
+
+    /// A `should_stop` that says yes the first time it is asked.
+    fn stop_immediately() -> bool {
+        true
+    }
+
+    /// [`supervise`] for a run that has nothing to arrange while it is going.
+    fn watch(
+        harness: &Harness,
+        services: &BTreeMap<String, ServiceSpec>,
+        opts: &SuperviseOptions,
+        stop: impl Fn(&[(u64, Event)], u32) -> bool,
+    ) -> Session {
+        supervise(harness, services, opts, |_| {}, stop)
+    }
+
+    /// Polls `condition` until it holds or `patience` runs out.
+    ///
+    /// The patience is a parameter so the giving-up half can be tested without spending
+    /// [`PATIENCE`] to do it.
+    fn within(patience: std::time::Duration, mut condition: impl FnMut() -> bool) -> bool {
+        let deadline = TestInstant::now() + patience;
+        loop {
             if condition() {
                 return true;
             }
+            if TestInstant::now() >= deadline {
+                return false;
+            }
             std::thread::sleep(std::time::Duration::from_millis(25));
         }
-        condition()
+    }
+
+    fn eventually(condition: impl FnMut() -> bool) -> bool {
+        within(PATIENCE, condition)
     }
 
     /// Every pid currently in a process group, asked of the kernel rather than of the code under
@@ -945,15 +977,19 @@ mod tests {
             .collect()
     }
 
-    fn started_pid(session: &Session) -> i32 {
-        session
-            .events
+    /// The pid of every incarnation these events reported starting, in order.
+    fn started_pids(events: &[Event]) -> Vec<i32> {
+        events
             .iter()
-            .find_map(|(_, event)| match event {
+            .filter_map(|event| match event {
                 Event::Started { pid, .. } => Some(*pid),
                 _ => None,
             })
-            .expect("a Started event")
+            .collect()
+    }
+
+    fn started_pid(session: &Session) -> i32 {
+        *started_pids(&session.kinds()).first().expect("a Started event")
     }
 
     // -----------------------------------------------------------------------------------
@@ -992,6 +1028,33 @@ mod tests {
         // collected it — and it did, or the pid would still be `<defunct>`.
         let pid = started_pid(&session);
         assert!(zombies_among(&[pid]).is_empty(), "pid {pid} was never collected");
+    }
+
+    #[test]
+    fn a_service_killed_by_a_signal_reports_the_signal_not_a_code() {
+        // Only our own `waitpid` can tell a SIGKILL from an `exit 9`, and the difference is the
+        // whole story: one is the service deciding to stop, the other is something outside —
+        // an OOM killer, a stray `kill` — reaching in and taking it.
+        let harness = Harness::new();
+        let services = specs("\nweb:\n  run: \"sleep 30\"\n  restart: never\n");
+
+        let session = supervise(
+            &harness,
+            &services,
+            &options(100),
+            |event| {
+                // After `Started`, so the process has already outlived `up`'s start grace and
+                // nothing but the supervisor is left to collect it.
+                if let Event::Started { pid, .. } = event {
+                    let _ = signal::kill(Pid::from_raw(*pid), Signal::SIGKILL);
+                }
+            },
+            settles(is_exited, 2),
+        );
+
+        let killed = Event::Exited { name: "web".to_owned(), status: Exit::Signal { signal: 9 } };
+        assert!(session.kinds().contains(&killed), "{:?}", session.kinds());
+        assert_eq!(session.count(is_restarting), 0, "restart: never means never");
     }
 
     #[test]
@@ -1044,7 +1107,7 @@ mod tests {
         let harness = Harness::new();
         let services = instantly(7, "never");
 
-        let session = supervise(&harness, &services, &options(100), |_| {}, settles(is_exited, 30));
+        let session = watch(&harness, &services, &options(100), settles(is_exited, 30));
 
         assert_eq!(session.count(is_exited), 1);
         assert_eq!(session.count(is_restarting), 0);
@@ -1058,7 +1121,7 @@ mod tests {
         let services = instantly(1, "always");
         let opts = SuperviseOptions { restart: false, ..options(100) };
 
-        let session = supervise(&harness, &services, &opts, |_| {}, settles(is_exited, 30));
+        let session = watch(&harness, &services, &opts, settles(is_exited, 30));
 
         assert_eq!(session.count(is_exited), 1);
         assert_eq!(session.count(is_restarting), 0, "--no-restart is a master switch over the policy");
@@ -1154,7 +1217,7 @@ mod tests {
             ..options(100)
         };
 
-        let session = supervise(&harness, &services, &opts, |_| {}, settles(is_gave_up, 20));
+        let session = watch(&harness, &services, &opts, settles(is_gave_up, 20));
 
         assert_eq!(session.kinds().last(), Some(&Event::Stopped { name: "web".to_owned() }));
         assert!(session.kinds().contains(&Event::GaveUp { name: "web".to_owned(), restarts: 2 }));
@@ -1179,15 +1242,9 @@ mod tests {
 
         let deadline = TestInstant::now() + GIVE_UP;
 
-        let session = supervise(
-            &harness,
-            &services,
-            &opts,
-            |_| {},
-            |events, _| {
-                TestInstant::now() >= deadline || events.iter().filter(|(_, event)| is_restarting(event)).count() >= 2
-            },
-        );
+        let session = watch(&harness, &services, &opts, |events, _| {
+            TestInstant::now() >= deadline || events.iter().filter(|(_, event)| is_restarting(event)).count() >= 2
+        });
 
         let scheduled =
             session.events.iter().position(|(_, event)| is_restarting(event)).expect("a restart was scheduled");
@@ -1197,13 +1254,9 @@ mod tests {
         );
         // Virtual time only moves when the loop sleeps, so the next event is stamped with the
         // exact poll the restart happened on: the one the delay was up, neither earlier nor later.
+        let due = session.events[scheduled].0 + 500;
         let (waited, next) = &session.events[scheduled + 1];
-        assert_eq!(
-            *waited,
-            session.events[scheduled].0 + 500,
-            "{next} at {waited}, not {}",
-            session.events[scheduled].0 + 500
-        );
+        assert_eq!(*waited, due, "{next} at {waited}, not {due}");
     }
 
     // -----------------------------------------------------------------------------------
@@ -1226,7 +1279,7 @@ web:
 "#,
         );
 
-        let session = supervise(&harness, &services, &options(100), |_| {}, settles(is_unhealthy, 20));
+        let session = watch(&harness, &services, &options(100), settles(is_unhealthy, 20));
 
         assert_eq!(session.count(is_unhealthy), 1, "reported once, not once per interval");
         assert_eq!(session.count(is_exited), 0, "a failing check is not an exit");
@@ -1250,7 +1303,7 @@ web:
             "\nweb:\n  run: \"sleep 30\"\n  health:\n    cmd: \"echo probed >> probes\"\n    interval: {interval}\n    retries: 3\n"
         ));
 
-        supervise(&harness, &services, &options(100), |_| {}, polls(10));
+        watch(&harness, &services, &options(100), polls(10));
 
         let probes = fs::read_to_string(harness.worktree.join("probes")).unwrap_or_default();
         assert_eq!(probes.lines().count(), expect, "ten polls of 100ms at an interval of {interval}");
@@ -1274,7 +1327,7 @@ api:
 "#,
         );
 
-        let session = supervise(&harness, &services, &options(100), |_| {}, settles(is_healthy, 2));
+        let session = watch(&harness, &services, &options(100), settles(is_healthy, 2));
 
         // The marker is only findable from the service's own `cwd`, and `$TOKEN` only exists in
         // the service's own `env`. A check that ran anywhere else would fail both.
@@ -1302,7 +1355,7 @@ web:
 "#,
         );
 
-        let session = supervise(&harness, &services, &options(100), |_| {}, polls(2));
+        let session = watch(&harness, &services, &options(100), polls(2));
 
         assert_eq!(session.named(is_started), ["db", "api", "web"]);
         // Reverse, so the database outlives the things talking to it and nothing spends its last
@@ -1447,6 +1500,94 @@ web:
         assert_eq!(kinds[3], Event::Stopped { name: "web".to_owned() });
     }
 
+    #[rstest]
+    #[case("  autostart: false", RunState::Stopped, "autostart is false")]
+    #[case("  runtime: docker", RunState::Unsupported, "runtime docker is not supported")]
+    fn a_service_up_did_not_start_is_watched_but_never_touched(
+        #[case] extra: &str,
+        #[case] expect: RunState,
+        #[case] detail: &str,
+    ) {
+        // There is no process behind either of these, so there is nothing to report starting,
+        // nothing to stop, and above all nothing to signal. The row still has to say why.
+        let harness = Harness::new();
+        let services = specs(&format!("\nweb:\n  run: \"sleep 30\"\n{extra}\n"));
+
+        let session = watch(&harness, &services, &options(100), polls(2));
+
+        assert!(session.kinds().is_empty(), "{:?}", session.kinds());
+        let web = &session.outcome.services[0];
+        assert_eq!(web.state, expect);
+        assert_eq!(web.detail.as_deref().map(|text| text.contains(detail)), Some(true), "{:?}", web.detail);
+        assert!(!record_path(&harness.state, "web").exists(), "something was started for it anyway");
+    }
+
+    #[test]
+    fn a_running_service_whose_record_will_not_read_is_left_alone() {
+        // `up` says it is running and the file naming the process has gone. Supervising it would
+        // mean signalling a pid taken on trust, so it is left out of the loop entirely — and
+        // never announced as started, because nothing here can prove that it was.
+        let harness = Harness::new();
+        let services = specs("\nweb:\n  run: \"sleep 30\"\n");
+        let facts = harness.facts();
+        let ctx = harness.ctx(&facts);
+        let opts = options(100);
+        let running = ServiceStatus {
+            name: "web".to_owned(),
+            state: RunState::Running,
+            pid: Some(4321),
+            health: None,
+            ports: Vec::new(),
+            uptime_ms: None,
+            detail: None,
+        };
+        let mut events = Vec::new();
+
+        let mut service = Supervised::new(&services["web"], &ctx, running.clone());
+        service.adopt(&ctx, &opts, 0, &mut collect(&mut events));
+
+        assert!(events.is_empty(), "it announced a start it could not prove: {events:?}");
+        // Idle, which shows in the report: the status `down` produced is discarded in favour of
+        // the one that was already there, because nothing in this run ever stopped anything.
+        let stopped = ServiceStatus { state: RunState::Stopped, ..running.clone() };
+        assert_eq!(service.report(Some(stopped), &opts), running);
+    }
+
+    #[test]
+    fn a_restart_that_cannot_even_be_attempted_fails_the_service_not_the_run() {
+        // State that will not write is this service's problem. `run` still owes the caller a
+        // clean shutdown of everything else it started, so the failure is recorded against the
+        // one service and the row says what went wrong.
+        let harness = Harness::new();
+        let services = specs("\nweb:\n  run: \"sleep 30\"\n");
+        let facts = harness.facts();
+        // A state directory that cannot be created: the path runs through a regular file.
+        let blocked = harness.worktree.join("a-file");
+        fs::write(&blocked, "").expect("file");
+        let state = blocked.join("state");
+        let ctx = ServiceContext { worktree: &harness.worktree, state: &state, env: &harness.env, facts: &facts };
+        let opts = options(100);
+        let exited = ServiceStatus {
+            name: "web".to_owned(),
+            state: RunState::Exited,
+            pid: None,
+            health: None,
+            ports: Vec::new(),
+            uptime_ms: None,
+            detail: None,
+        };
+        let mut events = Vec::new();
+
+        let mut service = Supervised::new(&services["web"], &ctx, exited);
+        service.start(&services, &ctx, &opts, 0, &mut collect(&mut events));
+
+        assert_eq!(events, [Event::GaveUp { name: "web".to_owned(), restarts: 0 }]);
+        let reported = service.report(None, &opts);
+        assert_eq!(reported.state, RunState::Failed);
+        let detail = reported.detail.unwrap_or_default();
+        assert!(detail.contains(state.as_str()), "{detail:?} does not say which state directory");
+    }
+
     #[test]
     fn a_dependency_cycle_is_an_error() {
         let harness = Harness::new();
@@ -1456,12 +1597,45 @@ web:
         let ctx = harness.ctx(&facts);
         let clock = TestClock::new();
 
-        let error = run(&services, None, &ctx, &SuperviseOptions::default(), &clock, &|| true, &mut |_| {})
-            .expect_err("a cycle is not a startable set of services");
+        let mut events = Vec::new();
+
+        let error = run(
+            &services,
+            None,
+            &ctx,
+            &SuperviseOptions::default(),
+            &clock,
+            &stop_immediately,
+            &mut collect(&mut events),
+        )
+        .expect_err("a cycle is not a startable set of services");
 
         assert!(matches!(error, ServiceError::Order(_)), "{error:?}");
         assert!(error.to_string().contains("depends_on cycle"), "{error}");
+        assert!(events.is_empty(), "it reported something before it had checked the plan: {events:?}");
         assert!(!record_path(&harness.state, "a").exists(), "nothing is started before the plan is checked");
+    }
+
+    #[test]
+    fn a_run_told_to_stop_before_its_first_poll_still_stops_what_it_started() {
+        // `should_stop` is only read at the top of the loop, so a Ctrl-C that lands while `up` is
+        // still starting services is seen on the first check — and the services it started by
+        // then are stopped rather than left behind.
+        let harness = Harness::new();
+        let services = specs("\nweb:\n  run: \"sleep 30\"\n");
+        let facts = harness.facts();
+        let ctx = harness.ctx(&facts);
+        let clock = TestClock::new();
+        let mut events = Vec::new();
+
+        let outcome = run(&services, None, &ctx, &options(100), &clock, &stop_immediately, &mut collect(&mut events))
+            .expect("run");
+
+        assert!(matches!(events.as_slice(), [Event::Started { .. }, Event::Stopped { .. }]), "{events:?}");
+        let pid = *started_pids(&events).first().expect("a Started event");
+        assert_eq!(outcome.services[0].state, RunState::Stopped);
+        assert_eq!(outcome.restarts, 0);
+        assert!(eventually(|| group_members(pid).is_empty()), "group {pid} still holds {:?}", group_members(pid));
     }
 
     // -----------------------------------------------------------------------------------
@@ -1484,21 +1658,79 @@ web:
         assert_eq!(child(4321), Some(Pid::from_raw(4321)));
     }
 
-    #[test]
-    fn a_process_we_did_not_start_is_still_seen_to_be_gone() {
-        // Never our child, so `waitpid` can say nothing about it — but the kernel can still say
-        // it is not running, which is what an adopted service needs.
-        let record = ProcessRecord {
-            pid: 1,
-            pgid: 1,
-            start_time: Some("not when init started".to_owned()),
+    /// A record for a process this supervisor did not start: an adopted service, or a pid that
+    /// was never ours at all.
+    fn adopted(pid: i32, start_time: Option<&str>) -> ProcessRecord {
+        ProcessRecord {
+            pid,
+            pgid: pid,
+            start_time: start_time.map(str::to_owned),
             launch_id: "id".to_owned(),
             command: "init".to_owned(),
             cwd: Utf8PathBuf::from("/"),
             log: Utf8PathBuf::from("/dev/null"),
             started_at: 0,
+        }
+    }
+
+    #[test]
+    fn a_process_we_did_not_start_is_still_seen_to_be_gone() {
+        // Never our child, so `waitpid` can say nothing about it — but the kernel can still say
+        // the pid is wearing somebody else's start time, which is what an adopted service needs.
+        assert_eq!(observe_exit(&adopted(1, Some("not when init started"))), Some(Exit::Unknown));
+    }
+
+    #[test]
+    fn an_adopted_process_that_is_still_alive_is_not_reported_as_exited() {
+        // `waitpid` says nothing about a process that is not our child, and reading that silence
+        // as an exit would have the supervisor restart a service that never stopped. Nothing was
+        // recorded to contradict pid 1, so it is alive and ours as far as anything here can tell.
+        assert_eq!(observe_exit(&adopted(1, None)), None);
+    }
+
+    #[test]
+    fn a_record_with_a_nonsense_pid_is_not_waited_for_and_is_never_running() {
+        // Nothing is waited for — `waitpid(0)` would collect a stranger's child — and the state
+        // behind it still has to answer. "Not running, and we never saw it finish" is the answer.
+        assert_eq!(observe_exit(&adopted(0, None)), Some(Exit::Unknown));
+    }
+
+    #[test]
+    fn every_event_names_the_service_it_is_about() {
+        // The ordering assertions above read a service name out of an event through this. An arm
+        // it got wrong would quietly attribute one service's event to another and still pass.
+        let events = [
+            Event::Started { name: "started".to_owned(), pid: 1 },
+            Event::Healthy { name: "healthy".to_owned() },
+            Event::Unhealthy { name: "unhealthy".to_owned(), detail: String::new() },
+            Event::Exited { name: "exited".to_owned(), status: Exit::Unknown },
+            Event::Restarting { name: "restarting".to_owned(), attempt: 1, delay_ms: 0 },
+            Event::GaveUp { name: "gave-up".to_owned(), restarts: 1 },
+            Event::Stopped { name: "stopped".to_owned() },
+        ];
+
+        let names: Vec<&str> = events.iter().map(name_of).collect();
+
+        assert_eq!(names, ["started", "healthy", "unhealthy", "exited", "restarting", "gave-up", "stopped"]);
+    }
+
+    #[test]
+    fn the_wait_helper_keeps_polling_and_then_gives_up() {
+        // Every assertion above about a real process starting or dying goes through this. One
+        // that gave up on the first `false` would turn all of them into races with the
+        // scheduler; one that never gave up would hang the suite instead of failing it.
+        let asked = Cell::new(0u32);
+        let on_the_third_ask = || {
+            asked.set(asked.get() + 1);
+            asked.get() >= 3
         };
-        assert_eq!(observe_exit(&record), Some(Exit::Unknown));
+
+        assert!(within(PATIENCE, on_the_third_ask), "it gave up on a condition that came true");
+        assert_eq!(asked.get(), 3, "it answered without asking three times");
+
+        // The same condition with no time to reach its third ask.
+        asked.set(0);
+        assert!(!within(std::time::Duration::ZERO, on_the_third_ask), "a condition that never holds must return");
     }
 
     #[test]
