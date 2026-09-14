@@ -85,6 +85,17 @@ enum Command {
         #[arg(long)]
         write: bool,
     },
+    /// Carry gitignored files into a worktree, per the `copy:` rules.
+    Copy {
+        /// Defaults to the branch of the worktree you are in.
+        branch: Option<String>,
+        /// The checkout to copy from. Defaults to the main checkout.
+        #[arg(long)]
+        from: Option<Utf8PathBuf>,
+        /// Report the plan and write nothing.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// Run the `setup:` steps for a worktree.
     Setup {
         /// Defaults to the branch of the worktree you are in.
@@ -162,6 +173,7 @@ impl Command {
             Command::New { .. } => "new",
             Command::Ports { .. } => "ports",
             Command::Env { .. } => "env",
+            Command::Copy { .. } => "copy",
             Command::Setup { .. } => "setup",
             Command::Rm { .. } => "rm",
         }
@@ -326,6 +338,52 @@ fn run(cli: &Cli) -> Result<u8> {
                 print!("{}", table.to_export());
             } else {
                 print!("{}", table.to_dotenv());
+            }
+        }
+
+        Command::Copy { ref branch, ref from, dry_run } => {
+            let branch = resolve_branch(&canopy, branch.as_deref())?;
+            let target = worktree_path_for_branch(&canopy, &branch)?;
+            if !target.exists() {
+                return Err(Error::WorktreeNotFound(format!("{branch} has no checkout at {target}")));
+            }
+            // The main checkout is what a worktree was made from, so it is where its
+            // gitignored files come from unless told otherwise.
+            let source = match from {
+                Some(path) => path.clone(),
+                None => canopy.repo().root.clone().ok_or_else(|| {
+                    Error::WorktreeNotFound("a bare repository has no checkout to copy from".to_owned())
+                })?,
+            };
+            let default_config = canopy_worktree::config::CanopyConfig::empty();
+            let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+            let options = canopy_worktree::copy::CopyOptions { dry_run, source: source.clone() };
+            let outcome = canopy_worktree::copy::copy_ignored(
+                &canopy_worktree::git::Git::default(),
+                &source,
+                &target,
+                &config.copy,
+                &options,
+            )?;
+
+            if cli.json {
+                emit("copy", &outcome);
+            } else {
+                for entry in &outcome.entries {
+                    println!(
+                        "{:<10} {} ({} bytes, {}ms)",
+                        format!("{:?}", entry.result).to_lowercase(),
+                        entry.path,
+                        entry.bytes,
+                        entry.millis
+                    );
+                }
+                for failure in &outcome.failures {
+                    println!("failed     {} — {}", failure.path, failure.message);
+                }
+                if outcome.entries.is_empty() && outcome.failures.is_empty() {
+                    println!("nothing to copy");
+                }
             }
         }
 

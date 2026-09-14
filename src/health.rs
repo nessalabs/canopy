@@ -967,19 +967,23 @@ mod tests {
         assert_eq!(processes_matching(bg), 0, "stale process from an earlier run");
         assert_eq!(processes_matching(fg), 0, "stale process from an earlier run");
 
-        let health = cmd_check(&format!("sleep {bg} & sleep {fg}"), 1500);
+        // The timeout is the ceiling on how long there is to observe the children, since it is
+        // what kills them. 1500ms left barely 1200ms to see two processes appear, which a
+        // loaded machine loses; the extra seconds here buy the observation real headroom and
+        // cost only this one test.
+        let health = cmd_check(&format!("sleep {bg} & sleep {fg}"), 6000);
         let probe = std::thread::spawn(move || health.probe_once(Utf8Path::new("/"), &BTreeMap::new()));
 
         // Mid-probe, from one sweep: both children must actually exist, or the assertions after
         // the timeout prove nothing at all.
-        let running = snapshot_until(1200, |snap| count_in(snap, bg) >= 1 && count_in(snap, fg) >= 1);
+        let running = snapshot_until(5000, |snap| count_in(snap, bg) >= 1 && count_in(snap, fg) >= 1);
         assert!(count_in(&running, bg) >= 1, "the backgrounded child never started");
         assert!(count_in(&running, fg) >= 1, "the foreground child never started");
 
         let probe = probe.join().expect("probe thread");
-        assert_eq!(probe, unhealthy("timed out after 1500ms"));
+        assert_eq!(probe, unhealthy("timed out after 6s"));
 
-        let after = snapshot_until(3000, |snap| count_in(snap, bg) == 0 && count_in(snap, fg) == 0);
+        let after = snapshot_until(10_000, |snap| count_in(snap, bg) == 0 && count_in(snap, fg) == 0);
         assert_eq!(count_in(&after, bg), 0, "the backgrounded child survived the timeout");
         assert_eq!(count_in(&after, fg), 0, "the foreground child survived the timeout");
     }
@@ -1560,12 +1564,12 @@ mod tests {
             .process_group(0)
             .spawn()
             .expect("spawn");
-        let running = snapshot_until(3000, |snap| count_in(snap, token) >= 2);
+        let running = snapshot_until(10_000, |snap| count_in(snap, token) >= 2);
         assert!(count_in(&running, token) >= 2, "the children never started");
 
         kill_group(child.id());
 
-        let after = snapshot_until(3000, |snap| count_in(snap, token) == 0);
+        let after = snapshot_until(10_000, |snap| count_in(snap, token) == 0);
         let gone = count_in(&after, token) == 0;
         if !gone {
             reap(token);

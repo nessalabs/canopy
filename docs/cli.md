@@ -195,6 +195,30 @@ Values are single-quoted when they need it. Double quotes would not do: `sh` sti
 backticks and `\` inside them, so a password containing `$` would not survive a round trip
 through `. ./.env.canopy`.
 
+## `canopywt copy [<branch>]`
+
+Carry the gitignored files a worktree needs — the `.env` your app reads, and optionally the
+dependency directories that cost minutes to rebuild.
+
+```console
+$ canopywt copy feat/login
+copied     .env (41 bytes, 0ms)
+cloned     node_modules/react/index.js (6212 bytes, 1ms)
+```
+
+Candidates come from git, so only **gitignored** files are eligible and a tracked file is never
+touched — it arrived with the checkout and reflects what the branch actually says.
+
+`strategy: clone` uses a copy-on-write clone where the filesystem supports it. The report
+distinguishes `cloned` from `copied` so a silent fallback is visible rather than just slow.
+
+Nothing is overwritten: an existing file, directory or symlink at the target is reported
+`skipped`. One unreadable source does not abort the rest — it lands in `failures` alongside the
+paths that worked.
+
+- `--from <path>` copies from another checkout instead of the main one
+- `--dry-run` reports the plan and writes nothing
+
 ## `canopywt setup [<branch>]`
 
 Run the worktree's `setup:` steps, in order, with the resolved environment.
@@ -227,7 +251,6 @@ the failing one's output.
 | Command | Milestone |
 |---|---|
 | `config schema`, `config set` | M2b |
-| `copy` | M6 |
 | `up`, `down`, `ps`, `logs`, `wait` | M8–M9 |
 | `run` | M10 |
 | `doctor`, `gc`, `hook install` | M11–M12 |
