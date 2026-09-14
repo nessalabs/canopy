@@ -1,21 +1,21 @@
 src/lib.rs:44:9: replace Canopy::open -> Result<Canopy> with Ok(Default::default())
 src/lib.rs:49:9: replace Canopy::open_with -> Result<Canopy> with Ok(Default::default())
-src/lib.rs:57:9: replace Canopy::config -> Option<&(LocatedConfig, Parsed)> with Some(Box::leak(Box::new((Default::default(), Default::default()))))
 src/lib.rs:69:9: replace Canopy::repo -> &Repo with Box::leak(Box::new(Default::default()))
+src/lib.rs:57:9: replace Canopy::config -> Option<&(LocatedConfig, Parsed)> with Some(Box::leak(Box::new((Default::default(), Default::default()))))
 src/lib.rs:74:9: replace Canopy::info -> Result<RepoInfo> with Ok(Default::default())
 src/lib.rs:86:9: replace Canopy::list -> Result<Vec<WorktreeEntry>> with Ok(vec![Default::default()])
 src/config/mod.rs:350:9: replace <impl Deserialize<'de> for SetupStep>::deserialize -> std::result::Result<Self, D::Error> with Ok(Default::default())
 src/error.rs:104:9: replace Error::code -> ErrorCode with Default::default()
 src/git.rs:93:9: replace Git::output -> Result<GitOutput> with Ok(Default::default())
 src/repo.rs:33:9: replace Repo::discover -> Result<Repo> with Ok(Default::default())
-src/repo.rs:75:9: replace Repo::worktrees -> Result<Vec<WorktreeEntry>> with Ok(vec![Default::default()])
 src/repo.rs:82:9: replace Repo::any_cwd -> &Utf8Path with Box::leak(Box::new(Default::default()))
+src/repo.rs:75:9: replace Repo::worktrees -> Result<Vec<WorktreeEntry>> with Ok(vec![Default::default()])
 src/repo.rs:116:5: replace parse_worktree_list -> Result<Vec<WorktreeEntry>> with Ok(vec![Default::default()])
 src/wire.rs:38:9: replace Envelope<T>::ok -> Self with Default::default()
-src/wire.rs:67:9: replace Envelope<T>::verdict -> Self with Default::default()
 src/wire.rs:44:9: replace Envelope<()>::err -> Self with Default::default()
-src/config/duration.rs:19:9: replace Duration::from_millis -> Duration with Default::default()
+src/wire.rs:67:9: replace Envelope<T>::verdict -> Self with Default::default()
 src/config/duration.rs:23:9: replace Duration::from_secs -> Duration with Default::default()
+src/config/duration.rs:19:9: replace Duration::from_millis -> Duration with Default::default()
 src/config/duration.rs:31:9: replace Duration::as_std -> std::time::Duration with Default::default()
 src/config/duration.rs:88:9: replace <impl Serialize for Duration>::serialize -> Result<S::Ok, S::Error> with Ok(Default::default())
 src/config/lint.rs:39:9: replace Diagnostic::error -> Diagnostic with Default::default()
@@ -25,9 +25,9 @@ src/config/lint.rs:76:9: replace Diagnostic::at -> Diagnostic with Default::defa
 src/config/lint.rs:110:5: replace template_refs -> Vec<TemplateRef> with vec![Default::default()]
 src/config/lint.rs:130:5: replace parse_ref -> Option<TemplateRef> with Some(Default::default())
 src/config/lint.rs:249:5: replace lint -> Vec<Diagnostic> with vec![Default::default()]
+src/config/load.rs:44:9: replace && with || in locate
 src/config/load.rs:39:5: replace locate -> Option<LocatedConfig> with Some(Default::default())
 src/config/load.rs:43:9: replace && with || in locate
-src/config/load.rs:44:9: replace && with || in locate
 src/config/load.rs:75:5: replace load_file -> Result<Parsed> with Ok(Default::default())
 src/config/parse.rs:35:9: replace Parsed::errors -> impl Iterator<Item =&Diagnostic> with ::std::iter::once(Box::leak(Box::new(Default::default())))
 src/config/parse.rs:39:9: replace Parsed::warnings -> impl Iterator<Item =&Diagnostic> with ::std::iter::once(Box::leak(Box::new(Default::default())))

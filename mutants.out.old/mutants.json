@@ -4160,7 +4160,7 @@
     }
   },
   {
-    "diff": "--- src/config/lint.rs\n+++ replace template_refs -> Vec<TemplateRef> with vec![]\n@@ -102,28 +102,17 @@\n }\n \n /// Every `${…}` reference in `text`.\n ///\n /// Hand-written rather than a regex dependency: the grammar is `${scope.name}` or\n /// `${scope.name.field}` with lowercase-ish identifiers, and a malformed one is simply not a\n /// reference (it stays in the string verbatim, which is what interpolation does too).\n pub fn template_refs(text: &str) -> Vec<TemplateRef> {\n-    let mut refs = Vec::new();\n-    let mut rest = text;\n-    while let Some(open) = rest.find(\"${\") {\n-        let after_open = &rest[open + 2..];\n-        let Some(len) = after_open.find('}') else { break };\n-        let inner = &after_open[..len];\n-        rest = &after_open[len + 1..];\n-        if let Some(reference) = parse_ref(inner) {\n-            refs.push(reference);\n-        }\n-    }\n-    refs\n+    vec![] /* ~ changed by cargo-mutants ~ */\n }\n \n /// The inside of a `${…}`, if it is a reference at all.\n ///\n /// Only `[a-z0-9_-]` segments count. `${CANOPY_HOME}` and `${ports.WEB}` are shaped like\n /// references but are not ones — they are shell expansions or literal text, and reporting\n /// \"unknown port WEB\" for them would be worse than useless.\n fn parse_ref(inner: &str) -> Option<TemplateRef> {\n",
+    "diff": "--- src/config/lint.rs\n+++ replace template_refs -> Vec<TemplateRef> with vec![]\n@@ -102,28 +102,17 @@\n }\n \n /// Every `${…}` reference in `text`.\n ///\n /// Hand-written rather than a regex dependency: the grammar is `${scope.name}` or\n /// `${scope.name.field}` with lowercase-ish identifiers, and a malformed one is simply not a\n /// reference (it stays in the string verbatim, which is what interpolation does too).\n pub fn template_refs(text: &str) -> Vec<TemplateRef> {\n-    let mut refs = Vec::new();\n-    let mut rest = text;\n-    // Index arithmetic would say the same thing, but every offset is a place to be off by one\n-    // and there is no way to write a test that proves you were not.\n-    while let Some((_, after_open)) = rest.split_once(\"${\") {\n-        let Some((inner, tail)) = after_open.split_once('}') else { break };\n-        rest = tail;\n-        if let Some(reference) = parse_ref(inner) {\n-            refs.push(reference);\n-        }\n-    }\n-    refs\n+    vec![] /* ~ changed by cargo-mutants ~ */\n }\n \n /// The inside of a `${…}`, if it is a reference at all.\n ///\n /// Only `[a-z0-9_-]` segments count. `${CANOPY_HOME}` and `${ports.WEB}` are shaped like\n /// references but are not ones — they are shell expansions or literal text, and reporting\n /// \"unknown port WEB\" for them would be worse than useless.\n fn parse_ref(inner: &str) -> Option<TemplateRef> {\n",
     "file": "src/config/lint.rs",
     "function": {
       "function_name": "template_refs",
@@ -4192,7 +4192,7 @@
     }
   },
   {
-    "diff": "--- src/config/lint.rs\n+++ replace template_refs -> Vec<TemplateRef> with vec![Default::default()]\n@@ -102,28 +102,17 @@\n }\n \n /// Every `${…}` reference in `text`.\n ///\n /// Hand-written rather than a regex dependency: the grammar is `${scope.name}` or\n /// `${scope.name.field}` with lowercase-ish identifiers, and a malformed one is simply not a\n /// reference (it stays in the string verbatim, which is what interpolation does too).\n pub fn template_refs(text: &str) -> Vec<TemplateRef> {\n-    let mut refs = Vec::new();\n-    let mut rest = text;\n-    while let Some(open) = rest.find(\"${\") {\n-        let after_open = &rest[open + 2..];\n-        let Some(len) = after_open.find('}') else { break };\n-        let inner = &after_open[..len];\n-        rest = &after_open[len + 1..];\n-        if let Some(reference) = parse_ref(inner) {\n-            refs.push(reference);\n-        }\n-    }\n-    refs\n+    vec![Default::default()] /* ~ changed by cargo-mutants ~ */\n }\n \n /// The inside of a `${…}`, if it is a reference at all.\n ///\n /// Only `[a-z0-9_-]` segments count. `${CANOPY_HOME}` and `${ports.WEB}` are shaped like\n /// references but are not ones — they are shell expansions or literal text, and reporting\n /// \"unknown port WEB\" for them would be worse than useless.\n fn parse_ref(inner: &str) -> Option<TemplateRef> {\n",
+    "diff": "--- src/config/lint.rs\n+++ replace template_refs -> Vec<TemplateRef> with vec![Default::default()]\n@@ -102,28 +102,17 @@\n }\n \n /// Every `${…}` reference in `text`.\n ///\n /// Hand-written rather than a regex dependency: the grammar is `${scope.name}` or\n /// `${scope.name.field}` with lowercase-ish identifiers, and a malformed one is simply not a\n /// reference (it stays in the string verbatim, which is what interpolation does too).\n pub fn template_refs(text: &str) -> Vec<TemplateRef> {\n-    let mut refs = Vec::new();\n-    let mut rest = text;\n-    // Index arithmetic would say the same thing, but every offset is a place to be off by one\n-    // and there is no way to write a test that proves you were not.\n-    while let Some((_, after_open)) = rest.split_once(\"${\") {\n-        let Some((inner, tail)) = after_open.split_once('}') else { break };\n-        rest = tail;\n-        if let Some(reference) = parse_ref(inner) {\n-            refs.push(reference);\n-        }\n-    }\n-    refs\n+    vec![Default::default()] /* ~ changed by cargo-mutants ~ */\n }\n \n /// The inside of a `${…}`, if it is a reference at all.\n ///\n /// Only `[a-z0-9_-]` segments count. `${CANOPY_HOME}` and `${ports.WEB}` are shaped like\n /// references but are not ones — they are shell expansions or literal text, and reporting\n /// \"unknown port WEB\" for them would be worse than useless.\n fn parse_ref(inner: &str) -> Option<TemplateRef> {\n",
     "file": "src/config/lint.rs",
     "function": {
       "function_name": "template_refs",
@@ -4220,134 +4220,6 @@
       "start": {
         "column": 5,
         "line": 110
-      }
-    }
-  },
-  {
-    "diff": "--- src/config/lint.rs\n+++ replace + with - in template_refs\n@@ -105,17 +105,17 @@\n ///\n /// Hand-written rather than a regex dependency: the grammar is `${scope.name}` or\n /// `${scope.name.field}` with lowercase-ish identifiers, and a malformed one is simply not a\n /// reference (it stays in the string verbatim, which is what interpolation does too).\n pub fn template_refs(text: &str) -> Vec<TemplateRef> {\n     let mut refs = Vec::new();\n     let mut rest = text;\n     while let Some(open) = rest.find(\"${\") {\n-        let after_open = &rest[open + 2..];\n+        let after_open = &rest[open - /* ~ changed by cargo-mutants ~ */ 2..];\n         let Some(len) = after_open.find('}') else { break };\n         let inner = &after_open[..len];\n         rest = &after_open[len + 1..];\n         if let Some(reference) = parse_ref(inner) {\n             refs.push(reference);\n         }\n     }\n     refs\n",
-    "file": "src/config/lint.rs",
-    "function": {
-      "function_name": "template_refs",
-      "return_type": "-> Vec<TemplateRef>",
-      "span": {
-        "end": {
-          "column": 2,
-          "line": 122
-        },
-        "start": {
-          "column": 1,
-          "line": 104
-        }
-      }
-    },
-    "genre": "BinaryOperator",
-    "name": "src/config/lint.rs:113:37: replace + with - in template_refs",
-    "package": "canopy-worktree",
-    "replacement": "-",
-    "span": {
-      "end": {
-        "column": 38,
-        "line": 113
-      },
-      "start": {
-        "column": 37,
-        "line": 113
-      }
-    }
-  },
-  {
-    "diff": "--- src/config/lint.rs\n+++ replace + with * in template_refs\n@@ -105,17 +105,17 @@\n ///\n /// Hand-written rather than a regex dependency: the grammar is `${scope.name}` or\n /// `${scope.name.field}` with lowercase-ish identifiers, and a malformed one is simply not a\n /// reference (it stays in the string verbatim, which is what interpolation does too).\n pub fn template_refs(text: &str) -> Vec<TemplateRef> {\n     let mut refs = Vec::new();\n     let mut rest = text;\n     while let Some(open) = rest.find(\"${\") {\n-        let after_open = &rest[open + 2..];\n+        let after_open = &rest[open * /* ~ changed by cargo-mutants ~ */ 2..];\n         let Some(len) = after_open.find('}') else { break };\n         let inner = &after_open[..len];\n         rest = &after_open[len + 1..];\n         if let Some(reference) = parse_ref(inner) {\n             refs.push(reference);\n         }\n     }\n     refs\n",
-    "file": "src/config/lint.rs",
-    "function": {
-      "function_name": "template_refs",
-      "return_type": "-> Vec<TemplateRef>",
-      "span": {
-        "end": {
-          "column": 2,
-          "line": 122
-        },
-        "start": {
-          "column": 1,
-          "line": 104
-        }
-      }
-    },
-    "genre": "BinaryOperator",
-    "name": "src/config/lint.rs:113:37: replace + with * in template_refs",
-    "package": "canopy-worktree",
-    "replacement": "*",
-    "span": {
-      "end": {
-        "column": 38,
-        "line": 113
-      },
-      "start": {
-        "column": 37,
-        "line": 113
-      }
-    }
-  },
-  {
-    "diff": "--- src/config/lint.rs\n+++ replace + with - in template_refs\n@@ -108,17 +108,17 @@\n /// reference (it stays in the string verbatim, which is what interpolation does too).\n pub fn template_refs(text: &str) -> Vec<TemplateRef> {\n     let mut refs = Vec::new();\n     let mut rest = text;\n     while let Some(open) = rest.find(\"${\") {\n         let after_open = &rest[open + 2..];\n         let Some(len) = after_open.find('}') else { break };\n         let inner = &after_open[..len];\n-        rest = &after_open[len + 1..];\n+        rest = &after_open[len - /* ~ changed by cargo-mutants ~ */ 1..];\n         if let Some(reference) = parse_ref(inner) {\n             refs.push(reference);\n         }\n     }\n     refs\n }\n \n /// The inside of a `${…}`, if it is a reference at all.\n",
-    "file": "src/config/lint.rs",
-    "function": {
-      "function_name": "template_refs",
-      "return_type": "-> Vec<TemplateRef>",
-      "span": {
-        "end": {
-          "column": 2,
-          "line": 122
-        },
-        "start": {
-          "column": 1,
-          "line": 104
-        }
-      }
-    },
-    "genre": "BinaryOperator",
-    "name": "src/config/lint.rs:116:32: replace + with - in template_refs",
-    "package": "canopy-worktree",
-    "replacement": "-",
-    "span": {
-      "end": {
-        "column": 33,
-        "line": 116
-      },
-      "start": {
-        "column": 32,
-        "line": 116
-      }
-    }
-  },
-  {
-    "diff": "--- src/config/lint.rs\n+++ replace + with * in template_refs\n@@ -108,17 +108,17 @@\n /// reference (it stays in the string verbatim, which is what interpolation does too).\n pub fn template_refs(text: &str) -> Vec<TemplateRef> {\n     let mut refs = Vec::new();\n     let mut rest = text;\n     while let Some(open) = rest.find(\"${\") {\n         let after_open = &rest[open + 2..];\n         let Some(len) = after_open.find('}') else { break };\n         let inner = &after_open[..len];\n-        rest = &after_open[len + 1..];\n+        rest = &after_open[len * /* ~ changed by cargo-mutants ~ */ 1..];\n         if let Some(reference) = parse_ref(inner) {\n             refs.push(reference);\n         }\n     }\n     refs\n }\n \n /// The inside of a `${…}`, if it is a reference at all.\n",
-    "file": "src/config/lint.rs",
-    "function": {
-      "function_name": "template_refs",
-      "return_type": "-> Vec<TemplateRef>",
-      "span": {
-        "end": {
-          "column": 2,
-          "line": 122
-        },
-        "start": {
-          "column": 1,
-          "line": 104
-        }
-      }
-    },
-    "genre": "BinaryOperator",
-    "name": "src/config/lint.rs:116:32: replace + with * in template_refs",
-    "package": "canopy-worktree",
-    "replacement": "*",
-    "span": {
-      "end": {
-        "column": 33,
-        "line": 116
-      },
-      "start": {
-        "column": 32,
-        "line": 116
       }
     }
   },

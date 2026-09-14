@@ -101,3 +101,17 @@ pub struct RepoInfo {
     pub bare: bool,
     pub worktrees: usize,
 }
+
+/// The documentation's code examples, compiled as doctests.
+///
+/// Documentation that does not compile is worse than none: it is confidently wrong. Attaching
+/// the files here means a rename or a signature change breaks the build rather than quietly
+/// making the docs a lie.
+#[cfg(doctest)]
+mod doc_examples {
+    #[doc = include_str!("../README.md")]
+    mod readme {}
+
+    #[doc = include_str!("../docs/json-api.md")]
+    mod json_api {}
+}

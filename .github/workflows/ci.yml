@@ -28,3 +28,5 @@ jobs:
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       - run: cargo test --all-targets
+      # `--all-targets` skips doctests, which is where the documentation examples live.
+      - run: cargo test --doc

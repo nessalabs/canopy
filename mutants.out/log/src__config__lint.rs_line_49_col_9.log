@@ -35,105 +35,117 @@
     Updating crates.io index
 warning: failed to write cache, path: /Users/gpanthee/.cargo/registry/index/index.crates.io-1949cf8c6b5b557f/.cache/ca/mi/camino, error: Permission denied (os error 13)
     Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Removing /Users/gpanthee/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serial2-0.2.34
+warning: failed to auto-clean cache data
+
+failed to clean entries from the global cache
+
+Caused by:
+  failed to remove file `/Users/gpanthee/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serial2-0.2.34/Cargo.toml`
+
+Caused by:
+  Permission denied (os error 13)
        Fresh memchr v2.8.3
        Fresh unicode-ident v1.0.24
        Fresh cfg-if v1.0.4
        Fresh aho-corasick v1.1.5
+       Fresh anstyle v1.0.14
        Fresh autocfg v1.5.1
        Fresh regex-syntax v0.8.11
-       Fresh anstyle v1.0.14
        Fresh utf8parse v0.2.2
+       Fresh anstyle-query v1.1.5
        Fresh semver v1.0.28
-       Fresh colorchoice v1.0.5
-       Fresh equivalent v1.0.2
+       Fresh hashbrown v0.17.1
        Fresh proc-macro2 v1.0.107
-       Fresh libc v0.2.189
        Fresh serde_core v1.0.229
+       Fresh libc v0.2.189
        Fresh rustversion v1.0.23
        Fresh anstyle-parse v1.0.0
-       Fresh winnow v1.0.4
+       Fresh equivalent v1.0.2
        Fresh multiversion_no_op v1.0.0
-       Fresh ucd-trie v0.1.7
        Fresh simdutf8 v0.1.5
+       Fresh scopeguard v1.2.0
        Fresh quote v1.0.47
        Fresh num-traits v0.2.19
-       Fresh hashbrown v0.17.1
+       Fresh colorchoice v1.0.5
+       Fresh winnow v1.0.4
        Fresh is_terminal_polyfill v1.70.2
-       Fresh anstyle-query v1.1.5
-       Fresh scopeguard v1.2.0
-       Fresh toml_parser v1.1.3+spec-1.1.0
+       Fresh ucd-trie v0.1.7
        Fresh zmij v1.0.23
-       Fresh pest v2.9.1
+       Fresh indexmap v2.14.2
+       Fresh rustc_version v0.4.1
        Fresh syn v3.0.5
        Fresh syn v2.0.119
        Fresh anstream v1.0.0
-       Fresh indexmap v2.14.2
-       Fresh rustc_version v0.4.1
+       Fresh toml_parser v1.1.3+spec-1.1.0
+       Fresh pest v2.9.1
        Fresh unicode-width v0.2.2
-       Fresh arraydeque v0.5.1
+       Fresh smallvec v1.16.1
        Fresh serde_derive v1.0.229
        Fresh encoding_rs v0.8.41
-       Fresh clap_lex v1.1.0
-       Fresh smallvec v1.16.1
-       Fresh heck v0.5.0
        Fresh toml_datetime v1.1.1+spec-1.1.0
+       Fresh heck v0.5.0
        Fresh strsim v0.11.1
-       Fresh serde v1.0.229
-       Fresh encoding_rs_io v0.1.8
-       Fresh toml_edit v0.25.15+spec-1.1.0
+       Fresh arraydeque v0.5.1
+       Fresh clap_lex v1.1.0
        Fresh clap_builder v4.6.6
+       Fresh serde v1.0.229
        Fresh clap_derive v4.6.4
        Fresh granit-parser v1.2.1
-       Fresh thiserror-impl v2.0.20
-       Fresh annotate-snippets v0.12.16
+       Fresh toml_edit v0.25.15+spec-1.1.0
+       Fresh encoding_rs_io v0.1.8
        Fresh pest_meta v2.9.1
+       Fresh annotate-snippets v0.12.16
+       Fresh thiserror-impl v2.0.20
        Fresh errno v0.3.14
        Fresh regex-automata v0.4.18
-       Fresh itoa v1.0.18
-       Fresh nohash-hasher v0.2.0
-       Fresh predicates-core v1.0.10
        Fresh base64 v0.23.1
+       Fresh predicates-core v1.0.10
        Fresh bitflags v2.13.2
-       Fresh pest_generator v2.9.1
-       Fresh thiserror v2.0.20
+       Fresh nohash-hasher v0.2.0
+       Fresh itoa v1.0.18
        Fresh rustix v1.1.4
        Fresh serde_json v1.0.151
        Fresh serde-saphyr v1.2.0
-       Fresh camino v1.2.5
-       Fresh proc-macro-crate v3.5.0
+       Fresh thiserror v2.0.20
+       Fresh pest_generator v2.9.1
        Fresh clap v4.6.6
+       Fresh camino v1.2.5
        Fresh getrandom v0.4.3
+       Fresh proc-macro-crate v3.5.0
        Fresh regex v1.13.1
        Fresh float-cmp v0.10.0
        Fresh serde_ignored v0.1.14
        Fresh termtree v0.5.1
-       Fresh futures-core v0.3.34
-       Fresh futures-task v0.3.34
-       Fresh normalize-line-endings v0.3.0
-       Fresh pin-project-lite v0.2.17
-       Fresh relative-path v1.9.3
-       Fresh fastrand v2.5.0
-       Fresh glob v0.3.4
        Fresh difflib v0.4.0
+       Fresh futures-task v0.3.34
+       Fresh relative-path v1.9.3
        Fresh once_cell v1.21.4
+       Fresh glob v0.3.4
+       Fresh pin-project-lite v0.2.17
+       Fresh futures-core v0.3.34
+       Fresh normalize-line-endings v0.3.0
+       Fresh fastrand v2.5.0
        Fresh predicates-tree v1.0.13
-       Fresh futures-util v0.3.34
+       Fresh rstest_macros v0.27.0
        Fresh pest_derive v2.9.1
        Fresh bstr v1.13.1
        Fresh console v0.16.6
        Fresh wait-timeout v0.2.1
-       Fresh futures-timer v3.0.4
-       Fresh predicates v3.1.4
-       Fresh rstest_macros v0.27.0
-       Fresh tempfile v3.27.0
        Fresh similar v2.7.0
-       Dirty canopy-worktree v0.1.0 (/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp): couldn't read metadata for file `target/debug/deps/libcanopy_worktree-dc32b6b89029ce3e.rlib`
-   Compiling canopy-worktree v0.1.0 (/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp)
+       Fresh tempfile v3.27.0
+       Fresh futures-util v0.3.34
+       Fresh predicates v3.1.4
+       Fresh futures-timer v3.0.4
+       Dirty canopy-worktree v0.1.0 (/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp): couldn't read metadata for file `target/debug/deps/libcanopy_worktree-dc32b6b89029ce3e.rlib`
+   Compiling canopy-worktree v0.1.0 (/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp)
        Fresh assert_cmd v2.2.2
-       Fresh insta v1.48.0
        Fresh rstest v0.27.0
-     Running `rustc --crate-name canopy_worktree --edition=2024 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=01cf980898c6db9a -C extra-filename=-dc32b6b89029ce3e --out-dir /private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps -C incremental=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/incremental -L dependency=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps --extern camino=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libcamino-5cfb2976e7b0b13b.rmeta --extern clap=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libclap-ad6c9c390fee4aa5.rmeta --extern serde=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde-c99fdb4b88f25463.rmeta --extern serde_saphyr=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_saphyr-d8c0c0ee685ddc87.rmeta --extern serde_ignored=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_ignored-a029dc386c0be727.rmeta --extern serde_json=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_json-e8252af2ecf7ccfb.rmeta --extern thiserror=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libthiserror-f7987e97a20b040b.rmeta`
-     Running `rustc --crate-name canopy_worktree --edition=2024 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=edd4cd83435f560a -C extra-filename=-f90868a615258b92 --out-dir /private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps -C incremental=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/incremental -L dependency=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps --extern assert_cmd=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libassert_cmd-a28e8bd52a0bea24.rlib --extern camino=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libcamino-5cfb2976e7b0b13b.rlib --extern clap=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libclap-ad6c9c390fee4aa5.rlib --extern insta=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libinsta-bd788f1730370a14.rlib --extern predicates=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libpredicates-73040a56e3398e1f.rlib --extern rstest=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/librstest-5f7c2e5beb07fa05.rlib --extern serde=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde-c99fdb4b88f25463.rlib --extern serde_saphyr=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_saphyr-d8c0c0ee685ddc87.rlib --extern serde_ignored=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_ignored-a029dc386c0be727.rlib --extern serde_json=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_json-e8252af2ecf7ccfb.rlib --extern tempfile=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libtempfile-a34fb88d0fe720a7.rlib --extern thiserror=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libthiserror-f7987e97a20b040b.rlib`
+       Fresh insta v1.48.0
+     Running `rustc --crate-name canopy_worktree --edition=2024 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=01cf980898c6db9a -C extra-filename=-dc32b6b89029ce3e --out-dir /private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps -C incremental=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/incremental -L dependency=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps --extern camino=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libcamino-5cfb2976e7b0b13b.rmeta --extern clap=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libclap-ad6c9c390fee4aa5.rmeta --extern serde=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde-c99fdb4b88f25463.rmeta --extern serde_saphyr=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_saphyr-d8c0c0ee685ddc87.rmeta --extern serde_ignored=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_ignored-a029dc386c0be727.rmeta --extern serde_json=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_json-e8252af2ecf7ccfb.rmeta --extern thiserror=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libthiserror-f7987e97a20b040b.rmeta`
+     Running `rustc --crate-name canopy_worktree --edition=2024 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=edd4cd83435f560a -C extra-filename=-f90868a615258b92 --out-dir /private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps -C incremental=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/incremental -L dependency=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps --extern assert_cmd=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libassert_cmd-a28e8bd52a0bea24.rlib --extern camino=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libcamino-5cfb2976e7b0b13b.rlib --extern clap=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libclap-ad6c9c390fee4aa5.rlib --extern insta=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libinsta-bd788f1730370a14.rlib --extern predicates=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libpredicates-73040a56e3398e1f.rlib --extern rstest=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/librstest-5f7c2e5beb07fa05.rlib --extern serde=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde-c99fdb4b88f25463.rlib --extern serde_saphyr=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_saphyr-d8c0c0ee685ddc87.rlib --extern serde_ignored=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_ignored-a029dc386c0be727.rlib --extern serde_json=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_json-e8252af2ecf7ccfb.rlib --extern tempfile=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libtempfile-a34fb88d0fe720a7.rlib --extern thiserror=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libthiserror-f7987e97a20b040b.rlib`
 error[E0277]: the trait bound `Diagnostic: Default` is not satisfied
   --> src/config/lint.rs:49:9
    |
@@ -150,11 +162,11 @@ For more information about this error, try `rustc --explain E0277`.
 error: could not compile `canopy-worktree` (lib) due to 1 previous error
 
 Caused by:
-  process didn't exit successfully: `rustc --crate-name canopy_worktree --edition=2024 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=01cf980898c6db9a -C extra-filename=-dc32b6b89029ce3e --out-dir /private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps -C incremental=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/incremental -L dependency=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps --extern camino=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libcamino-5cfb2976e7b0b13b.rmeta --extern clap=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libclap-ad6c9c390fee4aa5.rmeta --extern serde=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde-c99fdb4b88f25463.rmeta --extern serde_saphyr=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_saphyr-d8c0c0ee685ddc87.rmeta --extern serde_ignored=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_ignored-a029dc386c0be727.rmeta --extern serde_json=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_json-e8252af2ecf7ccfb.rmeta --extern thiserror=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libthiserror-f7987e97a20b040b.rmeta` (exit status: 1)
+  process didn't exit successfully: `rustc --crate-name canopy_worktree --edition=2024 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=01cf980898c6db9a -C extra-filename=-dc32b6b89029ce3e --out-dir /private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps -C incremental=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/incremental -L dependency=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps --extern camino=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libcamino-5cfb2976e7b0b13b.rmeta --extern clap=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libclap-ad6c9c390fee4aa5.rmeta --extern serde=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde-c99fdb4b88f25463.rmeta --extern serde_saphyr=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_saphyr-d8c0c0ee685ddc87.rmeta --extern serde_ignored=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_ignored-a029dc386c0be727.rmeta --extern serde_json=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_json-e8252af2ecf7ccfb.rmeta --extern thiserror=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libthiserror-f7987e97a20b040b.rmeta` (exit status: 1)
 warning: build failed, waiting for other jobs to finish...
 error: could not compile `canopy-worktree` (lib test) due to 1 previous error
 
 Caused by:
-  process didn't exit successfully: `rustc --crate-name canopy_worktree --edition=2024 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=edd4cd83435f560a -C extra-filename=-f90868a615258b92 --out-dir /private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps -C incremental=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/incremental -L dependency=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps --extern assert_cmd=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libassert_cmd-a28e8bd52a0bea24.rlib --extern camino=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libcamino-5cfb2976e7b0b13b.rlib --extern clap=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libclap-ad6c9c390fee4aa5.rlib --extern insta=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libinsta-bd788f1730370a14.rlib --extern predicates=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libpredicates-73040a56e3398e1f.rlib --extern rstest=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/librstest-5f7c2e5beb07fa05.rlib --extern serde=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde-c99fdb4b88f25463.rlib --extern serde_saphyr=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_saphyr-d8c0c0ee685ddc87.rlib --extern serde_ignored=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_ignored-a029dc386c0be727.rlib --extern serde_json=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libserde_json-e8252af2ecf7ccfb.rlib --extern tempfile=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libtempfile-a34fb88d0fe720a7.rlib --extern thiserror=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-czcvdA.tmp/target/debug/deps/libthiserror-f7987e97a20b040b.rlib` (exit status: 1)
+  process didn't exit successfully: `rustc --crate-name canopy_worktree --edition=2024 src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=edd4cd83435f560a -C extra-filename=-f90868a615258b92 --out-dir /private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps -C incremental=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/incremental -L dependency=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps --extern assert_cmd=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libassert_cmd-a28e8bd52a0bea24.rlib --extern camino=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libcamino-5cfb2976e7b0b13b.rlib --extern clap=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libclap-ad6c9c390fee4aa5.rlib --extern insta=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libinsta-bd788f1730370a14.rlib --extern predicates=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libpredicates-73040a56e3398e1f.rlib --extern rstest=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/librstest-5f7c2e5beb07fa05.rlib --extern serde=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde-c99fdb4b88f25463.rlib --extern serde_saphyr=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_saphyr-d8c0c0ee685ddc87.rlib --extern serde_ignored=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_ignored-a029dc386c0be727.rlib --extern serde_json=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libserde_json-e8252af2ecf7ccfb.rlib --extern tempfile=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libtempfile-a34fb88d0fe720a7.rlib --extern thiserror=/private/var/folders/2g/t5qflcz11532k_5fzmb4jw8m0000gn/T/cargo-mutants-canopy-worktree-nxxkrv.tmp/target/debug/deps/libthiserror-f7987e97a20b040b.rlib` (exit status: 1)
 
 *** result: Failure(101)

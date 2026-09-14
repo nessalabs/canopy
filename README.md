@@ -1,8 +1,7 @@
 # canopy-worktree
 
-Git worktree dev environments driven by `canopy.yaml`: create a worktree, copy the files git
-won't, allocate ports, resolve env, run setup and supervise services — from a terminal or an
-agent, with **no daemon**.
+Work on several branches at once, each with its own running environment — its own ports, its own
+dependencies, its own dev server — described by one file and managed without a daemon.
 
 ```bash
 cargo install canopy-worktree   # installs the `canopywt` binary
@@ -10,85 +9,124 @@ cargo install canopy-worktree   # installs the `canopywt` binary
 
 macOS and Linux.
 
+## The idea
+
+Git worktrees give you several checkouts of one repository. What they do not give you is
+everything after the checkout: which port this branch's dev server runs on, where its `.env` came
+from, whether its dependencies are installed, what is actually running right now. That is the
+part people script by hand, per project, and get subtly wrong.
+
+`canopywt` reads a `canopy.yaml` and does it. No daemon, no background process, no database — so
+it behaves the same from a terminal, a Makefile, a CI job or an agent.
+
+```yaml
+version: 1
+
+ports:
+  web: {}
+
+copy:
+  - pattern: .env
+  - pattern: node_modules
+    strategy: clone        # copy-on-write; seconds, not minutes
+
+setup:
+  - run: npm ci
+    if_changed: [package-lock.json]
+
+services:
+  web:
+    run: npm run dev -- --port ${ports.web}
+    health:
+      tcp: "${ports.web}"
+```
+
 ## Status
 
-Early. Built milestone by milestone, each one tested before the next starts.
+Early, and built one milestone at a time — each shipped with its tests passing and no surviving
+mutants before the next starts.
 
 | | |
 |---|---|
-| ✅ **M1** | repository discovery, `git worktree list` — `canopywt info`, `canopywt list` |
-| ✅ **M2** | `canopy.yaml` parse + lint — `canopywt config check\|show\|path\|init` |
-| ⬜ M2b | JSON Schema (`config schema`), generated TypeScript types, `config set` |
+| ✅ **M1** | repository discovery, worktree listing — `info`, `list` |
+| ✅ **M2** | `canopy.yaml` parse, lint and read interface — `config check\|show\|path\|init` |
+| ⬜ M2b | JSON Schema, generated TypeScript types, `config set` |
 | ⬜ M3 | worktree path template, port allocation |
-| ⬜ M4 | `canopywt new` / `rm` |
+| ⬜ M4 | `new` / `rm` |
 | ⬜ M5–M12 | env, copy, setup, services, health, supervisor, hardened removal, git hook |
 
-## Two invariants
+What exists today reads and validates; nothing yet creates or removes a worktree.
 
-**`git worktree list` is the registry.** Nothing this crate persists is consulted to answer
-"what worktrees exist" or "where is branch X". A worktree created, moved or removed by plain
-git behind our back is still seen correctly. The only things persisted are what git cannot
-know: which processes we started, and which ports are taken.
+## Documentation
 
-**Progress goes to stderr, results to stdout.** Every command accepts `--json` and prints
-exactly one envelope, success or failure:
+| | |
+|---|---|
+| [Command reference](docs/cli.md) | Every command and flag |
+| [`canopy.yaml` reference](docs/configuration.md) | Every key, every default, every lint rule |
+| [The JSON interface](docs/json-api.md) | The contract for scripts, agents and other programs |
+| [Design](docs/design.md) | Invariants, the choices behind them, and how this is tested |
 
-```json
-{"v":1,"ok":true,"command":"list","data":[…],"warnings":[]}
-{"v":1,"ok":false,"command":"info","error":{"code":"not_a_repository","message":"…"}}
+## For other programs
+
+Every command takes `--json` and prints exactly one object on stdout, success or failure.
+Progress goes to stderr, so you can watch a command work and pipe it at the same time.
+
+```console
+$ canopywt config check --json
+{"v":1,"ok":true,"command":"config check","data":{"path":"…","valid":true,"errors":0,"warnings":0,"diagnostics":[]},"warnings":[]}
 ```
 
-So a consumer parses one shape and reads `ok`, instead of branching on exit codes and scraping
-text. Exit codes are still meaningful: `0` ok, `1` the operation failed (`error.code` says how),
-`2` you typed it wrong, `3` someone else holds the lock — retry.
+Every diagnostic names the key it is about by dotted path, parse errors add a line and column,
+and `config check --stdin` validates a buffer that has not been saved yet. `config show` returns the
+config with every default filled in, so a UI can render services and ports without owning a YAML
+parser.
 
-## Config is a public interface
+Unknown config keys are warnings, never errors, at any depth — a key this binary does not know
+may simply be newer than it, but you still hear about `services.web.helth` by path.
 
-`canopy.yaml` is the whole configuration — nothing lives in some daemon's database, because a
-setting `canopywt` cannot read is a setting it cannot honour when it runs alone. That only pays
-off if *other* programs can read the file as easily, so:
+Full contract: [the JSON interface](docs/json-api.md).
 
-```bash
-canopywt config check --json     # diagnostics with line and column, for squiggles
-canopywt config check --stdin    # validate a buffer the user is still typing
-canopywt config show --json      # every default filled in — render it without a YAML parser
-canopywt config path             # which of the candidate files actually applies
-canopywt config init             # a starter file on stdout; never writes
-```
+## As a library
 
-`config check` reports a **verdict**, so it is the one command whose `ok` is about the file
-rather than the run: an invalid config exits 1 with `ok: false`, and `data` still carries every
-diagnostic — you read warnings off a passing file exactly as you read errors off a failing one.
+The CLI is a thin printf over the library — each subcommand calls one method and serializes the
+result — so the JSON shape and the Rust API cannot drift apart.
 
-Unknown keys are warnings, never errors, at any depth. A key this binary does not recognise may
-simply be newer than it, and `services.web.helth` is worth a warning rather than a silent
-shrug or a refusal to run.
-
-Human output is `path:line:column:` so editors and terminals can already open it.
-
-## Library
-
-The CLI is a printf over the library; every subcommand calls one method and serializes the
-result, so the `--json` contract cannot drift from the API.
-
-```rust
+```rust,no_run
 use camino::Utf8Path;
 use canopy_worktree::Canopy;
 
-let canopy = Canopy::open(Utf8Path::new("."))?;
-for entry in canopy.list()? {
+let canopy = Canopy::open(Utf8Path::new(".")).expect("inside a git repository");
+for entry in canopy.list().expect("git worktree list") {
     println!("{} -> {}", entry.branch.as_deref().unwrap_or("(detached)"), entry.path);
 }
-# Ok::<(), canopy_worktree::Error>(())
 ```
 
-## Why not worktrunk
+## Two things to know
 
-[worktrunk](https://worktrunk.dev) is excellent and much larger — an fzf picker, CI status, LLM
-branch summaries, a config-migration layer. This crate does one job: take a `canopy.yaml` and
-make a worktree that runs. Ideas taken from it with thanks: branch-as-identity with the path
-derived from a template, rename-to-trash before a background delete, and merge detection that
-copes with squash and rebase merges.
+**git is the registry.** `git worktree list` is the only source of truth for what exists and
+where. A worktree created, moved or removed by plain `git` behind this tool's back is still seen
+correctly, and there is no state to repair when the two disagree — they cannot. Only what git
+genuinely cannot know is persisted: which processes we started, and which ports are taken.
+
+**`canopy.yaml` is the whole configuration.** No dotfile, no per-machine settings store. A
+setting the tool cannot read is a setting it cannot honour when it runs alone.
+
+## Development
+
+```bash
+cargo test                       # unit + integration, against real git repositories
+cargo clippy --all-targets -- -D warnings
+cargo mutants -j 4               # injects bugs; a MISSED line is a test gap, treat as failure
+```
+
+The suite catches every viable mutant. See [Design → Testing](docs/design.md#testing) for why
+that matters more than the count of tests.
+
+## Prior art
+
+[worktrunk](https://worktrunk.dev) is a larger, more featureful tool in this space — worth using
+if you want an interactive picker, CI status and branch summaries. Ideas borrowed from it with
+thanks are credited in [Design](docs/design.md#prior-art).
 
 ## License
 
