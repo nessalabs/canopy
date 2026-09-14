@@ -16,19 +16,30 @@ use crate::error::{Error, Result};
 #[derive(Debug, Clone)]
 pub struct Git {
     bin: String,
+    /// Extra variables for the child. The process's own environment cannot be changed —
+    /// `set_var` is unsafe in edition 2024 and this crate forbids unsafe — so anything a
+    /// spawned git (or a hook it runs) must see is carried here.
+    env: Vec<(String, String)>,
 }
 
 impl Default for Git {
     fn default() -> Self {
         // Respect an explicit override so tests and exotic installs can point at a specific
         // git, but never search anything but PATH.
-        Git { bin: std::env::var("CANOPYWT_GIT").unwrap_or_else(|_| "git".to_owned()) }
+        Git { bin: std::env::var("CANOPYWT_GIT").unwrap_or_else(|_| "git".to_owned()), env: Vec::new() }
     }
 }
 
 impl Git {
     pub fn new(bin: impl Into<String>) -> Self {
-        Git { bin: bin.into() }
+        Git { bin: bin.into(), env: Vec::new() }
+    }
+
+    /// A copy that also sets `key` for every git it runs, and so for every hook that git runs.
+    pub fn with_env(&self, key: impl Into<String>, value: impl Into<String>) -> Git {
+        let mut next = self.clone();
+        next.env.push((key.into(), value.into()));
+        next
     }
 
     /// Runs git and returns stdout, or [`Error::GitFailed`] carrying git's own stderr.
@@ -101,6 +112,9 @@ impl Git {
             // Porcelain parsing must not be reshaped by the user's config or locale.
             .env("GIT_TERMINAL_PROMPT", "0")
             .env("LC_ALL", "C");
+        for (key, value) in &self.env {
+            command.env(key, value);
+        }
         let Output { status, stdout, stderr } = command.output()?;
         Ok(GitOutput { args: args.join(" "), status, stdout, stderr })
     }

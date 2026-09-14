@@ -202,7 +202,8 @@ fn every_code_in_the_table_is_produced_by_some_variant() {
     //
     // Compared as a set: the iteration order is `ErrorCode::ALL`'s, and a variant inserted in
     // the middle of that list should not fail a test about *which* codes exist.
-    let expected = std::collections::BTreeSet::from(["port_in_use", "service_failed", "setup_failed"]);
+    let expected =
+        std::collections::BTreeSet::from(["port_in_use", "repository_unhealthy", "service_failed", "setup_failed"]);
     assert_eq!(unproduced, expected, "unexpected unproduced codes");
 }
 

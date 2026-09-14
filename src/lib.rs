@@ -16,10 +16,12 @@
 
 pub mod config;
 pub mod copy;
+pub mod doctor;
 pub mod env;
 pub mod error;
 pub mod git;
 pub mod health;
+pub mod hook;
 pub mod paths;
 pub mod ports;
 pub mod proc;
@@ -33,6 +35,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 pub use config::{CanopyConfig, ConfigSource, Diagnostic, LocatedConfig, Parsed, Severity, WorktreeSpec, parse_str};
+pub use doctor::{Finding, Report, Severity as FindingSeverity, Swept};
 pub use env::{EnvSource, EnvTable, EnvVar, Facts};
 pub use error::{Error, ErrorCode, Result};
 pub use proc::{ProcessRecord, ProcessState, SpawnRequest, StopOutcome};
@@ -191,6 +194,11 @@ impl Canopy {
             ports: &ports,
         };
         Ok(env::resolve(config, &facts, &std::collections::BTreeMap::new()))
+    }
+
+    /// Where every worktree's state lives. `doctor` and `gc` walk this to find debris.
+    pub fn state_root(&self) -> Utf8PathBuf {
+        self.repo.common_dir.join("canopy").join("worktrees")
     }
 
     /// Per-worktree state: process records and logs, under the common git dir so it survives

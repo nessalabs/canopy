@@ -136,7 +136,9 @@ impl Repo {
             }
         };
 
-        self.git.run(self.any_cwd(), &args).map_err(|error| match error {
+        // `git worktree add` fires `post-checkout`, and the installed bridge is meant to notice
+        // worktrees made by *other* people's git. Marking our own keeps it from recursing.
+        self.git.with_env(crate::hook::NO_HOOK_ENV, "1").run(self.any_cwd(), &args).map_err(|error| match error {
             Error::GitFailed { stderr, .. } => Error::WorktreeCreateFailed(stderr),
             other => other,
         })?;

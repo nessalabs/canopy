@@ -28,6 +28,9 @@ const ENVELOPE_COMMANDS: &[(&[&str], &str)] = &[
     (&["copy", "feat/x"], "copy"),
     (&["new", "feat/new-one"], "new"),
     (&["rm", "feat/x"], "rm"),
+    (&["doctor"], "doctor"),
+    (&["gc"], "gc"),
+    (&["hook", "status"], "hook status"),
 ];
 
 /// The two that print a *document* rather than an envelope: `init` emits a starter file and
@@ -140,7 +143,7 @@ fn error_code_count_is_pinned() {
     // `ErrorCode::as_str` is an exhaustive match, so a new variant cannot compile without a
     // wire string. This guards the other half: that the variant was also added to `ALL`,
     // which the CLI documentation and these tests iterate. Bump the number deliberately.
-    assert_eq!(ErrorCode::ALL.len(), 15, "a variant was added or removed — update ALL and this count");
+    assert_eq!(ErrorCode::ALL.len(), 16, "a variant was added or removed — update ALL and this count");
 }
 
 #[test]

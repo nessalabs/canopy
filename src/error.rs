@@ -24,6 +24,7 @@ pub enum ErrorCode {
     PortInUse,
     SetupFailed,
     ServiceFailed,
+    RepositoryUnhealthy,
     Locked,
     Io,
 }
@@ -45,6 +46,7 @@ impl ErrorCode {
             ErrorCode::PortInUse => "port_in_use",
             ErrorCode::SetupFailed => "setup_failed",
             ErrorCode::ServiceFailed => "service_failed",
+            ErrorCode::RepositoryUnhealthy => "repository_unhealthy",
             ErrorCode::Locked => "locked",
             ErrorCode::Io => "io",
         }
@@ -74,6 +76,7 @@ impl ErrorCode {
         ErrorCode::PortInUse,
         ErrorCode::SetupFailed,
         ErrorCode::ServiceFailed,
+        ErrorCode::RepositoryUnhealthy,
         ErrorCode::Locked,
         ErrorCode::Io,
     ];
@@ -187,6 +190,18 @@ impl From<crate::copy::CopyError> for Error {
             crate::copy::CopyError::NonUtf8Path(_) => ErrorCode::Io,
         };
         Error::Module { code, message: error.to_string() }
+    }
+}
+
+impl From<crate::doctor::DoctorError> for Error {
+    fn from(error: crate::doctor::DoctorError) -> Error {
+        Error::Module { code: error.code(), message: error.to_string() }
+    }
+}
+
+impl From<crate::hook::HookError> for Error {
+    fn from(error: crate::hook::HookError) -> Error {
+        Error::Module { code: error.code(), message: error.to_string() }
     }
 }
 

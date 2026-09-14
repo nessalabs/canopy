@@ -365,7 +365,7 @@ impl<'a> Supervised<'a> {
         }
     }
 
-    /// Takes a status from `up` — a restart's — and becomes it.
+    /// Takes the status a restart's `up` returned and becomes it.
     fn attach(
         &mut self,
         status: ServiceStatus,

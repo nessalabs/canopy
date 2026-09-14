@@ -150,6 +150,17 @@ enum Command {
         #[arg(long = "env")]
         env_overrides: Vec<String>,
     },
+    /// Report anything wrong with this repository's canopywt state.
+    Doctor,
+    /// Sweep what `doctor` reports as debris. Removes only what it can prove is dead.
+    Gc {
+        /// Truncate logs larger than this many bytes.
+        #[arg(long)]
+        log_cap: Option<u64>,
+    },
+    /// The git post-checkout bridge, so a worktree made by plain `git worktree add` is noticed.
+    #[command(subcommand)]
+    Hook(HookCommand),
     /// Remove a worktree, by branch name or path.
     Rm {
         target: String,
@@ -160,6 +171,19 @@ enum Command {
         #[arg(long, value_enum, default_value = "never")]
         delete_branch: DeleteBranchArg,
     },
+}
+
+#[derive(Subcommand, Debug)]
+enum HookCommand {
+    /// Install the post-checkout hook. Refuses to overwrite one that is not ours.
+    Install,
+    /// Remove it. Leaves a hook that is not ours alone.
+    Uninstall,
+    /// Whether it is installed.
+    Status,
+    /// Called by the installed hook. Always exits 0 — git cannot abort a checkout anyway, and
+    /// the hooks directory is shared, so a failure here would break every worktree at once.
+    PostCheckout { old: String, new: String, flag: String },
 }
 
 #[derive(clap::ValueEnum, Clone, Copy, Debug)]
@@ -222,6 +246,12 @@ impl Command {
             Command::Logs { .. } => "logs",
             Command::Copy { .. } => "copy",
             Command::Setup { .. } => "setup",
+            Command::Doctor => "doctor",
+            Command::Gc { .. } => "gc",
+            Command::Hook(HookCommand::Install) => "hook install",
+            Command::Hook(HookCommand::Uninstall) => "hook uninstall",
+            Command::Hook(HookCommand::Status) => "hook status",
+            Command::Hook(HookCommand::PostCheckout { .. }) => "hook post-checkout",
             Command::Rm { .. } => "rm",
         }
     }
@@ -571,6 +601,59 @@ fn run(cli: &Cli) -> Result<u8> {
             return Ok(if outcome.ok { 0 } else { 1 });
         }
 
+        Command::Doctor => {
+            let report = canopy_worktree::doctor::diagnose(canopy.repo(), &canopy.state_root(), &canopy.ports_path())?;
+            // Only an error fails the command. A warning is debris `gc` sweeps as a matter of
+            // course, and exiting non-zero for it would make `doctor` useless in CI — the place
+            // you actually want it to mean "someone has to look at this".
+            let errors =
+                report.findings.iter().filter(|f| f.severity == canopy_worktree::FindingSeverity::Error).count();
+
+            if cli.json {
+                let error = (errors > 0).then(|| canopy_worktree::wire::ErrorBody {
+                    code: canopy_worktree::ErrorCode::RepositoryUnhealthy.as_str(),
+                    message: format!("{errors} finding(s) need attention"),
+                    details: None,
+                });
+                let envelope = Envelope::verdict("doctor", errors == 0, &report, error);
+                println!("{}", serde_json::to_string(&envelope).expect("envelope is serializable"));
+            } else if report.findings.is_empty() {
+                println!("no problems found");
+            } else {
+                for finding in &report.findings {
+                    println!(
+                        "{:<8} {:<26} {}",
+                        format!("{:?}", finding.severity).to_lowercase(),
+                        finding.check,
+                        finding.message
+                    );
+                }
+                if errors == 0 {
+                    println!("\nnothing here needs a person: `canopywt gc` sweeps all of it");
+                }
+            }
+            return Ok(if errors == 0 { 0 } else { 1 });
+        }
+
+        Command::Gc { log_cap } => {
+            let state_root = canopy.state_root();
+            let ports = canopy.ports_path();
+            let swept = match log_cap {
+                Some(cap) => canopy_worktree::doctor::gc_with(canopy.repo(), &state_root, &ports, cap)?,
+                None => canopy_worktree::doctor::gc(canopy.repo(), &state_root, &ports)?,
+            };
+            if cli.json {
+                emit("gc", &swept);
+            } else {
+                println!(
+                    "released {} port(s), removed {} record(s) and {} state dir(s), truncated {} log(s)",
+                    swept.ports_released, swept.records_removed, swept.state_dirs_removed, swept.logs_truncated
+                );
+            }
+        }
+
+        Command::Hook(ref hook_command) => return run_hook(cli, &canopy, hook_command),
+
         Command::Rm { ref target, force, delete_branch } => {
             // Stop anything still running before the checkout goes, or a dev server keeps
             // writing into a directory that no longer exists.
@@ -826,6 +909,69 @@ fn service_context(canopy: &Canopy, given: Option<&str>) -> Result<ServiceSetup>
         ports: canopy.ports_for(&branch)?,
     };
     Ok((branch, worktree, state, env, owner))
+}
+
+/// git's answer for the hooks directory, which honours `core.hooksPath`. Guessing
+/// `.git/hooks` would install into a directory git is not reading.
+fn hooks_dir(canopy: &Canopy) -> Result<Utf8PathBuf> {
+    let cwd = canopy.repo().root.clone().unwrap_or_else(|| canopy.repo().common_dir.clone());
+    let out = canopy_worktree::git::Git::default()
+        .run(&cwd, ["rev-parse", "--path-format=absolute", "--git-path", "hooks"])?;
+    Ok(Utf8PathBuf::from(out.trim()))
+}
+
+fn run_hook(cli: &Cli, canopy: &Canopy, command: &HookCommand) -> Result<u8> {
+    match command {
+        HookCommand::Install => {
+            let dir = hooks_dir(canopy)?;
+            let binary = std::env::current_exe()
+                .ok()
+                .and_then(|path| Utf8PathBuf::from_path_buf(path).ok())
+                .map(|path| path.to_string())
+                .unwrap_or_else(|| "canopywt".to_owned());
+            let path = canopy_worktree::hook::install(&dir, &binary)?;
+            if cli.json {
+                emit("hook install", &serde_json::json!({ "path": path }));
+            } else {
+                println!("installed {path}");
+            }
+        }
+        HookCommand::Uninstall => {
+            let dir = hooks_dir(canopy)?;
+            let removed = canopy_worktree::hook::uninstall(&dir)?;
+            if cli.json {
+                emit("hook uninstall", &serde_json::json!({ "removed": removed }));
+            } else {
+                println!("{}", if removed { "removed" } else { "nothing of ours was installed" });
+            }
+        }
+        HookCommand::Status => {
+            let dir = hooks_dir(canopy)?;
+            let installed = canopy_worktree::hook::is_installed(&dir);
+            if cli.json {
+                emit(
+                    "hook status",
+                    &serde_json::json!({ "installed": installed, "path": canopy_worktree::hook::hook_path(&dir) }),
+                );
+            } else {
+                println!("{}", if installed { "installed" } else { "not installed" });
+            }
+        }
+        HookCommand::PostCheckout { old, new, flag } => {
+            let cwd = canopy.repo().root.clone().unwrap_or_else(|| canopy.repo().common_dir.clone());
+            let no_hook = std::env::var_os(canopy_worktree::hook::NO_HOOK_ENV).is_some();
+            let trigger = canopy_worktree::hook::classify(old, new, flag, &cwd, no_hook);
+            if cli.json {
+                emit("hook post-checkout", &trigger);
+            } else if let canopy_worktree::hook::Trigger::WorktreeAdded = trigger {
+                println!("canopywt: new worktree at {cwd}");
+            }
+            // Never anything but 0. git cannot abort a checkout, the hooks directory is shared
+            // across every worktree, and a hook that fails here breaks all of them at once.
+            return Ok(0);
+        }
+    }
+    Ok(0)
 }
 
 /// Stops whatever is still running for a worktree that is about to be removed. Best effort:

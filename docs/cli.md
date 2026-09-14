@@ -321,13 +321,77 @@ A failing step stops the run; later steps do not run. Exit is `1`, and `--json` 
 verdict: `ok: false` with `setup_failed`, while `data` still carries every step with the tail of
 the failing one's output.
 
+## `canopywt doctor`
+
+What is wrong with this repository's canopywt state. Read-only — it reports, it never fixes.
+
+```console
+$ canopywt doctor
+warning  port_row_stale             the port registry holds 1 port(s) for feat/old, which has no worktree
+
+nothing here needs a person: `canopywt gc` sweeps all of it
+```
+
+| Check | Is |
+|---|---|
+| `port_row_stale` | the registry holds ports for a branch with no worktree |
+| `port_duplicate` | two branches hold the same number (the registry is corrupt) |
+| `port_foreign` | a registered port is held by something we did not start |
+| `port_registry_unreadable` | the registry exists and cannot be parsed |
+| `state_dir_orphan` | state for a worktree git no longer lists |
+| `service_record_orphan` | a record whose process is dead, or whose pid was reused |
+| `service_record_unreadable` | a record that cannot be parsed |
+| `log_oversized` | a log past the 8 MiB cap |
+| `worktree_missing` | git lists a worktree that is not on disk |
+| `reflink_unsupported` | `strategy: clone` will silently degrade to a byte copy here |
+
+**Severity decides the exit code.** A *warning* is debris `gc` sweeps as a matter of course and
+exits `0` — failing CI over it would make `doctor` useless in the place you most want it. An
+*error* is something only a person can settle, exits `1`, and reports `repository_unhealthy`.
+
+## `canopywt gc`
+
+Sweeps what `doctor` reports as debris: stale registry rows, dead service records, state for
+worktrees git no longer lists, and logs over the cap (truncated, never deleted).
+
+It removes only what it can prove is dead. A record whose process is alive, a state directory
+for a worktree git still lists, and anything it could not parse are all left exactly where they
+are — an unreadable record is precisely the one not to delete on a guess.
+
+## `canopywt hook install`
+
+Installs a `post-checkout` hook so a worktree created by plain `git worktree add` is noticed.
+
+```console
+$ canopywt hook install
+installed /Users/me/dev/app/.git/hooks/post-checkout
+```
+
+Opt-in, never automatic: installing a hook into someone's repository as a side effect of
+creating a worktree is a surprise, and the hooks directory is **shared by every linked
+worktree**, so one bad hook breaks them all.
+
+Which is why the generated script always exits `0`, and calls the binary rather than `exec`ing
+it — with `exec`, a missing binary would leave `/bin/sh` exiting 127 and break every checkout in
+the repository. git cannot abort a checkout on our say-so anyway.
+
+It fires on a worktree add and on nothing else. All four of these must hold:
+
+1. `$3 == 1` — a branch checkout, not a file checkout
+2. `$1` is the null ref — this is what separates `worktree add` from an ordinary `git checkout`
+3. `.git` in the new directory is a **file**, not a directory — separates it from `git clone`
+4. `CANOPYWT_NO_HOOK` is unset — `canopywt new` sets it on its own `git worktree add`, so the
+   hook cannot recurse
+
+`hook uninstall` removes only ours and leaves a foreign hook alone; `hook status` says whether
+it is installed. Installing over a hook that is not ours is refused, with the snippet to paste.
+
 ## Planned
 
 | Command | Milestone |
 |---|---|
 | `config schema`, `config set` | M2b |
 | `run` (foreground supervisor with restart policy) | M10 |
-| `doctor`, `gc`, `hook install` | M11–M12 |
 
 ## Exit codes
 
