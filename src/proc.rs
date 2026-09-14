@@ -844,9 +844,15 @@ mod tests {
         // SIGTERM. (Without the explicit `exec`, whether the shell stayed around to be escalated
         // against would depend on the shell.)
         let (_dir, path) = workspace();
-        let record = start(&path, "trap '' TERM; exec sleep 60");
+        // Waiting only for the process to exist is not enough: on a loaded machine SIGTERM can
+        // arrive before the shell has run `trap`, and the child then dies of the signal it was
+        // supposed to be deaf to — the test fails reporting Terminated, having proved nothing.
+        // The marker is written *after* the trap is installed, so waiting for it is waiting for
+        // the condition under test.
+        let ready = path.join("trapped");
+        let record = start(&path, &format!("trap '' TERM; : > {ready}; exec sleep 60"));
         let _cleanup = Cleanup(record.clone());
-        assert!(eventually(|| !gone(record.pid)));
+        assert!(eventually(|| ready.exists()), "the child never installed its trap");
 
         let started = TestInstant::now();
         let outcome = stop(&record, "SIGTERM", Duration::from_millis(200));

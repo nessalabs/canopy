@@ -24,6 +24,7 @@ pub mod paths;
 pub mod ports;
 pub mod proc;
 pub mod repo;
+pub mod service;
 pub mod setup;
 pub mod wire;
 pub mod worktree;
@@ -36,6 +37,7 @@ pub use env::{EnvSource, EnvTable, EnvVar, Facts};
 pub use error::{Error, ErrorCode, Result};
 pub use proc::{ProcessRecord, ProcessState, SpawnRequest, StopOutcome};
 pub use repo::{WorktreeEntry, parse_worktree_list};
+pub use service::{RunState, ServiceContext, ServiceStatus};
 pub use setup::{SetupOptions, SetupOutcome, StepOutcome, StepResult, Stream, run_setup};
 pub use wire::{ENVELOPE_VERSION, Envelope};
 pub use worktree::{BranchSpec, CreateOptions, CreateOutcome, DeleteBranch, RemoveOptions, RemoveOutcome};
@@ -189,6 +191,12 @@ impl Canopy {
             ports: &ports,
         };
         Ok(env::resolve(config, &facts, &std::collections::BTreeMap::new()))
+    }
+
+    /// Per-worktree state: process records and logs, under the common git dir so it survives
+    /// `git clean` and is never mistaken for part of the checkout.
+    pub fn state_dir(&self, branch: &str) -> Utf8PathBuf {
+        self.repo.common_dir.join("canopy").join("worktrees").join(paths::sanitize(branch))
     }
 
     /// Removes the worktree for a branch name or a path.

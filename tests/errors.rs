@@ -193,17 +193,17 @@ fn every_code_in_the_table_is_produced_by_some_variant() {
     // exceptions are documented below.
     let produced: std::collections::BTreeSet<&str> =
         every_variant().iter().map(|(error, _)| error.code().as_str()).collect();
-    let unproduced: Vec<&str> =
+    let unproduced: std::collections::BTreeSet<&str> =
         ErrorCode::ALL.iter().map(|code| code.as_str()).filter(|code| !produced.contains(code)).collect();
 
     // `service_failed` arrives with the supervisor. `port_in_use` and `setup_failed` are
     // produced by a module bridge or a verdict envelope rather than a crate-level variant,
     // and are covered elsewhere.
-    assert_eq!(
-        unproduced,
-        ["port_in_use", "service_failed", "setup_failed"],
-        "unexpected unproduced codes: {unproduced:?}"
-    );
+    //
+    // Compared as a set: the iteration order is `ErrorCode::ALL`'s, and a variant inserted in
+    // the middle of that list should not fail a test about *which* codes exist.
+    let expected = std::collections::BTreeSet::from(["port_in_use", "service_failed", "setup_failed"]);
+    assert_eq!(unproduced, expected, "unexpected unproduced codes");
 }
 
 #[test]

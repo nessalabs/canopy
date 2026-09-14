@@ -50,12 +50,16 @@ mutants before the next starts.
 |---|---|
 | ✅ **M1** | repository discovery, worktree listing — `info`, `list` |
 | ✅ **M2** | `canopy.yaml` parse, lint and read interface — `config check\|show\|path\|init` |
+| ✅ **M3–M4** | worktree path template, port allocation, `new` / `rm` |
+| ✅ **M5–M7** | env resolution, `copy`, `setup` |
+| ✅ **M8–M9** | services and health — `up`, `down`, `ps`, `logs` |
+| ⬜ M10 | `run` — foreground supervisor with a restart policy |
+| ⬜ M11–M12 | hardened removal with salvage, `doctor`, `gc`, git hook |
 | ⬜ M2b | JSON Schema, generated TypeScript types, `config set` |
-| ⬜ M3 | worktree path template, port allocation |
-| ⬜ M4 | `new` / `rm` |
-| ⬜ M5–M12 | env, copy, setup, services, health, supervisor, hardened removal, git hook |
 
-What exists today reads and validates; nothing yet creates or removes a worktree.
+The whole provisioning chain works today: create a worktree, carry its gitignored files,
+allocate its ports, resolve its environment, run its setup steps, start its services and watch
+them — then tear it all down again.
 
 ## Documentation
 

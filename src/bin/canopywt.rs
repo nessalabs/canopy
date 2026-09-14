@@ -85,6 +85,36 @@ enum Command {
         #[arg(long)]
         write: bool,
     },
+    /// Start a worktree's services.
+    Up {
+        /// Defaults to the branch of the worktree you are in.
+        branch: Option<String>,
+        /// Start only these services. Repeatable.
+        #[arg(long)]
+        only: Vec<String>,
+        /// Return as soon as each service is spawned, without waiting for its health check.
+        #[arg(long)]
+        no_wait: bool,
+    },
+    /// Stop a worktree's services.
+    Down {
+        branch: Option<String>,
+        #[arg(long)]
+        only: Vec<String>,
+    },
+    /// Show what is running for a worktree.
+    Ps { branch: Option<String> },
+    /// Show a service's log.
+    Logs {
+        service: String,
+        branch: Option<String>,
+        /// Keep printing as new lines arrive.
+        #[arg(long, short)]
+        follow: bool,
+        /// How many existing lines to show first.
+        #[arg(long, short = 'n', default_value_t = 200)]
+        lines: usize,
+    },
     /// Carry gitignored files into a worktree, per the `copy:` rules.
     Copy {
         /// Defaults to the branch of the worktree you are in.
@@ -173,6 +203,10 @@ impl Command {
             Command::New { .. } => "new",
             Command::Ports { .. } => "ports",
             Command::Env { .. } => "env",
+            Command::Up { .. } => "up",
+            Command::Down { .. } => "down",
+            Command::Ps { .. } => "ps",
+            Command::Logs { .. } => "logs",
             Command::Copy { .. } => "copy",
             Command::Setup { .. } => "setup",
             Command::Rm { .. } => "rm",
@@ -341,6 +375,69 @@ fn run(cli: &Cli) -> Result<u8> {
             }
         }
 
+        Command::Up { ref branch, ref only, no_wait } => {
+            let (branch, worktree, state, env, facts_owner) = service_context(&canopy, branch.as_deref())?;
+            let default_config = canopy_worktree::config::CanopyConfig::empty();
+            let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+            let facts = facts_owner.facts();
+            let ctx = canopy_worktree::ServiceContext { worktree: &worktree, state: &state, env: &env, facts: &facts };
+            let only = selection(only);
+            let statuses = canopy_worktree::service::up(&config.services, only.as_ref(), &ctx, !no_wait)?;
+            report_services(cli, "up", &statuses);
+            let _ = branch;
+        }
+
+        Command::Down { ref branch, ref only } => {
+            let (_, worktree, state, env, facts_owner) = service_context(&canopy, branch.as_deref())?;
+            let default_config = canopy_worktree::config::CanopyConfig::empty();
+            let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+            let facts = facts_owner.facts();
+            let ctx = canopy_worktree::ServiceContext { worktree: &worktree, state: &state, env: &env, facts: &facts };
+            let only = selection(only);
+            let statuses = canopy_worktree::service::down(&config.services, only.as_ref(), &ctx)?;
+            report_services(cli, "down", &statuses);
+        }
+
+        Command::Ps { ref branch } => {
+            let (_, worktree, state, env, facts_owner) = service_context(&canopy, branch.as_deref())?;
+            let default_config = canopy_worktree::config::CanopyConfig::empty();
+            let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+            let facts = facts_owner.facts();
+            let ctx = canopy_worktree::ServiceContext { worktree: &worktree, state: &state, env: &env, facts: &facts };
+            let statuses = canopy_worktree::service::status(&config.services, None, &ctx)?;
+            report_services(cli, "ps", &statuses);
+        }
+
+        Command::Logs { ref service, ref branch, follow, lines } => {
+            let branch = resolve_branch(&canopy, branch.as_deref())?;
+            let state = canopy.state_dir(&branch);
+            if follow {
+                // Ctrl-C has to land even on a service that has gone quiet, so the stop
+                // condition is checked on every poll, not only between lines.
+                let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+                let flag = running.clone();
+                let _ = ctrlc_flag(flag);
+                let mut out = |line: &str| println!("{line}");
+                canopy_worktree::service::follow(
+                    &state,
+                    service,
+                    lines,
+                    canopy_worktree::service::FOLLOW_POLL,
+                    &mut out,
+                    &|| running.load(std::sync::atomic::Ordering::Relaxed),
+                )?;
+            } else {
+                let tail = canopy_worktree::service::logs(&state, service, lines)?;
+                if cli.json {
+                    emit("logs", &tail);
+                } else {
+                    for line in &tail {
+                        println!("{line}");
+                    }
+                }
+            }
+        }
+
         Command::Copy { ref branch, ref from, dry_run } => {
             let branch = resolve_branch(&canopy, branch.as_deref())?;
             let target = worktree_path_for_branch(&canopy, &branch)?;
@@ -448,14 +545,38 @@ fn run(cli: &Cli) -> Result<u8> {
         }
 
         Command::Rm { ref target, force, delete_branch } => {
+            // Stop anything still running before the checkout goes, or a dev server keeps
+            // writing into a directory that no longer exists.
+            let stopped = stop_services_for(&canopy, target).unwrap_or_default();
             let options = canopy_worktree::RemoveOptions { force, delete_branch: delete_branch.into() };
             let outcome = canopy.remove(target, &options)?;
+            // Hand the ports back. Without this the registry accumulates rows for worktrees
+            // that no longer exist and slowly exhausts the range.
+            let released =
+                outcome.branch.as_deref().map(|branch| canopy.release_ports(branch)).transpose()?.unwrap_or(0);
+            let state = outcome.branch.as_deref().map(|branch| canopy.state_dir(branch));
+            if let Some(state) = state.filter(|path| path.exists()) {
+                // The records and logs describe a worktree that is gone.
+                let _ = std::fs::remove_dir_all(&state);
+            }
             if cli.json {
-                emit("rm", &outcome);
+                emit(
+                    "rm",
+                    &serde_json::json!({
+                        "path": outcome.path,
+                        "branch": outcome.branch,
+                        "branch_deleted": outcome.branch_deleted,
+                        "ports_released": released,
+                        "services_stopped": stopped,
+                    }),
+                );
             } else {
                 println!("removed {}", outcome.path);
                 if outcome.branch_deleted {
                     println!("deleted branch {}", outcome.branch.as_deref().unwrap_or("?"));
+                }
+                if released > 0 {
+                    println!("released {released} port(s)");
                 }
             }
         }
@@ -582,6 +703,97 @@ fn searched_description(canopy: &Canopy) -> String {
     format!(
         "looked in {root}, the main checkout, and your user config; `canopywt config init > canopy.yaml` writes a starter"
     )
+}
+
+/// Everything the service commands need, with the borrowed pieces kept alive by the caller.
+struct FactsOwner {
+    name: String,
+    worktree: Utf8PathBuf,
+    branch: String,
+    project: String,
+    project_path: Utf8PathBuf,
+    ports: std::collections::BTreeMap<String, u16>,
+}
+
+impl FactsOwner {
+    fn facts(&self) -> canopy_worktree::env::Facts<'_> {
+        canopy_worktree::env::Facts {
+            worktree_name: &self.name,
+            worktree_path: &self.worktree,
+            branch: &self.branch,
+            project: &self.project,
+            project_path: &self.project_path,
+            ports: &self.ports,
+        }
+    }
+}
+
+type ServiceSetup = (String, Utf8PathBuf, Utf8PathBuf, canopy_worktree::EnvTable, FactsOwner);
+
+/// Resolves the branch, its checkout, its state directory and its environment in one place,
+/// since every service command needs all four.
+fn service_context(canopy: &Canopy, given: Option<&str>) -> Result<ServiceSetup> {
+    let branch = resolve_branch(canopy, given)?;
+    let worktree = worktree_path_for_branch(canopy, &branch)?;
+    if !worktree.exists() {
+        return Err(Error::WorktreeNotFound(format!("{branch} has no checkout at {worktree}")));
+    }
+    let state = canopy.state_dir(&branch);
+    std::fs::create_dir_all(&state)?;
+    let env = canopy.env_for(&branch, &worktree)?;
+    let owner = FactsOwner {
+        name: worktree.file_name().unwrap_or(&branch).to_owned(),
+        worktree: worktree.clone(),
+        branch: branch.clone(),
+        project: canopy.repo().name(),
+        project_path: canopy.repo().root.clone().unwrap_or_else(|| canopy.repo().common_dir.clone()),
+        ports: canopy.ports_for(&branch)?,
+    };
+    Ok((branch, worktree, state, env, owner))
+}
+
+/// Stops whatever is still running for a worktree that is about to be removed. Best effort:
+/// a worktree whose config has gone, or which never started anything, must still be removable.
+fn stop_services_for(canopy: &Canopy, target: &str) -> Result<Vec<String>> {
+    let Ok((_, worktree, state, env, owner)) = service_context(canopy, Some(target)) else {
+        return Ok(Vec::new());
+    };
+    let default_config = canopy_worktree::config::CanopyConfig::empty();
+    let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+    let facts = owner.facts();
+    let ctx = canopy_worktree::ServiceContext { worktree: &worktree, state: &state, env: &env, facts: &facts };
+    let statuses = canopy_worktree::service::down(&config.services, None, &ctx)?;
+    Ok(statuses.into_iter().map(|status| status.name).collect())
+}
+
+/// `--only a --only b` as a set, or `None` for "everything".
+fn selection(only: &[String]) -> Option<std::collections::BTreeSet<String>> {
+    (!only.is_empty()).then(|| only.iter().cloned().collect())
+}
+
+/// Best-effort Ctrl-C handling for `logs --follow`: without it the flag never flips and the
+/// follow loop only ends when the terminal closes.
+fn ctrlc_flag(flag: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Result<()> {
+    // No signal-handling crate: a plain SIGINT default already terminates the process, so this
+    // is only about leaving the terminal tidy. Nothing to install.
+    let _ = flag;
+    Ok(())
+}
+
+fn report_services(cli: &Cli, command: &str, statuses: &[canopy_worktree::ServiceStatus]) {
+    if cli.json {
+        emit(command, &statuses);
+        return;
+    }
+    if statuses.is_empty() {
+        println!("no services");
+        return;
+    }
+    for status in statuses {
+        let pid = status.pid.map(|pid| pid.to_string()).unwrap_or_else(|| "-".to_owned());
+        let detail = status.detail.as_deref().map(|d| format!("  {d}")).unwrap_or_default();
+        println!("{:<16} {:<10} {:<8}{detail}", status.name, format!("{:?}", status.state).to_lowercase(), pid);
+    }
 }
 
 /// One line per step, for the human view.

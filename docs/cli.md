@@ -195,6 +195,57 @@ Values are single-quoted when they need it. Double quotes would not do: `sh` sti
 backticks and `\` inside them, so a password containing `$` would not survive a round trip
 through `. ./.env.canopy`.
 
+## `canopywt up [<branch>]`
+
+Start the worktree's services, in dependency order.
+
+```console
+$ canopywt up feat/login
+api              running    48210
+web              running    48214
+```
+
+`up` spawns and **exits**; the services keep running. There is no daemon holding them — each is
+its own process group with its output redirected to a file, so nothing needs to stay alive to
+pump a pipe.
+
+It waits for each service's health check by default, so a green result means the thing actually
+serves. `--no-wait` returns as soon as each process is spawned; a service with a health check
+then reports `starting` rather than `running`, because alive is not the same as serving.
+
+A service that dies immediately is reported `exited`, not `running` — there is a short grace
+period after spawn precisely to catch that. A second `up` is a no-op that returns the existing
+pids, so a race loses gracefully instead of double-starting. `--only <name>` starts a subset,
+and `autostart: false` keeps a service registered but unstarted unless you name it.
+
+`runtime: docker` and `compose` report `unsupported` rather than pretending.
+
+## `canopywt down [<branch>]`
+
+Stop them, in reverse dependency order: `stop_signal` (default SIGTERM) to the whole process
+group, escalating to SIGKILL after `stop_timeout`.
+
+The group, not the process, is the point — `run: npm start` that backgrounds a watcher would
+otherwise leave the watcher running. A record whose pid has been reused by an unrelated process
+is **refused**, never killed.
+
+## `canopywt ps [<branch>]`
+
+What is running, re-verified from the OS rather than trusted from the record file.
+
+```console
+$ canopywt ps feat/login --json | jq '.data[] | {name, state, pid, health}'
+{ "name": "web", "state": "running", "pid": 48214, "health": { "status": "healthy" } }
+```
+
+## `canopywt logs <service> [<branch>]`
+
+stdout and stderr, interleaved in one file — which is what you want when reading why something
+died.
+
+- `-n <count>` how many lines to show (default 200)
+- `-f` keep printing as new lines arrive
+
 ## `canopywt copy [<branch>]`
 
 Carry the gitignored files a worktree needs — the `.env` your app reads, and optionally the
@@ -251,8 +302,7 @@ the failing one's output.
 | Command | Milestone |
 |---|---|
 | `config schema`, `config set` | M2b |
-| `up`, `down`, `ps`, `logs`, `wait` | M8–M9 |
-| `run` | M10 |
+| `run` (foreground supervisor with restart policy) | M10 |
 | `doctor`, `gc`, `hook install` | M11–M12 |
 
 ## Exit codes
