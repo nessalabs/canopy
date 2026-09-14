@@ -343,3 +343,109 @@ fn error_is_a_std_error_so_it_composes_with_anyhow_and_friends() {
     let dynamic: &dyn std::error::Error = &error;
     assert!(!dynamic.to_string().is_empty());
 }
+
+// -------------------------------------------------------------------------------------
+// The facade's port and environment surface, driven as a library rather than a CLI
+// -------------------------------------------------------------------------------------
+
+#[test]
+fn ports_are_allocated_released_and_reallocated_through_the_facade() {
+    let fx = Fixture::new();
+    fx.write(
+        "canopy.yaml",
+        "version: 1\nports:\n  web: {}\n  api: {}\nservices:\n  a:\n    run: x ${ports.web} ${ports.api}\n",
+    );
+    let canopy = open(&fx);
+
+    let first = canopy.ports_for("feat/x").unwrap();
+    assert_eq!(first.len(), 2);
+    // Idempotent: a second ask must not move a number something has already been told to use.
+    assert_eq!(canopy.ports_for("feat/x").unwrap(), first);
+
+    assert_eq!(canopy.release_ports("feat/x").unwrap(), 2);
+    // Releasing again is not an error; there is simply nothing left to free.
+    assert_eq!(canopy.release_ports("feat/x").unwrap(), 0);
+}
+
+#[test]
+fn releasing_ports_before_anything_was_allocated_is_a_no_op() {
+    // The registry file does not exist yet, which must not be an error — `rm` calls this on
+    // every worktree, including ones that never declared a port.
+    let fx = Fixture::new();
+    let canopy = open(&fx);
+    assert!(!canopy.ports_path().exists());
+    assert_eq!(canopy.release_ports("feat/x").unwrap(), 0);
+}
+
+#[test]
+fn a_repo_with_no_declared_ports_writes_no_registry() {
+    // An empty registry file is noise: it says something was allocated when nothing was.
+    let fx = Fixture::new();
+    fx.write("canopy.yaml", "version: 1\nservices:\n  a:\n    run: x\n");
+    let canopy = open(&fx);
+    assert!(canopy.ports_for("feat/x").unwrap().is_empty());
+    assert!(!canopy.ports_path().exists());
+}
+
+#[test]
+fn the_environment_carries_the_facts_and_the_allocated_ports() {
+    let fx = Fixture::new();
+    fx.write(
+        "canopy.yaml",
+        "version: 1\nname: demo\nports:\n  web: {}\nenv:\n  URL: http://127.0.0.1:${ports.web}\nservices:\n  a:\n    run: x ${ports.web}\n",
+    );
+    let canopy = open(&fx);
+    let worktree = fx.root.parent().unwrap().join("wt/feat-x");
+
+    let table = canopy.env_for("feat/x", &worktree).unwrap();
+    let ports = canopy.ports_for("feat/x").unwrap();
+
+    assert_eq!(table.get("CANOPY_BRANCH"), Some("feat/x"));
+    assert_eq!(table.get("CANOPY_PROJECT"), Some("demo"));
+    assert_eq!(table.get("CANOPY_WORKTREE_PATH"), Some(worktree.as_str()));
+    assert_eq!(table.get("CANOPY_PORT_WEB"), Some(ports["web"].to_string().as_str()));
+    // …and a declared variable is interpolated against the same numbers.
+    assert_eq!(table.get("URL"), Some(format!("http://127.0.0.1:{}", ports["web"]).as_str()));
+}
+
+#[test]
+fn the_environment_works_for_a_repository_with_no_config() {
+    // Canopy's own facts are always available; a repo nobody has configured is not an error.
+    let fx = Fixture::new();
+    let canopy = open(&fx);
+    let table = canopy.env_for("main", &fx.root).unwrap();
+    assert_eq!(table.get("CANOPY_BRANCH"), Some("main"));
+    assert!(table.get("CANOPY_PORT_WEB").is_none());
+}
+
+#[test]
+fn state_lives_under_the_common_dir_so_every_worktree_agrees() {
+    let fx = Fixture::new();
+    let canopy = open(&fx);
+    let root = canopy.state_root();
+    let branch = canopy.state_dir("feat/x");
+
+    // Under the common git dir: outside every checkout, so `git clean -xfd` cannot take it and
+    // a linked worktree sees the same state as the main one.
+    assert!(root.starts_with(&canopy.repo().common_dir), "{root}");
+    assert!(branch.starts_with(&root), "{branch} should live under {root}");
+    // Addressed by the sanitized branch, so `feat/x` and `feat-x` do not share a directory by
+    // accident — `create` refuses that collision rather than letting it happen here.
+    assert!(branch.as_str().ends_with("feat-x"), "{branch}");
+    assert_eq!(canopy.ports_path().parent().unwrap(), canopy.repo().common_dir.join("canopy"));
+}
+
+#[test]
+fn a_config_that_names_itself_is_what_the_project_is_called() {
+    // The directory is whatever the person who cloned it chose; `name:` is what the project
+    // calls itself, and it is the one that belongs in CANOPY_PROJECT and ${project.name}.
+    let fx = Fixture::new();
+    fx.write("canopy.yaml", "version: 1\nname: the-real-name\nservices:\n  a:\n    run: echo ${project.name}\n");
+    let table = open(&fx).env_for("main", &fx.root).unwrap();
+    assert_eq!(table.get("CANOPY_PROJECT"), Some("the-real-name"));
+
+    // Without one, the directory name is the fallback rather than an empty string.
+    let unnamed = Fixture::new();
+    unnamed.write("canopy.yaml", "version: 1\nservices:\n  a:\n    run: x\n");
+    assert_eq!(open(&unnamed).env_for("main", &unnamed.root).unwrap().get("CANOPY_PROJECT"), Some("repo"));
+}

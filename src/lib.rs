@@ -185,7 +185,10 @@ impl Canopy {
         let default_config = config::CanopyConfig::empty();
         let config = self.config().and_then(|(_, parsed)| parsed.config.as_ref()).unwrap_or(&default_config);
         let name = worktree.file_name().unwrap_or(branch).to_owned();
-        let project = self.repo.name();
+        // A config that names itself means it: `${project.name}` and CANOPY_PROJECT should say
+        // what the project is called, not what someone happened to call the directory they
+        // cloned into. The directory name is the fallback, not the answer.
+        let project = config.name.clone().unwrap_or_else(|| self.repo.name());
         let project_path = self.repo.root.clone().unwrap_or_else(|| self.repo.common_dir.clone());
         let facts = env::Facts {
             worktree_name: &name,

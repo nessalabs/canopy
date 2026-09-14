@@ -214,3 +214,80 @@ fn only_lock_contention_is_retryable() {
         assert_eq!(code.exit_code(), expected, "{} has the wrong exit code", code.as_str());
     }
 }
+
+// -------------------------------------------------------------------------------------
+// Every bridge, not just the first three
+// -------------------------------------------------------------------------------------
+
+/// A bridge that loses the module's code would make two very different failures look the same
+/// to a caller. Each of these asserts the code survives *and* the message does.
+#[track_caller]
+fn bridges<E>(error: E, expected: ErrorCode)
+where
+    E: std::fmt::Display,
+    Error: From<E>,
+{
+    let message = error.to_string();
+    let lifted: Error = error.into();
+    assert_eq!(lifted.code(), expected, "wrong code for {message:?}");
+    assert_eq!(lifted.to_string(), message, "the module's own wording is more specific than ours");
+    assert!(!message.is_empty());
+}
+
+#[test]
+fn a_doctor_error_keeps_its_code() {
+    use canopy_worktree::doctor::DoctorError;
+    // A git failure while diagnosing is still a git failure; flattening it would hide which
+    // half of `doctor` went wrong.
+    bridges(
+        DoctorError::Git(Error::GitFailed {
+            args: "worktree list".into(),
+            status: "exit code 1".into(),
+            stderr: "x".into(),
+        }),
+        ErrorCode::GitFailed,
+    );
+    bridges(DoctorError::Ports(PortError::InvalidPort { port: 0 }), ErrorCode::ConfigInvalid);
+    bridges(DoctorError::Io { path: path(), source: std::io::Error::other("gone") }, ErrorCode::Io);
+}
+
+#[test]
+fn a_hook_error_keeps_its_code() {
+    use canopy_worktree::hook::HookError;
+    // Refusing to clobber someone's hook is a setup action that could not be carried out, not
+    // an I/O fault — the distinction is what tells a caller whether retrying could help.
+    bridges(HookError::Foreign { path: path(), snippet: "paste me".into() }, ErrorCode::SetupFailed);
+    bridges(HookError::Io { path: path(), source: std::io::Error::other("read-only") }, ErrorCode::Io);
+}
+
+#[test]
+fn a_proc_error_keeps_its_code() {
+    use canopy_worktree::proc::ProcError;
+    // A service whose log will not open cannot start, so both of these are the service
+    // failing rather than the machine — which is what tells a caller to look at the service.
+    bridges(
+        ProcError::Spawn { command: "sh -c x".into(), source: std::io::Error::other("no such") },
+        ErrorCode::ServiceFailed,
+    );
+    bridges(ProcError::Log { path: path(), source: std::io::Error::other("read-only") }, ErrorCode::ServiceFailed);
+    // A record that will not parse and a filesystem that will not answer are both problems
+    // with the state directory, not with any particular service.
+    bridges(ProcError::Corrupt { path: path(), detail: "not json".into() }, ErrorCode::Io);
+    bridges(ProcError::Io(std::io::Error::other("disk")), ErrorCode::Io);
+}
+
+#[test]
+fn a_setup_error_separates_a_bad_config_from_a_bad_machine() {
+    use canopy_worktree::setup::SetupError;
+    // A glob that will not compile and a step named by a typo are the config being wrong; the
+    // user fixes those in the file, not on the machine.
+    bridges(SetupError::BadPattern { pattern: "[".into(), source: globset_error() }, ErrorCode::ConfigInvalid);
+    bridges(SetupError::UnknownStep("biuld".into()), ErrorCode::ConfigInvalid);
+    bridges(SetupError::Io { path: path(), source: std::io::Error::other("read-only") }, ErrorCode::Io);
+    bridges(SetupError::Shell { command: "true".into(), source: std::io::Error::other("no sh") }, ErrorCode::Io);
+}
+
+/// A real glob error, since `globset::Error` cannot be constructed by hand.
+fn globset_error() -> globset::Error {
+    globset::Glob::new("[").expect_err("an unclosed class is not a glob")
+}

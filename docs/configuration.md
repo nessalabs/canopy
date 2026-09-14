@@ -45,6 +45,10 @@ services:
 |---|---|---|
 | `version` | `1` | — (required) |
 | `name` | string | the repository's directory name |
+
+`name:` is what the project calls itself, and it is what `${project.name}` and
+`CANOPY_PROJECT` report. The directory name is only the fallback — whoever cloned the repo chose
+that, and it may not match.
 | `defaults` | mapping | `{ runtime: host, env: {} }` |
 | `env` | string → string | `{}` |
 | `ports` | name → [port](#ports) | `{}` |

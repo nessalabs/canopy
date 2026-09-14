@@ -151,7 +151,8 @@ fn env_carries_canopys_facts_and_the_allocated_ports() {
     let text = dotenv(&fx, "main");
 
     assert!(text.contains("CANOPY_BRANCH=main"), "{text}");
-    assert!(text.contains("CANOPY_PROJECT=repo"), "{text}");
+    // The config names itself `demo`; that is the project's name, not the directory's.
+    assert!(text.contains("CANOPY_PROJECT=demo"), "{text}");
     assert!(text.contains(&format!("CANOPY_PORT_WEB={}", ports["web"])), "{text}");
     assert!(text.contains(&format!("CANOPY_PORT_API={}", ports["api"])), "{text}");
 }
