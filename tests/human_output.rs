@@ -322,3 +322,149 @@ fn a_bad_env_override_shows_the_expected_form() {
     let text = refusal(&fx, &["setup", "feat/x", "--env", "NOEQUALS"]);
     assert!(text.contains("KEY=VALUE"), "{text}");
 }
+
+#[test]
+fn logs_follow_streams_new_lines_and_stops_on_an_interrupt() {
+    // A follow loop that only checks between lines never notices Ctrl-C on a service that has
+    // gone quiet — which is exactly when someone reaches for it.
+    use std::io::Read;
+
+    let fx = prepared();
+    human(&fx, &["new", "feat/x"]);
+    human(&fx, &["up", "feat/x", "--no-wait"]);
+
+    let log = fx.root.join(".git/canopy/worktrees/feat-x/logs/web.log");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !log.exists() && std::time::Instant::now() < deadline {
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+
+    let mut child = fx
+        .cwt()
+        .args(["logs", "web", "feat/x", "--follow"])
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("spawn follow");
+
+    // Append after the follow has started, so this proves streaming rather than the initial tail.
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    {
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new().append(true).open(&log).expect("open log");
+        writeln!(file, "a line written while following").expect("append");
+    }
+    std::thread::sleep(std::time::Duration::from_millis(600));
+
+    std::process::Command::new("kill").args(["-INT", &child.id().to_string()]).status().expect("kill");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let status = loop {
+        match child.try_wait().expect("try_wait") {
+            Some(status) => break Some(status),
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                break None;
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    };
+    assert!(status.is_some(), "follow ignored the interrupt and had to be killed");
+
+    let mut text = String::new();
+    child.stdout.take().map(|mut out| out.read_to_string(&mut text));
+    assert!(text.contains("a line written while following"), "follow did not stream: {text:?}");
+
+    let _ = fx.cwt().args(["down", "feat/x"]).output();
+}
+
+#[test]
+fn run_accepts_every_tuning_flag() {
+    // Each flag threads through to SuperviseOptions; a typo in any of them would otherwise only
+    // show up the first time someone tried to slow a restart down.
+    let fx = prepared();
+    human(&fx, &["new", "feat/x"]);
+
+    let mut child = fx
+        .cwt()
+        .args([
+            "run",
+            "feat/x",
+            "--poll",
+            "50ms",
+            "--backoff",
+            "100ms",
+            "--backoff-max",
+            "200ms",
+            "--restarts",
+            "2",
+            "--restart-window",
+            "10s",
+            "--quiet",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn run");
+
+    std::thread::sleep(std::time::Duration::from_millis(800));
+    std::process::Command::new("kill").args(["-INT", &child.id().to_string()]).status().expect("kill");
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    loop {
+        match child.try_wait().expect("try_wait") {
+            Some(status) => {
+                assert!(status.success(), "run with tuning flags exited {status}");
+                break;
+            }
+            None if std::time::Instant::now() >= deadline => {
+                let _ = child.kill();
+                panic!("run did not stop on an interrupt");
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(50)),
+        }
+    }
+}
+
+#[test]
+fn run_rejects_a_bad_tuning_value_before_starting_anything() {
+    let fx = prepared();
+    human(&fx, &["new", "feat/x"]);
+    let text = refusal(&fx, &["run", "feat/x", "--backoff", "soon"]);
+    assert!(text.contains("5s"), "the grammar belongs in the message: {text}");
+}
+
+#[test]
+fn hook_commands_have_a_json_form_too() {
+    let fx = prepared();
+    let installed: serde_json::Value =
+        serde_json::from_slice(&fx.cwt().args(["hook", "install", "--json"]).output().unwrap().stdout).unwrap();
+    assert_eq!(installed["ok"], true);
+    assert!(installed["data"]["path"].as_str().unwrap().ends_with("post-checkout"));
+
+    let status: serde_json::Value =
+        serde_json::from_slice(&fx.cwt().args(["hook", "status", "--json"]).output().unwrap().stdout).unwrap();
+    assert_eq!(status["data"]["installed"], true);
+
+    let removed: serde_json::Value =
+        serde_json::from_slice(&fx.cwt().args(["hook", "uninstall", "--json"]).output().unwrap().stdout).unwrap();
+    assert_eq!(removed["data"]["removed"], true);
+}
+
+#[test]
+fn installing_over_a_foreign_hook_is_refused_with_the_snippet_to_paste() {
+    // The hooks directory is shared by every linked worktree, so silently replacing someone's
+    // hook would break all of them at once.
+    let fx = prepared();
+    let hooks = fx.root.join(".git/hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    std::fs::write(hooks.join("post-checkout"), "#!/bin/sh\necho someone elses hook\n").unwrap();
+
+    let text = refusal(&fx, &["hook", "install"]);
+    assert!(text.contains("post-checkout"), "{text}");
+    // Refusing without saying what to do instead just moves the problem.
+    // The snippet names the binary by its own path, so match the invocation rather than a name.
+    assert!(text.contains("hook post-checkout \"$@\""), "the snippet belongs in the refusal: {text}");
+
+    // And it left the other hook exactly as it was.
+    assert_eq!(std::fs::read_to_string(hooks.join("post-checkout")).unwrap(), "#!/bin/sh\necho someone elses hook\n");
+}

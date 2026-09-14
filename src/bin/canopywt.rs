@@ -488,9 +488,7 @@ fn run(cli: &Cli) -> Result<u8> {
             if follow {
                 // Ctrl-C has to land even on a service that has gone quiet, so the stop
                 // condition is checked on every poll, not only between lines.
-                let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
-                let flag = running.clone();
-                let _ = ctrlc_flag(flag);
+                let interrupted = interrupt_flag()?;
                 let mut out = |line: &str| println!("{line}");
                 canopy_worktree::service::follow(
                     &state,
@@ -498,7 +496,7 @@ fn run(cli: &Cli) -> Result<u8> {
                     lines,
                     canopy_worktree::service::FOLLOW_POLL,
                     &mut out,
-                    &|| running.load(std::sync::atomic::Ordering::Relaxed),
+                    &|| !interrupted.load(std::sync::atomic::Ordering::Relaxed),
                 )?;
             } else {
                 let tail = canopy_worktree::service::logs(&state, service, lines)?;
@@ -662,10 +660,7 @@ fn run(cli: &Cli) -> Result<u8> {
             // Ctrl-C has to reach a supervisor that may be asleep between polls, so it flips a
             // flag the loop checks rather than killing us where we stand — services would
             // otherwise be left running with nothing watching them.
-            let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-            for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
-                signal_hook::flag::register(signal, stopping.clone()).map_err(Error::Io)?;
-            }
+            let stopping = interrupt_flag()?;
 
             let quiet = cli.quiet;
             let json = cli.json;
@@ -1099,13 +1094,17 @@ fn selection(only: &[String]) -> Option<std::collections::BTreeSet<String>> {
     (!only.is_empty()).then(|| only.iter().cloned().collect())
 }
 
-/// Best-effort Ctrl-C handling for `logs --follow`: without it the flag never flips and the
-/// follow loop only ends when the terminal closes.
-fn ctrlc_flag(flag: std::sync::Arc<std::sync::atomic::AtomicBool>) -> Result<()> {
-    // No signal-handling crate: a plain SIGINT default already terminates the process, so this
-    // is only about leaving the terminal tidy. Nothing to install.
-    let _ = flag;
-    Ok(())
+/// A flag that flips when the user interrupts us.
+///
+/// A loop that only checks between lines never notices Ctrl-C on a service that has gone quiet,
+/// which is exactly when someone reaches for it. `signal_hook::flag` sets this from the handler,
+/// and the loop reads it on every poll.
+fn interrupt_flag() -> Result<std::sync::Arc<std::sync::atomic::AtomicBool>> {
+    let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    for signal in [signal_hook::consts::SIGINT, signal_hook::consts::SIGTERM] {
+        signal_hook::flag::register(signal, flag.clone()).map_err(Error::Io)?;
+    }
+    Ok(flag)
 }
 
 fn report_services(cli: &Cli, command: &str, statuses: &[canopy_worktree::ServiceStatus]) {
