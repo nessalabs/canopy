@@ -144,6 +144,11 @@ enum Command {
         /// Give up on any single step after this long, e.g. `5m`.
         #[arg(long)]
         timeout: Option<String>,
+        /// Add or override an environment variable, as `KEY=VALUE`. Repeatable. For an embedder
+        /// whose environment is richer than this crate can resolve — Canopy's database URLs,
+        /// say — the way `--rule` exists for one that keeps its own copy rules.
+        #[arg(long = "env")]
+        env_overrides: Vec<String>,
     },
     /// Remove a worktree, by branch name or path.
     Rm {
@@ -502,7 +507,7 @@ fn run(cli: &Cli) -> Result<u8> {
             }
         }
 
-        Command::Setup { ref branch, force, ref only, ref timeout } => {
+        Command::Setup { ref branch, force, ref only, ref timeout, ref env_overrides } => {
             let branch = resolve_branch(&canopy, branch.as_deref())?;
             let worktree = worktree_path_for_branch(&canopy, &branch)?;
             if !worktree.exists() {
@@ -517,7 +522,11 @@ fn run(cli: &Cli) -> Result<u8> {
                 })?),
                 None => None,
             };
-            let env = canopy.env_for(&branch, &worktree)?.to_map();
+            let mut env = canopy.env_for(&branch, &worktree)?.to_map();
+            // Layered last, so an embedder's value wins over anything resolved here.
+            for (key, value) in parse_env(env_overrides)? {
+                env.insert(key, value);
+            }
             let options = canopy_worktree::SetupOptions {
                 worktree: &worktree,
                 // The main checkout is what a worktree was made from, so it is what
@@ -721,6 +730,25 @@ fn searched_description(canopy: &Canopy) -> String {
     format!(
         "looked in {root}, the main checkout, and your user config; `canopywt config init > canopy.yaml` writes a starter"
     )
+}
+
+/// `KEY=VALUE`, the spelling `--env` takes. An empty value is legal; an absent `=` is not.
+fn parse_env(raw: &[String]) -> Result<Vec<(String, String)>> {
+    raw.iter()
+        .map(|text| {
+            let (key, value) = text.split_once('=').ok_or_else(|| Error::Module {
+                code: canopy_worktree::ErrorCode::ConfigInvalid,
+                message: format!("--env needs KEY=VALUE, got {text:?}"),
+            })?;
+            if key.is_empty() {
+                return Err(Error::Module {
+                    code: canopy_worktree::ErrorCode::ConfigInvalid,
+                    message: "--env needs a name before the =".to_owned(),
+                });
+            }
+            Ok((key.to_owned(), value.to_owned()))
+        })
+        .collect()
 }
 
 /// `pattern` or `pattern=strategy`, the spelling `--rule` takes.

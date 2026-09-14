@@ -186,3 +186,30 @@ fn a_step_that_exceeds_its_timeout_is_killed() {
     assert_eq!(value["ok"], false);
     assert_eq!(value["data"]["steps"][0]["result"]["kind"], "failed");
 }
+
+#[test]
+fn an_env_override_reaches_the_step_and_wins() {
+    // The passthrough an embedder needs when its environment is richer than the crate can
+    // resolve — Canopy's database URLs, for one.
+    let (fx, wt) = with_worktree("  - name: env\n    run: printf '%s|%s' \"$EXTRA\" \"$CANOPY_BRANCH\" > env.txt\n");
+    let out = fx
+        .cwt()
+        .args(["setup", "feat/x", "--env", "EXTRA=from-the-caller", "--env", "CANOPY_BRANCH=overridden"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    // An override beats even a fact the crate resolved itself; last layer wins.
+    assert_eq!(std::fs::read_to_string(wt.join("env.txt")).unwrap(), "from-the-caller|overridden");
+}
+
+#[test]
+fn an_env_override_may_be_empty_but_needs_a_name() {
+    let (fx, wt) = with_worktree("  - name: env\n    run: printf '[%s]' \"$EMPTY\" > env.txt\n");
+    assert!(fx.cwt().args(["setup", "feat/x", "--env", "EMPTY="]).output().unwrap().status.success());
+    assert_eq!(std::fs::read_to_string(wt.join("env.txt")).unwrap(), "[]");
+
+    for bad in ["=novalue", "NOEQUALS"] {
+        let out = fx.cwt().args(["setup", "feat/x", "--env", bad, "--json"]).output().unwrap();
+        fixture::err_envelope(&out.stdout, "config_invalid");
+    }
+}
