@@ -96,7 +96,7 @@ export function DefaultsTab({ draft }: { draft: Draft<ProjectSettings> }): React
       </Row>
 
       <p className="text-xs text-muted-foreground">
-        Where worktrees are created lives on the <span className="font-medium">Worktrunk</span> tab — it is one template for the whole project.
+        Where worktrees are created lives on the <span className="font-medium">Worktrees</span> tab — it is one template for the whole project.
       </p>
 
       <ErrorNote error={draft.error} />

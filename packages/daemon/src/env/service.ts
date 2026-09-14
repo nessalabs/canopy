@@ -67,10 +67,9 @@ import type { ResourceSampler } from './resources/sampler'
 import { WorktreeSupervisor, type PreviousRecord } from './services/supervisor'
 import { loadAppSettings, saveAppSettings } from './settings/app-settings'
 import { loadProjectSettings, saveProjectSettings } from './settings/project-settings'
-import { readWtToml, renderWtToml, writeWtToml } from './settings/wt-toml'
 import { sinkFor } from './logs/store'
 import type { DbAdapter, DbContext, DockerHelper, EventBus, LogStore, ProvisionContext, ProvisionState, ServiceRunner } from './types'
-import type { Worktrunk } from './worktrunk/wt'
+import type { WorktreeBackend } from './worktree/backend'
 
 export interface EnvironmentDeps {
   db: Database
@@ -81,7 +80,7 @@ export interface EnvironmentDeps {
   logs: LogStore
   events: EventBus
   docker: DockerHelper
-  worktrunk: Worktrunk
+  backend: WorktreeBackend
   ports: PortAllocator
   databases: { adapterFor(name: DbInstanceInfo['adapter']): DbAdapter; all(): DbAdapter[] }
   runners: Record<'host' | 'docker' | 'compose', ServiceRunner>
@@ -156,7 +155,7 @@ export class EnvironmentService {
   constructor(private readonly deps: EnvironmentDeps) {
     this.steps = createSteps({
       git: deps.git,
-      worktrunk: deps.worktrunk,
+      backend: deps.backend,
       ports: deps.ports,
       databases: deps.databases,
       dbContext: (ctx, env) => this.dbContext(ctx.worktreeId, ctx.worktreeName, ctx.branch ?? null, ctx.worktreePath, ctx.project, env),
@@ -358,7 +357,6 @@ export class EnvironmentService {
     const project = this.deps.projects.get(projectId)
     const next = applySettingsPatch(this.settings(projectId), patch)
     saveProjectSettings(this.db, projectId, next)
-    if (next.worktrunk.syncProjectConfig) this.syncWtToml(project, next)
     this.deps.events.emit({ type: 'project-changed', projectId })
     return next
   }
@@ -378,18 +376,6 @@ export class EnvironmentService {
     if (next.ports.from >= next.ports.to) throw badRequest('bad_port_range', 'the port range must be ascending')
     saveAppSettings(this.deps.config.home, next)
     return next
-  }
-
-  wtToml(project: Project): { toml: string; path: string; inSync: boolean; exists: boolean } {
-    const existing = readWtToml(project.path)
-    const toml = renderWtToml(existing, this.settings(project.id).worktrunk)
-    return { toml, path: join(project.path, '.config', 'wt.toml'), inSync: existing !== null && existing.trim() === toml.trim(), exists: existing !== null }
-  }
-
-  syncWtToml(project: Project, settings = this.settings(project.id)): { toml: string; path: string; inSync: boolean; exists: boolean } {
-    const toml = renderWtToml(readWtToml(project.path), settings.worktrunk)
-    const path = writeWtToml(project.path, toml)
-    return { toml, path, inSync: true, exists: true }
   }
 
   projectConfig(project: Project): { raw: string | null; path: string; report: CanopyYamlReport } {
@@ -449,7 +435,7 @@ export class EnvironmentService {
   }
 
   async hostInfo(): Promise<HostInfo> {
-    const [docker, worktrunk] = await Promise.all([this.deps.docker.info(), this.deps.worktrunk.info()])
+    const [docker, canopywt] = await Promise.all([this.deps.docker.info(), this.deps.backend.info()])
     const app = this.appSettings()
     // Hooks in .config/wt.toml call `canopy …`; when it is not on PATH, tell users the absolute invocation instead.
     const which = await execa('sh', ['-c', 'command -v canopy'], { reject: false })
@@ -462,7 +448,7 @@ export class EnvironmentService {
       cores: os.cpus().length,
       memMb: Math.round(os.totalmem() / (1024 * 1024)),
       docker: { available: docker.available, version: docker.version, path: docker.path },
-      worktrunk: { available: worktrunk.available, version: worktrunk.version, path: worktrunk.path },
+      canopywt: { available: canopywt.available, version: canopywt.version, path: canopywt.path },
       worktreeRoot: this.deps.config.worktreeRoot,
       dataRoot: this.deps.config.dataRoot,
       portRange: [app.ports.from, app.ports.to],
@@ -480,7 +466,7 @@ export class EnvironmentService {
   /** Path a new worktree of this project will get, from the project's path template. */
   worktreePathFor(project: Project, name: string, branch: string): string {
     const settings = this.settings(project.id)
-    return expandHome(renderWorktreePath(settings.worktrunk.worktreePath, { root: this.deps.config.worktreeRoot, repo: project.name, repoPath: project.path, name, branch }))
+    return expandHome(renderWorktreePath(settings.worktree.worktreePath, { root: this.deps.config.worktreeRoot, repo: project.name, repoPath: project.path, name, branch }))
   }
 
   /**

@@ -8,7 +8,7 @@ import { createAgentRegistry } from '../../src/agents/registry'
 import { openDb } from '../../src/db'
 import { createEventBus } from '../../src/env/events/bus'
 import type { DockerHelper, EventBus } from '../../src/env/types'
-import { createWorktrunk, type Worktrunk } from '../../src/env/worktrunk/wt'
+import { createWorktreeBackend, type WorktreeBackend } from '../../src/env/worktree/backend'
 import { runGit } from '../../src/git/exec'
 import { buildServer } from '../../src/server'
 import { FakeAgent } from './fake-agent'
@@ -42,7 +42,7 @@ export interface TestServer {
   close(): Promise<void>
 }
 
-export async function createTestServer(opts: { worktrunk?: Worktrunk; docker?: DockerHelper } = {}): Promise<TestServer> {
+export async function createTestServer(opts: { worktreeBackend?: WorktreeBackend; docker?: DockerHelper } = {}): Promise<TestServer> {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'canopy-home-')))
   const agent = new FakeAgent()
   const events = createEventBus()
@@ -53,8 +53,8 @@ export async function createTestServer(opts: { worktrunk?: Worktrunk; docker?: D
     token: TOKEN,
     agents: createAgentRegistry([agent]),
     docker: opts.docker ?? noDocker,
-    // Tests exercise the git fallback unless a test opts into the real `wt`.
-    worktrunk: opts.worktrunk ?? createWorktrunk(runGit, { bin: 'wt-not-installed-for-tests' })
+    // Tests exercise the git fallback unless one opts into the real `canopywt`.
+    worktreeBackend: opts.worktreeBackend ?? createWorktreeBackend(runGit, { bin: 'canopywt-not-installed-for-tests' })
   })
   await app.ready()
 

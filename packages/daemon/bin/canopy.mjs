@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// `canopy` — the hook-facing CLI. Worktrunk hooks (see .config/wt.toml) call it so a worktree
-// created or removed from a terminal is provisioned / torn down by the running daemon:
+// `canopy` — the CLI for driving the running daemon from a terminal or a script, so a worktree
+// created outside Canopy can still be provisioned / torn down by it:
 //
 //   canopy provision --path <worktree>   [--no-start]   adopt + provision (+ start) a worktree
 //   canopy teardown  --path <worktree>                  stop services, drop forks, free ports
@@ -9,9 +9,9 @@
 //   canopy stop      --path <worktree>
 //   canopy status    [--json]                            list worktrees and their environment state
 //
-// Exit code is always 0 from hooks (a missing daemon must never break `wt`); pass --strict to
-// surface failures. When the daemon itself drives `wt` it sets CANOPY_DAEMON=1 and this command
-// is a no-op — the daemon is already provisioning that worktree.
+// Exit code is always 0 (a missing daemon must never break the command that called this); pass
+// --strict to surface failures. When the daemon itself drives `canopywt` it sets CANOPY_DAEMON=1
+// and this command is a no-op — the daemon is already provisioning that worktree.
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'

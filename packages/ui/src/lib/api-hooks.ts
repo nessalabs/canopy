@@ -302,7 +302,6 @@ export const useUpdateProjectSettings = (projectId: string) => {
   return useInvalidating((patch: ProjectSettingsPatch) => api.updateProjectSettings(projectId, patch), () => [
     keys.projectSettings(projectId),
     keys.projectEnvironment(projectId),
-    keys.projectWtToml(projectId),
     keys.projects
   ])
 }
@@ -325,16 +324,6 @@ export const useScaffoldProjectConfig = (projectId: string) => {
 export const useProjectEnvironment = (projectId: string) => {
   const api = useApi()
   return useQuery({ queryKey: keys.projectEnvironment(projectId), queryFn: () => api.projectEnvironment(projectId) })
-}
-
-export const useProjectWtToml = (projectId: string) => {
-  const api = useApi()
-  return useQuery({ queryKey: keys.projectWtToml(projectId), queryFn: () => api.projectWtToml(projectId) })
-}
-
-export const useWriteProjectWtToml = (projectId: string) => {
-  const api = useApi()
-  return useInvalidating((_: void) => api.writeProjectWtToml(projectId), () => [keys.projectWtToml(projectId)])
 }
 
 export const useStopAllWorktrees = (projectId: string) => {

@@ -13,7 +13,7 @@ import { DefaultsTab } from '@/components/settings/defaults-tab'
 import { GeneralTab } from '@/components/settings/general-tab'
 import { NavButton } from '@/components/settings/settings-chrome'
 import { useDraftSettings } from '@/components/settings/use-draft-settings'
-import { WorktrunkTab } from '@/components/settings/worktrunk-tab'
+import { WorktreeTab } from '@/components/settings/worktree-tab'
 import { YamlTab } from '@/components/settings/yaml-tab'
 import { useProjects } from '@/lib/api-hooks'
 import { SETTINGS_TAB_LABEL, parseSettingsTab, settingsHref, type SettingsTabId } from '@/lib/settings-ui'
@@ -22,7 +22,7 @@ type TabIcon = React.ComponentType<{ className?: string }>
 
 const PROJECT_TABS: Array<{ id: SettingsTabId; icon: TabIcon }> = [
   { id: 'general', icon: Settings },
-  { id: 'worktrunk', icon: GitMerge },
+  { id: 'worktree', icon: GitMerge },
   { id: 'yaml', icon: FileCode },
   { id: 'caches', icon: Files },
   { id: 'defaults', icon: Boxes },
@@ -80,7 +80,7 @@ function ProjectSettings({ project }: { project: Project }): React.JSX.Element {
 
         <div className="min-w-0 flex-1">
           {tab === 'general' ? <GeneralTab key={`${project.name}:${project.defaultBase}`} project={project} draft={draft} /> : null}
-          {tab === 'worktrunk' ? <WorktrunkTab project={project} draft={draft} /> : null}
+          {tab === 'worktree' ? <WorktreeTab project={project} draft={draft} /> : null}
           {tab === 'yaml' ? <YamlTab project={project} /> : null}
           {tab === 'caches' ? <CachesTab project={project} draft={draft} /> : null}
           {tab === 'defaults' ? <DefaultsTab draft={draft} /> : null}

@@ -13,13 +13,13 @@ import type { GitRunner } from '../../git/exec'
 import type { PortAllocator } from '../ports/allocator'
 import { resolveEnvironment, writeEnvFile, type ResolvedEnvironment } from '../config/resolve'
 import type { DbAdapter, DbContext, ProvisionContext, ProvisionStepImpl } from '../types'
-import type { Worktrunk } from '../worktrunk/wt'
+import type { WorktreeBackend } from '../worktree/backend'
 import { SHARED_STORE_ENV, changedLockfiles, installCommand, linkCaches } from './caches'
 import { copyFiles } from './copy-files'
 
 export interface StepDeps {
   git: GitRunner
-  worktrunk: Worktrunk
+  backend: WorktreeBackend
   ports: PortAllocator
   databases: { adapterFor(name: DbAdapterName): DbAdapter }
   /** Builds the adapter context for a worktree (the façade knows data dirs and port allocation). */
@@ -69,16 +69,16 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     applies: (ctx) => (existsSync(ctx.worktreePath) ? { run: false, reason: 'worktree exists' } : ctx.branchSpec ? { run: true } : { run: false, reason: 'no branch to create from' }),
     async run(ctx) {
       const spec = ctx.branchSpec as NonNullable<ProvisionContext['branchSpec']>
-      const result = await deps.worktrunk.create({
+      const result = await deps.backend.create({
         repoPath: ctx.project.path,
         path: ctx.worktreePath,
         branch: spec,
-        useWt: ctx.settings.worktrunk.enabled,
+        useTool: ctx.settings.worktree.tool,
         env: { CANOPY_WORKTREE_ID: ctx.worktreeId },
         onLine: (_stream, text) => ctx.logs.out(text)
       })
       const verb = spec.mode === 'new' ? `${spec.name} from ${spec.base}` : spec.name
-      return { detail: `${result.backend === 'wt' ? 'wt switch' : 'git worktree add'} ${verb}` }
+      return { detail: `${result.backend === 'canopywt' ? 'canopywt new' : 'git worktree add'} ${verb}` }
     }
   }
 

@@ -55,8 +55,6 @@ export function registerEnvironmentRoutes(app: FastifyInstance, { environment, p
   })
   app.post(routes.projectConfigScaffold(':id'), async (request) => environment.scaffoldConfig(projects.get(IdParams.parse(request.params).id)))
   app.get(routes.projectEnvironment(':id'), async (request) => environment.preview(projects.get(IdParams.parse(request.params).id)))
-  app.get(routes.projectWtToml(':id'), async (request) => environment.wtToml(projects.get(IdParams.parse(request.params).id)))
-  app.post(routes.projectWtToml(':id'), async (request) => environment.syncWtToml(projects.get(IdParams.parse(request.params).id)))
 
   app.post(routes.projectDbRefresh(':id', ':name'), async (request, reply) => {
     const { id, name } = NamedParams.parse(request.params)

@@ -3,19 +3,19 @@
  * the hint tables the forms render, the create-form summary strip, and the assembly of a
  * `CreateWorktreeInput` from form state. No React, no I/O — all of it is unit tested.
  */
-import type { BranchSpec, CacheSource, CacheStrategy, CreateWorktreeInput, DbSource, ProjectEnvVar, WorktrunkHook } from '@canopy/shared'
+import type { BranchSpec, CacheSource, CacheStrategy, CreateWorktreeInput, DbSource, ProjectEnvVar } from '@canopy/shared'
 
 // =====================================================================================
 // Tabs & deep links
 // =====================================================================================
 
 /** Every section of the settings screen, in nav order (the last one is machine-level). */
-export const SETTINGS_TABS = ['general', 'worktrunk', 'yaml', 'caches', 'defaults', 'cleanup', 'trash', 'danger', 'app'] as const
+export const SETTINGS_TABS = ['general', 'worktree', 'yaml', 'caches', 'defaults', 'cleanup', 'trash', 'danger', 'app'] as const
 export type SettingsTabId = (typeof SETTINGS_TABS)[number]
 
 export const SETTINGS_TAB_LABEL: Record<SettingsTabId, string> = {
   general: 'General',
-  worktrunk: 'Worktrunk',
+  worktree: 'Worktrees',
   yaml: 'canopy.yaml',
   caches: 'Provisioning & caches',
   defaults: 'Worktree defaults',
@@ -51,22 +51,6 @@ export function settingsHref(href: string, tab: string): string {
 // Hint tables
 // =====================================================================================
 
-/**
- * What each worktrunk hook actually does. `pre-*` hooks block — a non-zero exit aborts the
- * operation; `post-*` hooks run in the background and cannot fail the command.
- */
-export const WORKTRUNK_HOOK_HINT: Record<WorktrunkHook, string> = {
-  'pre-switch': 'Blocks every `wt switch`, including switching into an existing worktree. A non-zero exit aborts the switch.',
-  'post-switch': 'Runs in the background after every switch, inside the worktree you landed in.',
-  'pre-start': 'Blocks once, just before a brand-new worktree is created.',
-  'post-start': 'Runs in the background once, right after a worktree is created — this is where Canopy provisions.',
-  'pre-commit': 'Blocks `wt commit`; formatters and lint gates go here. A non-zero exit keeps the commit from being made.',
-  'post-commit': 'Runs in the background after a commit lands.',
-  'pre-merge': 'Blocks `wt merge`; a failing test suite here stops the branch from landing.',
-  'post-merge': 'Runs in the background after a successful merge.',
-  'pre-remove': 'Blocks `wt remove`; this is where Canopy tears the environment down before the directory goes away.',
-  'post-remove': 'Runs in the background once the worktree directory is gone.'
-}
 
 /** One-liners for the cache strategies, shown next to each rule. */
 export const CACHE_STRATEGY_HINT: Record<CacheStrategy, string> = {

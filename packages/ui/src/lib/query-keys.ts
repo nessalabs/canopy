@@ -31,7 +31,6 @@ export const keys = {
   projectConfig: (projectId: string) => ['project-config', projectId] as const,
   projectTrash: (projectId: string) => ['project-trash', projectId] as const,
   projectEnvironment: (projectId: string) => ['project-environment', projectId] as const,
-  projectWtToml: (projectId: string) => ['project-wt-toml', projectId] as const,
   resources: (worktreeId: string) => ['resources', worktreeId] as const,
   logs: (worktreeId: string, service: string) => ['logs', worktreeId, service] as const,
   dirs: (path: string | undefined, hidden: boolean) => ['fs-dirs', path ?? '~', hidden] as const

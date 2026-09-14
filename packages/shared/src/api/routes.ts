@@ -75,7 +75,6 @@ export const routes = {
   projectConfigScaffold: (id: string) => `${API_PREFIX}/projects/${id}/config/scaffold`,
   /** Resolved preview (services, ports, databases, detected caches/copy candidates). */
   projectEnvironment: (id: string) => `${API_PREFIX}/projects/${id}/environment`,
-  projectWtToml: (id: string) => `${API_PREFIX}/projects/${id}/wt-toml`,
   projectDbRefresh: (id: string, db: string) => `${API_PREFIX}/projects/${id}/databases/${db}/refresh`,
   projectStopAll: (id: string) => `${API_PREFIX}/projects/${id}/stop`,
   projectDestroyAll: (id: string) => `${API_PREFIX}/projects/${id}/destroy-worktrees`,
