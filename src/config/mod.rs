@@ -438,7 +438,17 @@ impl<'de> Deserialize<'de> for SetupStep {
                 if_changed: Option<Vec<String>>,
             },
         }
-        Ok(match Raw::deserialize(deserializer)? {
+        // serde's own message for a failed untagged match is "data did not match any variant of
+        // untagged enum Raw" — it names an internal type and says nothing about the fix. The
+        // common way to land here is `run: true`, where YAML reads a perfectly good shell
+        // command as a boolean, so the message says what a step may be and how to quote it.
+        let raw = Raw::deserialize(deserializer).map_err(|_| {
+            serde::de::Error::custom(
+                "a setup step is a command string, or a mapping with `run:`. \
+                 A bare `true`, `no` or `1.0` is read as a boolean or a number — quote it: `run: \"true\"`",
+            )
+        })?;
+        Ok(match raw {
             Raw::Bare(run) => SetupStep { run, name: None, cwd: None, env: Map::new(), if_changed: None },
             Raw::Full { run, name, cwd, env, if_changed } => SetupStep { run, name, cwd, env, if_changed },
         })

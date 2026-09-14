@@ -540,3 +540,122 @@ fn an_unsupported_version_stops_before_the_noise() {
 fn severity_is_comparable_for_callers() {
     assert_ne!(Severity::Error, Severity::Warning);
 }
+
+// -------------------------------------------------------------------------------------
+// Diagnostic construction and the edges of the reference grammar
+// -------------------------------------------------------------------------------------
+
+#[test]
+fn a_diagnostic_can_be_given_a_position_after_the_fact() {
+    // `at` is how a caller that knows where a finding came from attaches it — the lint pass
+    // reports by path, and a consumer with span information can enrich it.
+    let plain = config::Diagnostic::warning("services.web", "something");
+    assert_eq!((plain.line, plain.column), (None, None));
+
+    let placed = config::Diagnostic::error("services.web", "something").at(12, 5);
+    assert_eq!((placed.line, placed.column), (Some(12), Some(5)));
+    assert_eq!(placed.severity, Severity::Error);
+}
+
+#[test]
+fn a_parser_message_without_a_position_is_still_reported() {
+    // Positions are lifted out of the parser's own wording, so a message that does not carry
+    // one must still become a diagnostic rather than being dropped or mis-parsed.
+    struct Bare;
+    impl std::fmt::Display for Bare {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("something went wrong with no position at all")
+        }
+    }
+    let diagnostic = config::Diagnostic::from_yaml_error(&Bare);
+    assert_eq!((diagnostic.line, diagnostic.column), (None, None));
+    assert_eq!(diagnostic.message, "something went wrong with no position at all");
+    assert_eq!(diagnostic.path, "<root>");
+}
+
+#[test]
+fn a_half_written_position_is_not_mistaken_for_one() {
+    // "line 3" with no column, and a column that is not a number: both must fall back to no
+    // position rather than reporting a wrong one, which would point an editor at the wrong place.
+    struct Says(&'static str);
+    impl std::fmt::Display for Says {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+    for text in ["line 3: something", "line three column four: something", "no position here"] {
+        let diagnostic = config::Diagnostic::from_yaml_error(&Says(text));
+        assert_eq!(diagnostic.line, None, "{text:?} should not yield a line");
+        assert_eq!(diagnostic.column, None, "{text:?} should not yield a column");
+    }
+}
+
+#[test]
+fn an_unclosed_reference_is_literal_text_not_an_error() {
+    // `run: echo ${ports.web` is a shell command with a stray brace, and a linter that choked
+    // on it would refuse a file that runs perfectly well.
+    assert!(config::template_refs("echo ${ports.web").is_empty());
+    assert!(config::template_refs("cost: 100${").is_empty());
+    // …and a reference after an unclosed one is not found either: there is no closing brace to
+    // end the first, so everything after it is inside it.
+    assert!(config::template_refs("${unclosed ${ports.web}").len() <= 1);
+}
+
+#[test]
+fn a_three_segment_reference_needs_all_three_to_be_names() {
+    // `${db.main.url}` is the shape; a third segment that is not a name makes the whole thing
+    // literal rather than a reference to a field that cannot exist.
+    assert_eq!(config::template_refs("${db.main.url}").len(), 1);
+    assert!(config::template_refs("${db.main.URL}").is_empty());
+    assert!(config::template_refs("${db.main.}").is_empty());
+}
+
+#[test]
+fn an_empty_resource_name_is_not_a_name() {
+    // The empty string reaches `is_resource_name` through a mapping key, and answering "yes"
+    // would let a port with no name be declared.
+    error_mentioning("version: 1\nports:\n  \"\": {}\n", "lowercase");
+}
+
+#[test]
+fn a_setup_steps_own_env_is_checked_for_bad_references() {
+    // A step's `env:` is as able to name a port that does not exist as its `run:` is.
+    error_mentioning(
+        "version: 1\nsetup:\n  - name: build\n    run: make\n    env:\n      URL: http://h:${ports.nope}\nservices:\n  a:\n    run: x\n",
+        "unknown port",
+    );
+}
+
+#[test]
+fn a_bare_port_reference_must_be_the_whole_value() {
+    // `PORT: "${ports.web} "` with padding still counts; `PORT: "x${ports.web}"` does not,
+    // because that is a string containing a port rather than the port itself.
+    let config = valid(
+        "version: 1\nports:\n  web: {}\nservices:\n  a:\n    run: serve ${ports.web}\n    env:\n      PREFIXED: \"x${ports.web}\"\n",
+    );
+    assert_eq!(config::service_ports(&config.services["a"]), ["web"]);
+}
+
+#[test]
+fn a_step_whose_command_yaml_read_as_a_boolean_says_how_to_quote_it() {
+    // `run: true` is the shell command `true`, and YAML reads it as a boolean. serde's own
+    // message names an internal type and offers no fix; this one says what a step may be.
+    let parsed = parse_str("version: 1\nsetup:\n  - run: true\nservices:\n  a:\n    run: x\n");
+    let message = parsed.errors().next().expect("a type error").message.clone();
+    assert!(message.contains("quote it"), "{message}");
+    assert!(!message.contains("untagged enum"), "the internal type should not reach the user: {message}");
+
+    // Quoted, it is exactly the command the user meant.
+    let quoted = valid("version: 1\nsetup:\n  - run: \"true\"\nservices:\n  a:\n    run: x\n");
+    assert_eq!(quoted.setup[0].run, "true");
+}
+
+#[test]
+fn the_same_advice_covers_the_other_yaml_surprises() {
+    // `no` is a boolean and `1.0` is a float in YAML; both are plausible commands.
+    for command in ["no", "1.0", "8080"] {
+        let parsed = parse_str(&format!("version: 1\nsetup:\n  - run: {command}\nservices:\n  a:\n    run: x\n"));
+        assert!(!parsed.is_valid(), "{command} unexpectedly parsed");
+        assert!(parsed.errors().next().unwrap().message.contains("quote it"));
+    }
+}
