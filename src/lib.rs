@@ -17,16 +17,19 @@
 pub mod config;
 pub mod error;
 pub mod git;
+pub mod paths;
 pub mod repo;
 pub mod wire;
+pub mod worktree;
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
-pub use config::{CanopyConfig, ConfigSource, Diagnostic, LocatedConfig, Parsed, Severity, parse_str};
+pub use config::{CanopyConfig, ConfigSource, Diagnostic, LocatedConfig, Parsed, Severity, WorktreeSpec, parse_str};
 pub use error::{Error, ErrorCode, Result};
 pub use repo::{WorktreeEntry, parse_worktree_list};
 pub use wire::{ENVELOPE_VERSION, Envelope};
+pub use worktree::{BranchSpec, CreateOptions, CreateOutcome, DeleteBranch, RemoveOptions, RemoveOutcome};
 
 use git::Git;
 use repo::Repo;
@@ -84,6 +87,43 @@ impl Canopy {
     /// Every worktree git knows about.
     pub fn list(&self) -> Result<Vec<WorktreeEntry>> {
         self.repo.worktrees()
+    }
+
+    /// The `worktree.path` template in effect. Falls back to the built-in default when the
+    /// repository has no config — you can create a worktree in a repo nobody has configured.
+    pub fn worktree_template(&self) -> String {
+        self.config()
+            .and_then(|(_, parsed)| parsed.config.as_ref())
+            .map(|config| config.worktree.path.clone())
+            .unwrap_or_else(|| config::WorktreeSpec::default().path)
+    }
+
+    /// Where this branch's worktree would live. Pure: the branch need not exist.
+    pub fn path_for(&self, branch: &str, name: Option<&str>) -> Result<Utf8PathBuf> {
+        self.repo.worktree_path_for(&self.worktree_template(), branch, name)
+    }
+
+    /// The base branch for a new worktree: the config's `worktree.base`, else the repository's
+    /// own default branch.
+    pub fn default_base(&self) -> Option<String> {
+        self.config()
+            .and_then(|(_, parsed)| parsed.config.as_ref())
+            .and_then(|config| config.worktree.base.clone())
+            .or_else(|| self.repo.default_branch())
+    }
+
+    /// Creates a worktree.
+    pub fn create(
+        &self,
+        branch: &worktree::BranchSpec,
+        options: &worktree::CreateOptions,
+    ) -> Result<worktree::CreateOutcome> {
+        self.repo.create_worktree(&self.worktree_template(), branch, options)
+    }
+
+    /// Removes the worktree for a branch name or a path.
+    pub fn remove(&self, target: &str, options: &worktree::RemoveOptions) -> Result<worktree::RemoveOutcome> {
+        self.repo.remove_worktree(target, options)
     }
 }
 

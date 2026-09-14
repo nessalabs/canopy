@@ -89,6 +89,30 @@ pub enum Error {
     #[error("path is not valid UTF-8: {0}")]
     NonUtf8Path(String),
 
+    #[error("{0} has no directory-safe form — every character would be stripped")]
+    UnusableBranchName(String),
+
+    #[error("{0} already exists")]
+    WorktreeExists(Utf8PathBuf),
+
+    #[error("{branch} is already checked out at {path}")]
+    BranchAlreadyCheckedOut { branch: String, path: Utf8PathBuf },
+
+    #[error("no worktree for {0}")]
+    WorktreeNotFound(String),
+
+    #[error("{path} has {} uncommitted change(s); pass --force to discard them", counts.total)]
+    WorktreeDirty { path: Utf8PathBuf, counts: crate::worktree::DirtyCounts },
+
+    #[error("the main checkout at {0} cannot be removed")]
+    CannotRemoveMain(Utf8PathBuf),
+
+    #[error("git could not create the worktree: {0}")]
+    WorktreeCreateFailed(String),
+
+    #[error("git could not remove the worktree: {0}")]
+    WorktreeRemoveFailed(String),
+
     #[error("no canopy.yaml found — {0}")]
     ConfigNotFound(String),
 
@@ -105,6 +129,13 @@ impl Error {
             Error::NotARepository(_) => ErrorCode::NotARepository,
             Error::GitFailed { .. } => ErrorCode::GitFailed,
             Error::NonUtf8Path(_) => ErrorCode::Io,
+            Error::UnusableBranchName(_) => ErrorCode::BranchNotFound,
+            Error::WorktreeExists(_) | Error::BranchAlreadyCheckedOut { .. } => ErrorCode::WorktreeExists,
+            Error::WorktreeNotFound(_) => ErrorCode::WorktreeNotFound,
+            Error::WorktreeDirty { .. } => ErrorCode::WorktreeDirty,
+            Error::CannotRemoveMain(_) => ErrorCode::WorktreeRemoveFailed,
+            Error::WorktreeCreateFailed(_) => ErrorCode::WorktreeCreateFailed,
+            Error::WorktreeRemoveFailed(_) => ErrorCode::WorktreeRemoveFailed,
             Error::ConfigNotFound(_) => ErrorCode::ConfigNotFound,
             Error::ConfigInvalid(_) => ErrorCode::ConfigInvalid,
             Error::Io(_) => ErrorCode::Io,
@@ -119,6 +150,11 @@ impl Error {
                 "args": args, "status": status, "stderr": stderr
             })),
             Error::ConfigInvalid(errors) => Some(serde_json::json!({ "errors": errors })),
+            // The counts let a caller decide whether to offer `--force` and say what it costs.
+            Error::WorktreeDirty { path, counts } => Some(serde_json::json!({ "path": path, "counts": counts })),
+            Error::BranchAlreadyCheckedOut { branch, path } => {
+                Some(serde_json::json!({ "branch": branch, "path": path }))
+            }
             _ => None,
         }
     }

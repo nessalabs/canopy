@@ -20,7 +20,7 @@ pub struct Repo {
     pub common_dir: Utf8PathBuf,
     /// The git dir of *this* worktree (`<common>/worktrees/<name>` for a linked one).
     pub git_dir: Utf8PathBuf,
-    git: Git,
+    pub(crate) git: Git,
 }
 
 impl Repo {
@@ -70,6 +70,25 @@ impl Repo {
         base.file_name().unwrap_or("repo").trim_end_matches(".git").to_owned()
     }
 
+    /// The repository's default branch: what `origin/HEAD` points at, else whichever of
+    /// `main` or `master` exists. `None` when neither is discoverable, in which case a caller
+    /// must be told to pass `--base` rather than guessing.
+    pub fn default_branch(&self) -> Option<String> {
+        if let Ok(out) = self.git.run(self.any_cwd(), ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
+            if let Some(name) = out.trim().strip_prefix("origin/")
+                && !name.is_empty()
+            {
+                return Some(name.to_owned());
+            }
+        }
+        ["main", "master"]
+            .into_iter()
+            .find(|name| {
+                self.git.succeeds(self.any_cwd(), ["show-ref", "--verify", "--quiet", &format!("refs/heads/{name}")])
+            })
+            .map(str::to_owned)
+    }
+
     /// Every worktree git currently knows about, main checkout first.
     pub fn worktrees(&self) -> Result<Vec<WorktreeEntry>> {
         let raw = self.git.run_bytes(self.any_cwd(), ["worktree", "list", "--porcelain", "-z"])?;
@@ -78,7 +97,7 @@ impl Repo {
 
     /// A directory we can run git from. The common dir always exists, even when the repo is
     /// bare or the checkout we were invoked from has been deleted underneath us.
-    fn any_cwd(&self) -> &Utf8Path {
+    pub(crate) fn any_cwd(&self) -> &Utf8Path {
         self.root.as_deref().unwrap_or(&self.common_dir)
     }
 }

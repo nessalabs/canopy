@@ -36,6 +36,59 @@ enum Command {
     /// Read and validate canopy.yaml.
     #[command(subcommand)]
     Config(ConfigCommand),
+    /// Print where a branch's worktree would live. The branch need not exist.
+    Path {
+        branch: String,
+        /// Directory name; defaults to the sanitized branch.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Create a worktree for a branch.
+    New {
+        branch: String,
+        /// Branch to fork from. Implies creating the branch.
+        #[arg(long)]
+        base: Option<String>,
+        /// Check out an existing branch instead of creating one.
+        #[arg(long, conflicts_with = "base")]
+        existing: bool,
+        /// Put the worktree here, ignoring the `worktree.path` template.
+        #[arg(long)]
+        path: Option<Utf8PathBuf>,
+        /// Directory name; defaults to the sanitized branch.
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Remove a worktree, by branch name or path.
+    Rm {
+        target: String,
+        /// Remove even with uncommitted changes, discarding them.
+        #[arg(long, short)]
+        force: bool,
+        /// What to do with the branch afterwards.
+        #[arg(long, value_enum, default_value = "never")]
+        delete_branch: DeleteBranchArg,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+enum DeleteBranchArg {
+    /// Leave the branch alone.
+    Never,
+    /// Delete it only if git agrees its work is already merged.
+    IfMerged,
+    /// Delete it regardless.
+    Always,
+}
+
+impl From<DeleteBranchArg> for canopy_worktree::DeleteBranch {
+    fn from(value: DeleteBranchArg) -> Self {
+        match value {
+            DeleteBranchArg::Never => canopy_worktree::DeleteBranch::Never,
+            DeleteBranchArg::IfMerged => canopy_worktree::DeleteBranch::IfMerged,
+            DeleteBranchArg::Always => canopy_worktree::DeleteBranch::Always,
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -65,6 +118,9 @@ impl Command {
             Command::Config(ConfigCommand::Show) => "config show",
             Command::Config(ConfigCommand::Path) => "config path",
             Command::Config(ConfigCommand::Init) => "config init",
+            Command::Path { .. } => "path",
+            Command::New { .. } => "new",
+            Command::Rm { .. } => "rm",
         }
     }
 }
@@ -135,6 +191,52 @@ fn run(cli: &Cli) -> Result<u8> {
             }
         }
         Command::Config(ref config_command) => return run_config(cli, &canopy, config_command),
+
+        Command::Path { ref branch, ref name } => {
+            let path = canopy.path_for(branch, name.as_deref())?;
+            if cli.json {
+                emit("path", &serde_json::json!({ "branch": branch, "path": path }));
+            } else {
+                println!("{path}");
+            }
+        }
+
+        Command::New { ref branch, ref base, existing, ref path, ref name } => {
+            let spec = if existing {
+                canopy_worktree::BranchSpec::Existing { name: branch.clone() }
+            } else {
+                // Without an explicit base, fork from the repository's default branch. Falling
+                // back to "wherever HEAD happens to be" would silently branch off whatever the
+                // main checkout was last left on.
+                canopy_worktree::BranchSpec::New {
+                    name: branch.clone(),
+                    base: base.clone().or_else(|| canopy.default_base()),
+                }
+            };
+            let options = canopy_worktree::CreateOptions { path: path.clone(), name: name.clone() };
+            let outcome = canopy.create(&spec, &options)?;
+            if cli.json {
+                emit("new", &outcome);
+            } else {
+                let from = outcome.base.as_deref().map(|b| format!(" from {b}")).unwrap_or_default();
+                let verb = if outcome.created_branch { "created" } else { "checked out" };
+                println!("{verb} {}{from}", outcome.branch);
+                println!("{}", outcome.path);
+            }
+        }
+
+        Command::Rm { ref target, force, delete_branch } => {
+            let options = canopy_worktree::RemoveOptions { force, delete_branch: delete_branch.into() };
+            let outcome = canopy.remove(target, &options)?;
+            if cli.json {
+                emit("rm", &outcome);
+            } else {
+                println!("removed {}", outcome.path);
+                if outcome.branch_deleted {
+                    println!("deleted branch {}", outcome.branch.as_deref().unwrap_or("?"));
+                }
+            }
+        }
     }
     Ok(0)
 }
