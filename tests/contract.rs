@@ -5,10 +5,37 @@
 mod fixture;
 
 use canopy_worktree::ErrorCode;
-use fixture::{Fixture, ok_envelope};
+use fixture::Fixture;
 
 /// Every read-only command, for the table-driven envelope tests. Each new subcommand must be
 /// added here — that is what stops `--json` rotting as the CLI grows.
+/// Every command that answers with an envelope, with arguments that make it runnable. Success
+/// is not the point — a failure is an envelope too — so these are checked for *shape*.
+const ENVELOPE_COMMANDS: &[(&[&str], &str)] = &[
+    (&["info"], "info"),
+    (&["list"], "list"),
+    (&["config", "check"], "config check"),
+    (&["config", "show"], "config show"),
+    (&["config", "path"], "config path"),
+    (&["path", "feat/x"], "path"),
+    (&["ports", "feat/x"], "ports"),
+    (&["env", "feat/x"], "env"),
+    (&["ps", "feat/x"], "ps"),
+    (&["up", "feat/x"], "up"),
+    (&["down", "feat/x"], "down"),
+    (&["logs", "web", "feat/x"], "logs"),
+    (&["setup", "feat/x"], "setup"),
+    (&["copy", "feat/x"], "copy"),
+    (&["new", "feat/new-one"], "new"),
+    (&["rm", "feat/x"], "rm"),
+];
+
+/// The two that print a *document* rather than an envelope: `init` emits a starter file and
+/// `schema` emits JSON Schema, both meant to be redirected into a file. Wrapping either in an
+/// envelope would mean every consumer unwrapping it before use.
+const DOCUMENT_COMMANDS: &[&[&str]] = &[&["config", "init"], &["config", "schema"]];
+
+/// Kept for the human-output tests below, which need commands that work with no arguments.
 const READ_ONLY_COMMANDS: &[&[&str]] =
     &[&["info"], &["list"], &["config", "check"], &["config", "show"], &["config", "path"]];
 
@@ -16,17 +43,70 @@ const CONFIG: &str = "version: 1\nports:\n  web: {}\nservices:\n  app:\n    run:
 
 #[test]
 fn every_command_emits_a_v1_envelope() {
+    // Shape, not success: a command that fails still owes the caller an envelope, and several
+    // of these are *expected* to fail against this fixture. What must never happen is raw text
+    // or a half-written object on stdout.
     let fx = Fixture::new();
     fx.write("canopy.yaml", CONFIG);
-    for command in READ_ONLY_COMMANDS {
+    fx.cwt().args(["new", "feat/x"]).output().unwrap();
+
+    for (args, expected) in ENVELOPE_COMMANDS {
+        let out = fx.cwt().args(*args).arg("--json").output().unwrap();
+        let invocation = args.join(" ");
+        let text = String::from_utf8(out.stdout).unwrap();
+        let value: serde_json::Value = serde_json::from_str(text.trim())
+            .unwrap_or_else(|error| panic!("`{invocation}` did not print one JSON value ({error}): {text:?}"));
+
+        assert_eq!(value["v"], 1, "`{invocation}` envelope version");
+        assert_eq!(value["command"], *expected, "`{invocation}` names itself");
+        assert!(value["ok"].is_boolean(), "`{invocation}` must report ok");
+        assert!(value["warnings"].is_array(), "`{invocation}` always carries warnings");
+        if value["ok"] == serde_json::Value::Bool(false) {
+            assert!(value["error"]["code"].is_string(), "`{invocation}` failed without a code");
+        }
+    }
+}
+
+#[test]
+fn every_subcommand_is_accounted_for() {
+    // The guard that stops this file rotting. A new subcommand must be classified as one that
+    // answers with an envelope or one that prints a document; forgetting is what let several
+    // commands go unchecked here for a while.
+    let fx = Fixture::new();
+    let help = String::from_utf8(fx.cwt().arg("--help").output().unwrap().stdout).unwrap();
+    let listed: std::collections::BTreeSet<String> = help
+        .lines()
+        .skip_while(|line| !line.starts_with("Commands:"))
+        .skip(1)
+        .take_while(|line| line.starts_with("  ") && !line.trim().is_empty())
+        .filter_map(|line| line.split_whitespace().next())
+        .filter(|name| *name != "help")
+        .map(str::to_owned)
+        .collect();
+    assert!(!listed.is_empty(), "could not read the command list from --help:\n{help}");
+
+    let classified: std::collections::BTreeSet<String> = ENVELOPE_COMMANDS
+        .iter()
+        .map(|(args, _)| args[0].to_owned())
+        .chain(DOCUMENT_COMMANDS.iter().map(|args| args[0].to_owned()))
+        .collect();
+
+    let unclassified: Vec<&String> = listed.difference(&classified).collect();
+    assert!(unclassified.is_empty(), "unclassified subcommand(s): {unclassified:?}");
+}
+
+#[test]
+fn a_document_command_prints_a_document_not_an_envelope() {
+    // `config init > canopy.yaml` and `config schema > canopy.schema.json` have to produce the
+    // file, not something a consumer unwraps first.
+    let fx = Fixture::new();
+    for command in DOCUMENT_COMMANDS {
         let out = fx.cwt().args(*command).arg("--json").output().unwrap();
         let name = command.join(" ");
-        assert!(out.status.success(), "{name} failed: {}", String::from_utf8_lossy(&out.stdout));
-        let value = ok_envelope(&out.stdout);
-        assert_eq!(value["command"], name, "envelope names the command it came from");
-        assert!(value["warnings"].is_array(), "warnings is always an array, even when empty");
-        assert!(value.get("data").is_some(), "a successful envelope carries data");
-        assert!(value.get("error").is_none(), "a successful envelope carries no error");
+        assert!(out.status.success(), "{name} failed");
+        let text = String::from_utf8(out.stdout).unwrap();
+        assert!(!text.contains("\"v\":1"), "{name} wrapped its document in an envelope");
+        assert!(!text.trim().is_empty(), "{name} printed nothing");
     }
 }
 

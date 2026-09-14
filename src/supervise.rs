@@ -365,7 +365,7 @@ impl<'a> Supervised<'a> {
         }
     }
 
-    /// Takes a status from `up` — the first one or a restart's — and becomes it.
+    /// Takes a status from `up` — a restart's — and becomes it.
     fn attach(
         &mut self,
         status: ServiceStatus,
@@ -375,6 +375,11 @@ impl<'a> Supervised<'a> {
         on_event: &mut dyn FnMut(Event),
     ) {
         self.last = status;
+        self.adopt(ctx, opts, now, on_event);
+    }
+
+    /// Becomes whatever the last status says this service now is.
+    fn adopt(&mut self, ctx: &ServiceContext<'_>, opts: &SuperviseOptions, now: u64, on_event: &mut dyn FnMut(Event)) {
         self.phase = match self.last.state {
             RunState::Running | RunState::Starting | RunState::Unhealthy => {
                 match proc::read_record(&record_path(ctx.state, &self.name)) {
@@ -567,8 +572,8 @@ pub fn run(
     let mut watch: Vec<Supervised<'_>> = Vec::with_capacity(started.len());
     for status in started {
         let spec = &services[status.name.as_str()];
-        let mut service = Supervised::new(spec, ctx, status.clone());
-        service.attach(status, ctx, opts, now, on_event);
+        let mut service = Supervised::new(spec, ctx, status);
+        service.adopt(ctx, opts, now, on_event);
         watch.push(service);
     }
 
@@ -659,12 +664,21 @@ mod tests {
     /// A ceiling on how long a test waits for something the OS does on its own schedule.
     const PATIENCE: std::time::Duration = std::time::Duration::from_secs(10);
 
-    /// A ceiling on how many polls any one run is allowed.
+    /// The hard ceiling on how many polls any one run is allowed.
     ///
     /// A bug that stops the loop making progress has to fail a test rather than stall the suite,
-    /// and for that a count is the right ceiling where a stopwatch is not: every test here
-    /// settles in well under a hundred polls, however busy the machine running it is.
-    const MAX_POLLS: u32 = 1_000;
+    /// and a count is the right ceiling for that where a stopwatch is not: it does not move when
+    /// the machine is busy, so it cannot turn a slow build into a failing test.
+    const MAX_POLLS: u32 = 600;
+
+    /// How long a stop condition waits for the event it is about before giving up.
+    ///
+    /// Wall-clock, unlike the poll ceiling, because what it waits for is a real process starting
+    /// or dying and that takes the time it takes however the virtual clock is set. Generous
+    /// enough that a busy machine does not fail a passing test, short enough that a mutant which
+    /// stops the event ever arriving fails in seconds — and reached before [`MAX_POLLS`], so the
+    /// test fails on the assertion it is about rather than on running out of polls.
+    const GIVE_UP: std::time::Duration = std::time::Duration::from_secs(8);
 
     /// What one virtual poll costs in real time.
     ///
@@ -843,14 +857,16 @@ mod tests {
         move |_, count| count > n
     }
 
-    /// Stops `grace` polls after `pick` first matched — long enough to prove nothing follows it.
+    /// Stops `grace` polls after `pick` first matched — long enough to prove nothing follows it —
+    /// or after [`GIVE_UP`] if it never matches at all.
     fn settles(pick: fn(&Event) -> bool, grace: u32) -> impl Fn(&[(u64, Event)], u32) -> bool {
         let seen: Cell<Option<u32>> = Cell::new(None);
+        let deadline = TestInstant::now() + GIVE_UP;
         move |events, count| {
             if seen.get().is_none() && events.iter().any(|(_, event)| pick(event)) {
                 seen.set(Some(count));
             }
-            seen.get().is_some_and(|at| count >= at.saturating_add(grace))
+            TestInstant::now() >= deadline || seen.get().is_some_and(|at| count >= at.saturating_add(grace))
         }
     }
 
@@ -1161,12 +1177,16 @@ mod tests {
             ..options(100)
         };
 
+        let deadline = TestInstant::now() + GIVE_UP;
+
         let session = supervise(
             &harness,
             &services,
             &opts,
             |_| {},
-            |events, _| events.iter().filter(|(_, event)| is_restarting(event)).count() >= 2,
+            |events, _| {
+                TestInstant::now() >= deadline || events.iter().filter(|(_, event)| is_restarting(event)).count() >= 2
+            },
         );
 
         let scheduled =
@@ -1329,6 +1349,7 @@ web:
         };
 
         let spawned = RefCell::new(Vec::new());
+        let deadline = TestInstant::now() + GIVE_UP;
 
         let session = supervise(
             &harness,
@@ -1341,7 +1362,9 @@ web:
                     spawned.borrow_mut().push(harness.record("web").pid);
                 }
             },
-            |events, _| events.iter().filter(|(_, event)| is_restarting(event)).count() >= 20,
+            |events, _| {
+                TestInstant::now() >= deadline || events.iter().filter(|(_, event)| is_restarting(event)).count() >= 20
+            },
         );
 
         assert_eq!(session.outcome.restarts, 20);
