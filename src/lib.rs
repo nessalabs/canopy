@@ -156,9 +156,9 @@ impl Canopy {
             return Ok(std::collections::BTreeMap::new());
         }
         let path = self.ports_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        // `ports_path` is always a join, so there is a parent; `map_or` says that without a
+        // branch nothing can take.
+        path.parent().map_or(Ok(()), std::fs::create_dir_all)?;
         let mut registry = ports::Registry::load(&path).map_err(Error::from)?;
         let table = registry.allocate(&self.repo.name(), branch, &declared).map_err(Error::from)?;
         registry.save().map_err(Error::from)?;

@@ -31,7 +31,7 @@ struct Cli {
     command: Command,
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum Command {
     /// Show what repository this is and where its pieces live.
     Info,
@@ -197,7 +197,7 @@ enum Command {
     },
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum HookCommand {
     /// Install the post-checkout hook. Refuses to overwrite one that is not ours.
     Install,
@@ -230,7 +230,7 @@ impl From<DeleteBranchArg> for canopy_worktree::DeleteBranch {
     }
 }
 
-#[derive(Subcommand, Debug)]
+#[derive(Subcommand, Debug, Clone)]
 enum ConfigCommand {
     /// Validate the config and report errors and warnings.
     Check {
@@ -305,24 +305,25 @@ fn main() -> ExitCode {
 /// `config check` on an invalid file — print their own envelope and return a non-zero code,
 /// so exactly one envelope reaches stdout either way.
 fn run(cli: &Cli) -> Result<u8> {
-    // `config init` is the one command that must work before there is a repository: it is
-    // what you run to create the file, possibly in a directory you have just made.
-    if let Command::Config(ConfigCommand::Init) = cli.command {
-        print!("{}", canopy_worktree::config::STARTER);
-        return Ok(0);
-    }
-    // Like `init`, the schema describes the format rather than a repository, so it must work
-    // before there is one — it is what you point an editor at while writing the first file.
-    if let Command::Config(ConfigCommand::Schema) = cli.command {
-        println!("{}", canopy_worktree::config::schema::json_schema().trim_end());
-        return Ok(0);
-    }
-
     let cwd = match &cli.directory {
         Some(dir) => dir.clone(),
         None => current_dir()?,
     };
-    let canopy = Canopy::open(&cwd)?;
+
+    // `config init` and `config schema` describe the *format*, not a repository: `init` is what
+    // you run to create the first file, often in a directory you have just made, and `schema` is
+    // what you point an editor at while writing it. Both are answered here when there is no
+    // repository to open, and by the ordinary path when there is — the answer does not depend
+    // on one either way.
+    let canopy = match Canopy::open(&cwd) {
+        Ok(canopy) => canopy,
+        Err(error) => {
+            return match &cli.command {
+                Command::Config(config) => config.document().map(print_document).ok_or(error),
+                _ => Err(error),
+            };
+        }
+    };
 
     match cli.command {
         Command::Info => {
@@ -791,8 +792,9 @@ fn run(cli: &Cli) -> Result<u8> {
 
 fn run_config(cli: &Cli, canopy: &Canopy, command: &ConfigCommand) -> Result<u8> {
     match command {
-        // Both are handled before the repo is opened: they describe the format, not a repo.
-        ConfigCommand::Init | ConfigCommand::Schema => unreachable!("handled earlier"),
+        ConfigCommand::Init | ConfigCommand::Schema => {
+            return Ok(command.document().map(print_document).unwrap_or(0));
+        }
 
         ConfigCommand::Path => {
             let Some((located, _)) = canopy.config() else {
@@ -1004,6 +1006,40 @@ fn service_context(canopy: &Canopy, given: Option<&str>) -> Result<ServiceSetup>
         ports: canopy.ports_for(&branch)?,
     };
     Ok((branch, worktree, state, env, owner))
+}
+
+/// What `config init` and `config schema` print.
+///
+/// A type of its own rather than a subset of `ConfigCommand`, so the function below cannot be
+/// handed a command that has no document — there is no arm for "this cannot happen".
+#[derive(Clone, Copy, Debug)]
+enum Document {
+    Starter,
+    Schema,
+}
+
+impl ConfigCommand {
+    /// The document this command prints, if it prints one.
+    ///
+    /// Both describe the *format* rather than a repository, which is why they are answered even
+    /// when there is no repository to open.
+    fn document(&self) -> Option<Document> {
+        match self {
+            ConfigCommand::Init => Some(Document::Starter),
+            ConfigCommand::Schema => Some(Document::Schema),
+            ConfigCommand::Check { .. } | ConfigCommand::Show | ConfigCommand::Path => None,
+        }
+    }
+}
+
+/// Prints it. Meant to be redirected into a file, so it is never wrapped in an envelope — a
+/// consumer would have to unwrap it before use.
+fn print_document(document: Document) -> u8 {
+    match document {
+        Document::Starter => print!("{}", canopy_worktree::config::STARTER),
+        Document::Schema => println!("{}", canopy_worktree::config::schema::json_schema().trim_end()),
+    }
+    0
 }
 
 /// A `--flag 5s` value, with the grammar named in the error rather than a bare "invalid".

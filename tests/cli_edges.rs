@@ -478,3 +478,130 @@ fn logs_for_a_service_that_never_ran_is_reported_not_silent() {
     assert_eq!(value["ok"], false, "{value}");
     assert!(value["error"]["code"].is_string());
 }
+
+// -------------------------------------------------------------------------------------
+// Failures reported by the operation itself, after everything before it succeeded
+// -------------------------------------------------------------------------------------
+
+#[test]
+fn a_follow_whose_log_cannot_be_read_is_reported() {
+    // Everything up to the read works: the worktree resolves, the state directory is there,
+    // and the log exists. Only reading it fails.
+    let fx = prepared();
+    fx.cwt().args(["new", "feat/x"]).output().unwrap();
+    let logs = fx.root.join(".git/canopy/worktrees/feat-x/logs");
+    std::fs::create_dir_all(&logs).unwrap();
+    let log = logs.join("web.log");
+    std::fs::write(&log, "a line\n").unwrap();
+
+    let mut mode = std::fs::metadata(&log).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o000);
+    std::fs::set_permissions(&log, mode).unwrap();
+
+    let out = fx.cwt().args(["logs", "web", "feat/x", "--follow", "--json"]).output().unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["ok"], false, "an unreadable log was followed in silence: {value}");
+    assert!(value["error"]["code"].is_string());
+}
+
+#[test]
+fn a_copy_whose_include_file_cannot_be_read_is_reported() {
+    // The rules parse, the worktree is there, git lists the candidates — and then
+    // `.canopyinclude` cannot be read, which changes which files would be carried.
+    let fx = prepared();
+    fx.cwt().args(["new", "feat/x"]).output().unwrap();
+
+    let include = fx.root.join(".canopyinclude");
+    std::fs::write(&include, ".env\n").unwrap();
+    let mut mode = std::fs::metadata(&include).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o000);
+    std::fs::set_permissions(&include, mode).unwrap();
+
+    let out = fx.cwt().args(["copy", "feat/x", "--json"]).output().unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    // Guessing which files it narrows to would be worse than refusing.
+    assert_eq!(value["ok"], false, "an unreadable .canopyinclude was ignored: {value}");
+}
+
+#[test]
+fn a_run_whose_state_directory_cannot_be_written_is_reported() {
+    // The config parses, the ports allocate, the environment resolves — and then the records
+    // cannot be written, so nothing can be supervised.
+    let fx = prepared();
+    fx.cwt().args(["new", "feat/x"]).output().unwrap();
+
+    // Make the state directory itself unwritable, after `service_context` has created it.
+    fx.cwt().args(["ps", "feat/x"]).output().unwrap();
+    let state = fx.root.join(".git/canopy/worktrees/feat-x");
+    let mut mode = std::fs::metadata(&state).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o555);
+    std::fs::set_permissions(&state, mode).unwrap();
+
+    let out = fx.cwt().args(["run", "feat/x", "--no-restart", "--json", "--quiet"]).output().unwrap();
+
+    // Put it back before asserting, so a failure here does not leave an undeletable fixture.
+    let mut mode = std::fs::metadata(&state).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+    std::fs::set_permissions(&state, mode).unwrap();
+
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["ok"], false, "a supervisor that could not record anything reported success: {value}");
+    assert!(value["error"]["code"].is_string());
+}
+
+#[test]
+fn a_removal_that_git_refuses_after_the_dirty_check_keeps_its_own_kind() {
+    // The `other => other` arm of the removal's error mapping, which must not relabel an error
+    // that is not git refusing. A git that exits 0 with bytes that are not UTF-8 is not a
+    // refusal, and calling it "remove failed" sends someone hunting for a message git never
+    // wrote.
+    let fx = prepared();
+    fx.cwt().args(["new", "feat/x"]).output().unwrap();
+
+    let path = fx.home.join("git-garbles-remove");
+    std::fs::write(
+        &path,
+        "#!/bin/sh\n\
+         case \"$1 $2\" in\n\
+         'worktree remove') printf '\\377\\376'; exit 0 ;;\n\
+         esac\n\
+         exec git \"$@\"\n",
+    )
+    .unwrap();
+    let mut mode = std::fs::metadata(&path).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+    std::fs::set_permissions(&path, mode).unwrap();
+
+    let out = fx.cwt().args(["rm", "feat/x", "--json"]).env("CANOPYWT_GIT", path.as_str()).output().unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(value["ok"], false);
+    assert_eq!(value["error"]["code"], "io", "the error's kind did not survive the mapping: {value}");
+}
+
+#[test]
+fn a_worktree_git_describes_with_neither_branch_nor_detached_is_still_listed() {
+    // Defensive display: real git always says `branch`, `detached` or `bare`, but the parser
+    // accepts a stream without any of them and the listing must still name the path rather
+    // than printing a blank column. A future git that adds a fourth state lands here.
+    let fx = prepared();
+    let path = fx.home.join("git-terse-list");
+    std::fs::write(
+        &path,
+        "#!/bin/sh\n\
+         # `worktree list --porcelain -z` with a record that carries neither a branch nor a\n\
+         # detached marker. Everything else is real git.\n\
+         case \"$1 $2\" in\n\
+         'worktree list') printf 'worktree /tmp/odd-one\\000HEAD abc123\\000\\000' ;;\n\
+         *) exec git \"$@\" ;;\n\
+         esac\n",
+    )
+    .unwrap();
+    let mut mode = std::fs::metadata(&path).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut mode, 0o755);
+    std::fs::set_permissions(&path, mode).unwrap();
+
+    let out = fx.cwt().arg("list").env("CANOPYWT_GIT", path.as_str()).output().unwrap();
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(text.contains("/tmp/odd-one"), "the path must be shown whatever the state: {text}");
+    assert!(text.contains("(no branch)"), "an unnamed state should say so rather than print nothing: {text}");
+}

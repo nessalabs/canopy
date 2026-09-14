@@ -239,8 +239,10 @@ pub fn start_order(
         }
         state.insert(name, Mark::Visiting);
         trail.push(name);
-        if let Some(service) = services.get(name) {
-            for dep in &service.depends_on {
+        // `name` came from `services.keys()`, so the lookup cannot miss; flattening says that
+        // without an arm that never runs.
+        {
+            for dep in services.get(name).into_iter().flat_map(|service| &service.depends_on) {
                 // A dependency outside the selected subset is not an ordering constraint;
                 // an unknown one is lint's problem, not ordering's.
                 if !selected.contains(dep) {

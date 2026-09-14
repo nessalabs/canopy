@@ -160,9 +160,9 @@ pub fn parse_worktree_list(raw: &[u8]) -> Result<Vec<WorktreeEntry>> {
         };
         match key {
             "worktree" => {
-                if let Some(entry) = current.take() {
-                    out.push(entry);
-                }
+                // `Option` is an iterator of at most one, so this flushes the entry being
+                // built without a branch that only the first worktree in a stream skips.
+                out.extend(current.take());
                 current = Some(WorktreeEntry {
                     path: Utf8PathBuf::from(value),
                     head: None,
@@ -190,9 +190,7 @@ pub fn parse_worktree_list(raw: &[u8]) -> Result<Vec<WorktreeEntry>> {
             }
         }
     }
-    if let Some(entry) = current.take() {
-        out.push(entry);
-    }
+    out.extend(current.take());
     Ok(out)
 }
 
