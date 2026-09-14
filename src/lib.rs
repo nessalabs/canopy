@@ -15,9 +15,12 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod copy;
 pub mod error;
 pub mod git;
+pub mod health;
 pub mod paths;
+pub mod ports;
 pub mod repo;
 pub mod wire;
 pub mod worktree;
@@ -36,6 +39,7 @@ use repo::Repo;
 
 /// The entry point for everything. Cheap to construct: discovery is one `git rev-parse`,
 /// and the config is read lazily so `list` costs nothing extra in a repo that has none.
+#[derive(Debug)]
 pub struct Canopy {
     repo: Repo,
     config: std::cell::OnceCell<Option<(LocatedConfig, Parsed)>>,

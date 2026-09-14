@@ -98,10 +98,18 @@ impl Fixture {
     }
 
     fn pin(&self, command: &mut Command) {
+        command.env_clear();
+        // PATH must survive env_clear or nothing can spawn git at all. The coverage variables
+        // must survive too: `canopywt` is measured by running it, and a subprocess that cannot
+        // see LLVM_PROFILE_FILE silently writes no profile, which reads as untested code.
+        for name in
+            ["PATH", "LLVM_PROFILE_FILE", "CARGO_LLVM_COV", "CARGO_LLVM_COV_SHOW_ENV", "CARGO_LLVM_COV_TARGET_DIR"]
+        {
+            if let Ok(value) = std::env::var(name) {
+                command.env(name, value);
+            }
+        }
         command
-            .env_clear()
-            // PATH must survive env_clear or nothing can spawn git at all.
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
             .env("HOME", self.home.as_str())
             .env("XDG_CONFIG_HOME", self.home.join(".config").as_str())
             // Belt and braces with HOME: these two make git ignore user and system config

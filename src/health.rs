@@ -493,14 +493,22 @@ fn describe(status: ExitStatus) -> String {
     }
 }
 
-/// Signals the whole group. Negative pid means "the group", which is the point: `sh -c 'x & y'`
-/// leaves `x` running when only the shell is killed.
+/// The argument `kill(2)` wants for "everything in this pid's group": the pid, negated.
+///
+/// `None` for anything that cannot be negated safely. Group `0` is the caller's *own* group, so
+/// a pid of 0 — or one too large to fit in a `pid_t` — must not be turned into a signal.
+fn group_of(pid: u32) -> Option<Pid> {
+    match i32::try_from(pid) {
+        Ok(pid) if pid > 0 => Some(Pid::from_raw(-pid)),
+        _ => None,
+    }
+}
+
+/// SIGKILLs the whole group. The group, not the process, is the point: `sh -c 'x & y'` leaves
+/// `x` running for as long as it likes when only the shell is killed.
 fn kill_group(pid: u32) {
-    // Never pid 0 — as a group that would mean *our own* group, i.e. suicide plus the caller.
-    if let Ok(pid) = i32::try_from(pid)
-        && pid > 0
-    {
-        let _ = signal::kill(Pid::from_raw(-pid), Signal::SIGKILL);
+    if let Some(group) = group_of(pid) {
+        let _ = signal::kill(group, Signal::SIGKILL);
     }
 }
 
@@ -880,6 +888,13 @@ mod tests {
         assert!(!probe.is_healthy(), "a bad cwd should be unhealthy, got {probe:?}");
     }
 
+    /// Kills any `sleep <token>` left over from an interrupted earlier run, so the
+    /// "the children really started" assertions below cannot be satisfied by a ghost.
+    fn reap(token: &str) {
+        let _ = Command::new("pkill").args(["-f", &format!("sleep {token}")]).status();
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
     /// How many processes currently have `needle` on their command line.
     fn processes_matching(needle: &str) -> usize {
         let out = Command::new("ps").args(["-A", "-o", "command"]).output().expect("ps");
@@ -892,6 +907,8 @@ mod tests {
         // would leave the backgrounded one orphaned and running for five minutes — the exact bug
         // process groups exist to prevent.
         let (bg, fg) = ("30011", "30012");
+        reap(bg);
+        reap(fg);
         assert_eq!(processes_matching(bg), 0, "stale process from an earlier run");
         assert_eq!(processes_matching(fg), 0, "stale process from an earlier run");
 
@@ -919,6 +936,7 @@ mod tests {
     fn cmd_does_not_wait_for_a_background_child_holding_stderr() {
         // The command exits at once but leaves a process holding the stderr pipe open. An
         // unbounded read of that pipe would hang the probe for five minutes.
+        reap("30013");
         let health = cmd_check("sleep 30013 & exit 4", 5000);
         let began = Instant::now();
         let probe = health.probe_once(cwd(), &no_env());
@@ -926,7 +944,7 @@ mod tests {
 
         assert!(!probe.is_healthy());
         assert!(took < std::time::Duration::from_secs(2), "took {took:?}");
-        let _ = Command::new("pkill").args(["-f", "sleep 30013"]).status();
+        reap("30013");
     }
 
     #[rstest]
@@ -1072,7 +1090,9 @@ mod tests {
         let fail = unhealthy("down");
 
         assert_eq!(tracker.record(Duration::from_millis(0), &fail), Status::Failing { failures: 1 });
+        assert_eq!(tracker.failures(), 1);
         assert_eq!(tracker.record(Duration::from_millis(10), &fail), Status::Failing { failures: 2 });
+        assert_eq!(tracker.failures(), 2);
         // One success wipes the run — two failures before it must not combine with the ones after.
         assert_eq!(tracker.record(Duration::from_millis(20), &Probe::Healthy), Status::Healthy);
         assert_eq!(tracker.failures(), 0);
@@ -1376,6 +1396,77 @@ mod tests {
                 "timing": { "interval": "3s", "timeout": "3s", "retries": 10, "start_period": "0ms" },
             })
         );
+    }
+
+    #[test]
+    fn the_system_clock_advances_and_actually_sleeps() {
+        let clock = SystemClock::new();
+        let before = clock.now();
+        let began = Instant::now();
+        clock.sleep(Duration::from_millis(60));
+        let took = began.elapsed();
+
+        assert!(took >= std::time::Duration::from_millis(45), "sleep returned after {took:?}");
+        assert!(clock.now() >= before + 45, "the clock did not advance: {before} to {}", clock.now());
+    }
+
+    #[test]
+    fn the_nap_says_when_the_budget_is_gone() {
+        let clock = TestClock::default();
+        let timing = timing(100, 0, 1, 0);
+
+        // Budget to spare: a whole interval, and keep going.
+        assert!(timing.nap(&clock, 0, Duration::from_millis(250)));
+        assert_eq!(clock.now(), 100);
+        // Less than an interval left: clamped to it, and that is the end.
+        assert!(!timing.nap(&clock, 0, Duration::from_millis(150)));
+        assert_eq!(clock.naps(), vec![100, 50]);
+        // Nothing left: no sleep at all.
+        assert!(!timing.nap(&clock, 0, Duration::from_millis(150)));
+        assert_eq!(clock.naps(), vec![100, 50]);
+    }
+
+    #[rstest]
+    #[case(1, Some(-1))]
+    #[case(4242, Some(-4242))]
+    // Group 0 is our own group: signalling it would kill the test runner and its shell.
+    #[case(0, None)]
+    // Larger than a pid_t, so there is no safe negation.
+    #[case(2_147_483_648, None)]
+    #[case(u32::MAX, None)]
+    fn only_a_real_pid_becomes_a_signalable_group(#[case] pid: u32, #[case] expected: Option<i32>) {
+        assert_eq!(group_of(pid), expected.map(Pid::from_raw));
+    }
+
+    #[test]
+    fn kill_group_takes_the_backgrounded_children_too() {
+        let token = "30014";
+        reap(token);
+        assert_eq!(processes_matching(token), 0, "stale process from an earlier run");
+        let mut child = Command::new("/bin/sh")
+            .arg("-c")
+            .arg(format!("sleep {token} & sleep {token}"))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .expect("spawn");
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        assert!(processes_matching(token) >= 2, "the children never started");
+
+        kill_group(child.id());
+
+        // Bounded wait: `child.wait()` here would block forever if the signal never landed.
+        let gone = (0..40).any(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+            processes_matching(token) == 0
+        });
+        if !gone {
+            reap(token);
+        }
+        let _ = child.wait();
+        assert!(gone, "kill_group left processes behind");
     }
 
     #[test]

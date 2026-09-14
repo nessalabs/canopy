@@ -74,12 +74,11 @@ impl Repo {
     /// `main` or `master` exists. `None` when neither is discoverable, in which case a caller
     /// must be told to pass `--base` rather than guessing.
     pub fn default_branch(&self) -> Option<String> {
-        if let Ok(out) = self.git.run(self.any_cwd(), ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]) {
-            if let Some(name) = out.trim().strip_prefix("origin/")
-                && !name.is_empty()
-            {
-                return Some(name.to_owned());
-            }
+        if let Ok(out) = self.git.run(self.any_cwd(), ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+            && let Some(name) = out.trim().strip_prefix("origin/")
+            && !name.is_empty()
+        {
+            return Some(name.to_owned());
         }
         ["main", "master"]
             .into_iter()
