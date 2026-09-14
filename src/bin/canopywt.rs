@@ -23,6 +23,10 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
+    /// Suppress progress on stderr. Results still go to stdout.
+    #[arg(long, short, global = true)]
+    quiet: bool,
+
     #[command(subcommand)]
     command: Command,
 }
@@ -80,6 +84,20 @@ enum Command {
         /// Write the file named by `env_file:` into the worktree.
         #[arg(long)]
         write: bool,
+    },
+    /// Run the `setup:` steps for a worktree.
+    Setup {
+        /// Defaults to the branch of the worktree you are in.
+        branch: Option<String>,
+        /// Run every step, even ones `if_changed` would skip.
+        #[arg(long, short)]
+        force: bool,
+        /// Run only these steps, by name. Repeatable.
+        #[arg(long)]
+        only: Vec<String>,
+        /// Give up on any single step after this long, e.g. `5m`.
+        #[arg(long)]
+        timeout: Option<String>,
     },
     /// Remove a worktree, by branch name or path.
     Rm {
@@ -144,6 +162,7 @@ impl Command {
             Command::New { .. } => "new",
             Command::Ports { .. } => "ports",
             Command::Env { .. } => "env",
+            Command::Setup { .. } => "setup",
             Command::Rm { .. } => "rm",
         }
     }
@@ -310,6 +329,66 @@ fn run(cli: &Cli) -> Result<u8> {
             }
         }
 
+        Command::Setup { ref branch, force, ref only, ref timeout } => {
+            let branch = resolve_branch(&canopy, branch.as_deref())?;
+            let worktree = worktree_path_for_branch(&canopy, &branch)?;
+            if !worktree.exists() {
+                return Err(Error::WorktreeNotFound(format!("{branch} has no checkout at {worktree}")));
+            }
+            let default_config = canopy_worktree::config::CanopyConfig::empty();
+            let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+            let timeout = match timeout {
+                Some(text) => Some(canopy_worktree::config::Duration::parse(text).map_err(|error| Error::Module {
+                    code: canopy_worktree::ErrorCode::ConfigInvalid,
+                    message: error.to_string(),
+                })?),
+                None => None,
+            };
+            let env = canopy.env_for(&branch, &worktree)?.to_map();
+            let options = canopy_worktree::SetupOptions {
+                worktree: &worktree,
+                // The main checkout is what a worktree was made from, so it is what
+                // `if_changed` compares against.
+                source: canopy.repo().root.as_deref(),
+                env: &env,
+                force,
+                only: (!only.is_empty()).then(|| only.clone()),
+                timeout,
+            };
+
+            // Streamed to stderr as it happens: a four-minute `npm ci` that prints nothing
+            // until it finishes looks like a hang. stdout stays clean for the envelope.
+            let quiet = cli.quiet;
+            let mut on_line = |_stream: canopy_worktree::Stream, text: &str| {
+                if !quiet {
+                    let _ = writeln!(std::io::stderr(), "{text}");
+                }
+            };
+            let outcome = canopy_worktree::run_setup(&config.setup, &options, &mut on_line)?;
+
+            if cli.json {
+                // A verdict, like `config check`: the run happened, and the answer may be no.
+                // `data` carries every step either way, so a caller reads one shape.
+                let failure = outcome.steps.iter().find_map(|step| match &step.result {
+                    canopy_worktree::StepResult::Failed { status, .. } => Some((step.name.clone(), status.clone())),
+                    _ => None,
+                });
+                let error = failure.map(|(name, status)| canopy_worktree::wire::ErrorBody {
+                    code: canopy_worktree::ErrorCode::SetupFailed.as_str(),
+                    message: format!("setup step {name} failed ({status})"),
+                    details: None,
+                });
+                let envelope = Envelope::verdict("setup", outcome.ok, &outcome, error);
+                println!("{}", serde_json::to_string(&envelope).expect("envelope is serializable"));
+            } else {
+                for step in &outcome.steps {
+                    println!("{}", describe_step(step));
+                }
+            }
+            // A failed step is a failed command, so CI does not have to read the summary.
+            return Ok(if outcome.ok { 0 } else { 1 });
+        }
+
         Command::Rm { ref target, force, delete_branch } => {
             let options = canopy_worktree::RemoveOptions { force, delete_branch: delete_branch.into() };
             let outcome = canopy.remove(target, &options)?;
@@ -445,6 +524,17 @@ fn searched_description(canopy: &Canopy) -> String {
     format!(
         "looked in {root}, the main checkout, and your user config; `canopywt config init > canopy.yaml` writes a starter"
     )
+}
+
+/// One line per step, for the human view.
+fn describe_step(step: &canopy_worktree::StepOutcome) -> String {
+    match &step.result {
+        canopy_worktree::StepResult::Ran { millis } => format!("ran      {} ({millis}ms)", step.name),
+        canopy_worktree::StepResult::Skipped { reason } => format!("skipped  {} — {reason}", step.name),
+        canopy_worktree::StepResult::Failed { status, millis, .. } => {
+            format!("FAILED   {} ({status}, {millis}ms)", step.name)
+        }
+    }
 }
 
 /// The branch to act on: the one given, else the branch of the worktree we are standing in.

@@ -196,9 +196,14 @@ fn every_code_in_the_table_is_produced_by_some_variant() {
     let unproduced: Vec<&str> =
         ErrorCode::ALL.iter().map(|code| code.as_str()).filter(|code| !produced.contains(code)).collect();
 
-    // `service_failed` arrives with the supervisor; `port_in_use` is produced by the port
-    // module's bridge rather than a crate-level variant, and is covered above.
-    assert_eq!(unproduced, ["port_in_use", "service_failed"], "unexpected unproduced codes: {unproduced:?}");
+    // `service_failed` arrives with the supervisor. `port_in_use` and `setup_failed` are
+    // produced by a module bridge or a verdict envelope rather than a crate-level variant,
+    // and are covered elsewhere.
+    assert_eq!(
+        unproduced,
+        ["port_in_use", "service_failed", "setup_failed"],
+        "unexpected unproduced codes: {unproduced:?}"
+    );
 }
 
 #[test]

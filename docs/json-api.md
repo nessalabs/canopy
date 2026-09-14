@@ -60,6 +60,7 @@ Branch on `code`. It is a stable API; `message` is for humans and may be reworde
 | `worktree_create_failed` | 1 | Creation failed. |
 | `worktree_remove_failed` | 1 | Removal failed. |
 | `port_in_use` | 1 | A port is held by something else. |
+| `setup_failed` | 1 | A `setup:` step exited non-zero. `data` still carries every step. |
 | `service_failed` | 1 | A service would not start or would not become healthy. |
 | `locked` | **3** | Another `canopywt` holds the lock. Retry. |
 | `io` | 1 | A filesystem or encoding problem. |

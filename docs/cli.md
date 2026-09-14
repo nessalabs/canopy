@@ -195,12 +195,39 @@ Values are single-quoted when they need it. Double quotes would not do: `sh` sti
 backticks and `\` inside them, so a password containing `$` would not survive a round trip
 through `. ./.env.canopy`.
 
+## `canopywt setup [<branch>]`
+
+Run the worktree's `setup:` steps, in order, with the resolved environment.
+
+```console
+$ canopywt setup feat/login
+skipped  install — lockfile.txt unchanged
+ran      build (1240ms)
+```
+
+Step output streams to **stderr** as it happens — a four-minute `npm ci` that prints nothing
+until it finishes looks like a hang — so stdout stays clean for `--json`. `--quiet` suppresses
+the stream without suppressing the result.
+
+`if_changed` is what makes this cheap to re-run: a step is skipped when the files it names are
+byte-for-byte identical to the main checkout's. Content, never mtime — every file in a fresh
+worktree has a new mtime, which would make the check useless.
+
+- `--force` runs every step anyway
+- `--only <name>` runs just that step, repeatable. An unknown name is an **error**, not a silent
+  clean run — a typo that reports instant success is the failure mode that costs an hour
+- `--timeout 5m` gives up on any single step, killing its whole process group
+
+A failing step stops the run; later steps do not run. Exit is `1`, and `--json` reports a
+verdict: `ok: false` with `setup_failed`, while `data` still carries every step with the tail of
+the failing one's output.
+
 ## Planned
 
 | Command | Milestone |
 |---|---|
 | `config schema`, `config set` | M2b |
-| `copy`, `setup` | M6–M7 |
+| `copy` | M6 |
 | `up`, `down`, `ps`, `logs`, `wait` | M8–M9 |
 | `run` | M10 |
 | `doctor`, `gc`, `hook install` | M11–M12 |

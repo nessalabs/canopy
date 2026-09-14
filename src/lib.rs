@@ -22,7 +22,9 @@ pub mod git;
 pub mod health;
 pub mod paths;
 pub mod ports;
+pub mod proc;
 pub mod repo;
+pub mod setup;
 pub mod wire;
 pub mod worktree;
 
@@ -32,7 +34,9 @@ use serde::Serialize;
 pub use config::{CanopyConfig, ConfigSource, Diagnostic, LocatedConfig, Parsed, Severity, WorktreeSpec, parse_str};
 pub use env::{EnvSource, EnvTable, EnvVar, Facts};
 pub use error::{Error, ErrorCode, Result};
+pub use proc::{ProcessRecord, ProcessState, SpawnRequest, StopOutcome};
 pub use repo::{WorktreeEntry, parse_worktree_list};
+pub use setup::{SetupOptions, SetupOutcome, StepOutcome, StepResult, Stream, run_setup};
 pub use wire::{ENVELOPE_VERSION, Envelope};
 pub use worktree::{BranchSpec, CreateOptions, CreateOutcome, DeleteBranch, RemoveOptions, RemoveOutcome};
 

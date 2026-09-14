@@ -22,6 +22,7 @@ pub enum ErrorCode {
     WorktreeCreateFailed,
     WorktreeRemoveFailed,
     PortInUse,
+    SetupFailed,
     ServiceFailed,
     Locked,
     Io,
@@ -42,6 +43,7 @@ impl ErrorCode {
             ErrorCode::WorktreeCreateFailed => "worktree_create_failed",
             ErrorCode::WorktreeRemoveFailed => "worktree_remove_failed",
             ErrorCode::PortInUse => "port_in_use",
+            ErrorCode::SetupFailed => "setup_failed",
             ErrorCode::ServiceFailed => "service_failed",
             ErrorCode::Locked => "locked",
             ErrorCode::Io => "io",
@@ -70,6 +72,7 @@ impl ErrorCode {
         ErrorCode::WorktreeCreateFailed,
         ErrorCode::WorktreeRemoveFailed,
         ErrorCode::PortInUse,
+        ErrorCode::SetupFailed,
         ErrorCode::ServiceFailed,
         ErrorCode::Locked,
         ErrorCode::Io,
@@ -182,6 +185,26 @@ impl From<crate::copy::CopyError> for Error {
                 ErrorCode::ConfigInvalid
             }
             crate::copy::CopyError::NonUtf8Path(_) => ErrorCode::Io,
+        };
+        Error::Module { code, message: error.to_string() }
+    }
+}
+
+impl From<crate::proc::ProcError> for Error {
+    fn from(error: crate::proc::ProcError) -> Error {
+        Error::Module { code: error.code(), message: error.to_string() }
+    }
+}
+
+impl From<crate::setup::SetupError> for Error {
+    fn from(error: crate::setup::SetupError) -> Error {
+        let code = match error {
+            // A step naming a directory that cannot be made, or a glob that will not compile,
+            // is the config being wrong rather than the machine failing.
+            crate::setup::SetupError::BadPattern { .. } | crate::setup::SetupError::UnknownStep(_) => {
+                ErrorCode::ConfigInvalid
+            }
+            crate::setup::SetupError::Io { .. } | crate::setup::SetupError::Shell { .. } => ErrorCode::Io,
         };
         Error::Module { code, message: error.to_string() }
     }

@@ -60,7 +60,7 @@ fn error_code_count_is_pinned() {
     // `ErrorCode::as_str` is an exhaustive match, so a new variant cannot compile without a
     // wire string. This guards the other half: that the variant was also added to `ALL`,
     // which the CLI documentation and these tests iterate. Bump the number deliberately.
-    assert_eq!(ErrorCode::ALL.len(), 14, "a variant was added or removed — update ALL and this count");
+    assert_eq!(ErrorCode::ALL.len(), 15, "a variant was added or removed — update ALL and this count");
 }
 
 #[test]
