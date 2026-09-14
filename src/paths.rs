@@ -94,10 +94,19 @@ fn substitute(inner: &str, vars: &PathVars<'_>) -> String {
 /// Lexical rather than `canonicalize`: the path does not exist yet, which is the whole point,
 /// and `canonicalize` fails on paths that do not exist.
 fn resolve(rendered: &str, base: &Utf8Path) -> Utf8PathBuf {
+    resolve_with_home(rendered, base, std::env::var("HOME").ok().as_deref())
+}
+
+/// The pure half. `home` is threaded through rather than read here so the no-home fallback can
+/// be tested — the process environment cannot be changed, since `set_var` is unsafe in edition
+/// 2024 and this crate forbids unsafe.
+fn resolve_with_home(rendered: &str, base: &Utf8Path, home: Option<&str>) -> Utf8PathBuf {
     let expanded = match rendered.strip_prefix("~/").or_else(|| rendered.strip_prefix("~")) {
-        Some(rest) if rendered.starts_with('~') => match std::env::var("HOME") {
-            Ok(home) if !home.is_empty() => format!("{}/{}", home.trim_end_matches('/'), rest.trim_start_matches('/')),
-            _ => rendered.to_owned(),
+        Some(rest) if rendered.starts_with('~') => match home.filter(|home| !home.is_empty()) {
+            // A `~` with nowhere to expand to is left as written: a literal tilde is a strange
+            // directory name, but inventing a path would be stranger.
+            Some(home) => format!("{}/{}", home.trim_end_matches('/'), rest.trim_start_matches('/')),
+            None => rendered.to_owned(),
         },
         _ => rendered.to_owned(),
     };
@@ -229,6 +238,19 @@ mod tests {
         let repo = Utf8Path::new("/home/me/dev/canopy");
         assert_eq!(render("{{ repo_path }}/./../x", &vars("b", "n", repo)), "/home/me/dev/x");
         assert_eq!(render("{{ repo_path }}/../../x", &vars("b", "n", repo)), "/home/me/x");
+    }
+
+    #[test]
+    fn a_tilde_with_no_home_is_left_as_written() {
+        // Nothing to expand to, so nothing is invented: the caller sees the tilde it wrote
+        // rather than a path rooted somewhere arbitrary.
+        let base = Utf8Path::new("/base");
+        assert_eq!(resolve_with_home("~/wt/x", base, None), Utf8PathBuf::from("/base/~/wt/x"));
+        assert_eq!(resolve_with_home("~/wt/x", base, Some("")), Utf8PathBuf::from("/base/~/wt/x"));
+        // …and with one, it expands.
+        assert_eq!(resolve_with_home("~/wt/x", base, Some("/home/me")), Utf8PathBuf::from("/home/me/wt/x"));
+        // A trailing slash on HOME does not double up.
+        assert_eq!(resolve_with_home("~/wt", base, Some("/home/me/")), Utf8PathBuf::from("/home/me/wt"));
     }
 
     #[test]

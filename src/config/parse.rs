@@ -80,7 +80,10 @@ pub fn parse_str(text: &str) -> Parsed {
 
     // A tab in YAML indentation is legal inside a scalar and illegal as indentation; the
     // parser's message for it is obscure enough to be worth calling out separately.
-    if text.lines().any(|line| line.starts_with(['\t', ' ']) && line.contains('\t')) {
+    // Only a tab in the *indentation* is the mistake worth reporting. Looking for one anywhere
+    // on an indented line also flags `A: "has\ttab"`, where the tab is legitimate content, and a
+    // warning you have to learn to ignore is worse than no warning.
+    if text.lines().any(|line| line.chars().take_while(|c| c.is_whitespace()).any(|c| c == '\t')) {
         diagnostics.push(Diagnostic::warning("<root>", "tab characters found — YAML indentation must use spaces"));
     }
 

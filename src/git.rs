@@ -213,6 +213,17 @@ mod tests {
     }
 
     #[test]
+    fn run_bytes_reports_a_signal_the_same_way_run_does() {
+        // Both entry points build their own error; if they drift, which one you called decides
+        // whether a killed git looks like an exit code.
+        let error = Git::new("/bin/sh").run_bytes(anywhere(), ["-c", "kill -TERM $$"]).unwrap_err();
+        match error {
+            Error::GitFailed { status, .. } => assert_eq!(status, "a signal"),
+            other => panic!("expected GitFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn a_missing_git_is_an_io_error_not_a_git_failure() {
         // Worth distinguishing: "git is not installed" and "git said no" need different fixes.
         let error = Git::new("/nonexistent/git").run(anywhere(), ["status"]).unwrap_err();

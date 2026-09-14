@@ -659,3 +659,30 @@ fn the_same_advice_covers_the_other_yaml_surprises() {
         assert!(parsed.errors().next().unwrap().message.contains("quote it"));
     }
 }
+
+#[test]
+fn a_tab_in_the_indentation_is_warned_about() {
+    // YAML's own message for this is obscure enough to be worth naming.
+    let parsed = parse_str("version: 1\nservices:\n\ta:\n\t  run: x\n");
+    assert!(parsed.diagnostics.iter().any(|d| d.message.contains("tab")), "{:?}", parsed.diagnostics);
+}
+
+#[test]
+fn a_tab_inside_a_value_is_not_a_mistake() {
+    // `A: "has<TAB>tab"` is legitimate content. Warning about it teaches people to ignore the
+    // warning, which costs more than it saves.
+    let parsed = parse_str("version: 1\nenv:\n  A: \"has\ttab\"\nservices:\n  a:\n    run: x\n");
+    assert!(parsed.is_valid(), "{:?}", parsed.errors().collect::<Vec<_>>());
+    assert!(
+        !parsed.diagnostics.iter().any(|d| d.message.contains("tab")),
+        "a tab inside a quoted value was reported as indentation: {:?}",
+        parsed.diagnostics
+    );
+}
+
+#[test]
+fn a_tab_after_leading_spaces_is_still_indentation() {
+    // Mixed indentation is the same mistake wearing a disguise.
+    let parsed = parse_str("version: 1\nenv:\n  \tA: x\nservices:\n  b:\n    run: x\n");
+    assert!(parsed.diagnostics.iter().any(|d| d.message.contains("tab")), "{:?}", parsed.diagnostics);
+}
