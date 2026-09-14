@@ -449,3 +449,79 @@ fn a_config_that_names_itself_is_what_the_project_is_called() {
     unnamed.write("canopy.yaml", "version: 1\nservices:\n  a:\n    run: x\n");
     assert_eq!(open(&unnamed).env_for("main", &unnamed.root).unwrap().get("CANOPY_PROJECT"), Some("repo"));
 }
+
+// -------------------------------------------------------------------------------------
+// What happens when git fails partway through
+// -------------------------------------------------------------------------------------
+
+/// A repo discovered with a working git, then driven by one that always fails.
+///
+/// Discovery needs git to answer; the operation under test needs it not to. Swapping after
+/// discovery is the only way to have both.
+fn with_failing_git(fx: &Fixture) -> Repo {
+    Repo::discover(Git::new("git"), &fx.root).expect("fixture is a repository").with_git(Git::new("/usr/bin/false"))
+}
+
+#[test]
+fn a_git_that_fails_while_creating_is_reported_as_a_create_failure() {
+    let fx = Fixture::new();
+    let repo = with_failing_git(&fx);
+    let spec = BranchSpec::New { name: "feat/x".to_owned(), base: None };
+
+    // Listing is the first thing `create` does, so this is the propagation path rather than
+    // the mapping one — it must still arrive as an error and not a panic.
+    let error = repo.create_worktree("{{ repo_path }}/../wt/{{ name }}", &spec, &CreateOptions::default()).unwrap_err();
+    assert!(matches!(error.code(), ErrorCode::GitFailed | ErrorCode::WorktreeCreateFailed), "got {error:?}");
+}
+
+#[test]
+fn a_git_that_fails_while_removing_is_reported_as_a_remove_failure() {
+    let fx = Fixture::new();
+    let repo = with_failing_git(&fx);
+    let error = repo.remove_worktree("feat/x", &RemoveOptions::default()).unwrap_err();
+    assert!(matches!(error.code(), ErrorCode::GitFailed | ErrorCode::WorktreeNotFound), "got {error:?}");
+}
+
+#[test]
+fn a_git_that_fails_while_counting_changes_is_an_error_not_a_clean_tree() {
+    // Reporting "nothing uncommitted" because git would not answer is how `rm` deletes work
+    // it should have refused to touch.
+    let fx = Fixture::new();
+    let repo = with_failing_git(&fx);
+    let error = repo.dirty_counts(&fx.root).unwrap_err();
+    assert_eq!(error.code(), ErrorCode::GitFailed);
+}
+
+#[test]
+fn a_git_that_fails_while_listing_worktrees_is_an_error() {
+    let fx = Fixture::new();
+    assert_eq!(with_failing_git(&fx).worktrees().unwrap_err().code(), ErrorCode::GitFailed);
+}
+
+#[test]
+fn a_default_branch_cannot_be_discovered_without_git() {
+    // `None` rather than a guess: a caller is told to pass `--base` instead of branching from
+    // whatever happened to be checked out.
+    let fx = Fixture::new();
+    assert_eq!(with_failing_git(&fx).default_branch(), None);
+}
+
+#[test]
+fn removing_a_worktree_that_git_forgot_still_cleans_up() {
+    // Someone deleted the directory by hand. The row is still in git, and `rm` has to finish
+    // the job rather than refuse because the checkout is missing.
+    let fx = Fixture::new();
+    fx.write(
+        "canopy.yaml",
+        "version: 1\nworktree:\n  path: \"{{ repo_path }}/../wt/{{ name }}\"\nservices:\n  a:\n    run: x\n",
+    );
+    let canopy = open(&fx);
+    let created = canopy
+        .create(&BranchSpec::New { name: "feat/gone".to_owned(), base: None }, &CreateOptions::default())
+        .unwrap();
+    std::fs::remove_dir_all(&created.path).unwrap();
+
+    let removed = canopy.remove("feat/gone", &RemoveOptions::default()).unwrap();
+    assert_eq!(removed.path, created.path);
+    assert!(!canopy.list().unwrap().iter().any(|entry| entry.branch.as_deref() == Some("feat/gone")));
+}

@@ -70,6 +70,16 @@ impl Repo {
         base.file_name().unwrap_or("repo").trim_end_matches(".git").to_owned()
     }
 
+    /// The same repository driven by a different `git`.
+    ///
+    /// An embedder that pins which git runs needs this, and it is how the error-mapping paths
+    /// below are tested: discovery needs a working git, and the operation after it needs one
+    /// that fails.
+    pub fn with_git(mut self, git: Git) -> Repo {
+        self.git = git;
+        self
+    }
+
     /// The repository's default branch: what `origin/HEAD` points at, else whichever of
     /// `main` or `master` exists. `None` when neither is discoverable, in which case a caller
     /// must be told to pass `--base` rather than guessing.

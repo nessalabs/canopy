@@ -212,32 +212,116 @@ impl Repo {
     /// only content is an uncommitted `.env` is exactly the case where silent deletion hurts.
     pub fn dirty_counts(&self, worktree: &Utf8Path) -> Result<DirtyCounts> {
         let raw = self.git.run_bytes(worktree, ["status", "--porcelain=v1", "-z", "--untracked-files=normal"])?;
-        let mut counts = DirtyCounts::default();
-        // `-z` NUL-terminates each entry; a rename adds a second NUL-terminated path which must
-        // not be read as another entry.
-        let mut fields = raw.split(|b| *b == 0).filter(|f| !f.is_empty());
-        while let Some(field) = fields.next() {
-            if field.len() < 3 {
-                continue;
+        Ok(parse_status_counts(&raw))
+    }
+}
+
+/// Counts the entries of `git status --porcelain=v1 -z`.
+///
+/// Separated from the command so the parsing can be tested on input git would only produce in
+/// situations that are awkward to arrange — a rename, whose origin path follows as a second
+/// NUL-terminated field and would otherwise be miscounted as another entry with its first two
+/// bytes read as a status code.
+pub fn parse_status_counts(raw: &[u8]) -> DirtyCounts {
+    let mut counts = DirtyCounts::default();
+    let mut fields = raw.split(|b| *b == 0).filter(|f| !f.is_empty());
+    while let Some(field) = fields.next() {
+        // `XY <path>`: anything shorter is not an entry. git does not emit one, but reading
+        // past the end of a truncated stream would panic rather than report nothing.
+        if field.len() < 3 {
+            continue;
+        }
+        let index = field[0];
+        let worktree_status = field[1];
+        if index == b'?' {
+            counts.untracked += 1;
+        } else {
+            if index != b' ' {
+                counts.staged += 1;
             }
-            let index = field[0];
-            let worktree_status = field[1];
-            if index == b'?' {
-                counts.untracked += 1;
-            } else {
-                if index != b' ' {
-                    counts.staged += 1;
-                }
-                if worktree_status != b' ' {
-                    counts.unstaged += 1;
-                }
-                // A rename or copy carries its origin path as the next field.
-                if matches!(index, b'R' | b'C') {
-                    fields.next();
-                }
+            if worktree_status != b' ' {
+                counts.unstaged += 1;
+            }
+            // A rename or copy carries its origin path as the next field.
+            if matches!(index, b'R' | b'C') {
+                fields.next();
             }
         }
-        counts.total = counts.staged + counts.unstaged + counts.untracked;
-        Ok(counts)
+    }
+    counts.total = counts.staged + counts.unstaged + counts.untracked;
+    counts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `XY <path>`, NUL-terminated, the way `git status --porcelain=v1 -z` writes it.
+    fn stream(entries: &[&str]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for entry in entries {
+            out.extend_from_slice(entry.as_bytes());
+            out.push(0);
+        }
+        out
+    }
+
+    #[test]
+    fn counts_each_kind_of_change() {
+        let raw = stream(&["?? new.txt", " M edited.txt", "A  added.txt", "MM both.txt"]);
+        let counts = parse_status_counts(&raw);
+        assert_eq!(counts.untracked, 1);
+        // `A ` is staged only, ` M` unstaged only, `MM` both — so one file can be two changes.
+        assert_eq!(counts.staged, 2);
+        assert_eq!(counts.unstaged, 2);
+        assert_eq!(counts.total, 5);
+    }
+
+    #[test]
+    fn a_rename_is_one_change_not_two() {
+        // The origin path follows as its own NUL-terminated field. Reading it as another entry
+        // would double-count the rename *and* read "ol" as a status code.
+        let raw = stream(&["R  new-name.txt", "old-name.txt"]);
+        let counts = parse_status_counts(&raw);
+        assert_eq!(counts.staged, 1);
+        assert_eq!(counts.total, 1, "the origin path was counted as an entry");
+    }
+
+    #[test]
+    fn a_copy_carries_its_origin_the_same_way() {
+        let raw = stream(&["C  copy.txt", "source.txt"]);
+        assert_eq!(parse_status_counts(&raw).total, 1);
+    }
+
+    #[test]
+    fn a_rename_among_other_entries_does_not_swallow_them() {
+        let raw = stream(&["?? first.txt", "R  new.txt", "old.txt", " M last.txt"]);
+        let counts = parse_status_counts(&raw);
+        assert_eq!(counts.untracked, 1);
+        assert_eq!(counts.staged, 1);
+        assert_eq!(counts.unstaged, 1, "the entry after a rename's origin was skipped");
+        assert_eq!(counts.total, 3);
+    }
+
+    #[test]
+    fn a_clean_checkout_counts_nothing() {
+        assert_eq!(parse_status_counts(b"").total, 0);
+    }
+
+    #[test]
+    fn a_truncated_stream_reports_what_it_could_read() {
+        // git does not emit a field this short, but reading past the end of one would panic
+        // rather than report nothing — and a panic here would take a `rm` down mid-flight.
+        let raw = stream(&["?? real.txt", "X", ""]);
+        assert_eq!(parse_status_counts(&raw).total, 1);
+    }
+
+    #[test]
+    fn an_unmerged_entry_counts_on_both_sides() {
+        // `UU` is a conflict: staged and unstaged at once, and very much uncommitted work.
+        let counts = parse_status_counts(&stream(&["UU conflicted.txt"]));
+        assert_eq!(counts.staged, 1);
+        assert_eq!(counts.unstaged, 1);
+        assert_eq!(counts.total, 2);
     }
 }
