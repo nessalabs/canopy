@@ -1000,6 +1000,28 @@ mod tests {
     }
 
     #[test]
+    fn the_snapshot_helper_keeps_sweeping_until_the_answer_changes() {
+        // The tests below count processes through this, and both halves of it are load-bearing:
+        // one sweep that answered "not yet" must not end the wait, and a wait that never ends
+        // would hang the suite rather than fail it.
+        let sweeps = Cell::new(0u32);
+        let on_the_third_sweep = |_: &str| {
+            sweeps.set(sweeps.get() + 1);
+            sweeps.get() >= 3
+        };
+
+        let snapshot = snapshot_until(10_000, on_the_third_sweep);
+
+        assert!(snapshot.lines().count() > 1, "that is not a sweep of the process table: {snapshot:?}");
+        assert_eq!(sweeps.get(), 3, "it stopped sweeping before the answer changed");
+
+        // A budget that is already gone: the sweep it has to take is the only one it takes.
+        sweeps.set(0);
+        snapshot_until(0, on_the_third_sweep);
+        assert_eq!(sweeps.get(), 1, "it kept sweeping after the budget was spent");
+    }
+
+    #[test]
     fn cmd_timeout_kills_the_whole_process_group() {
         // Two distinctive sleeps: one backgrounded, one in the foreground. Killing only the shell
         // would leave the backgrounded one orphaned and running for five minutes — the exact bug

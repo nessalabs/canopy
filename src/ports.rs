@@ -815,27 +815,33 @@ mod tests {
 
     #[test]
     fn a_port_held_by_a_real_listener_is_skipped() {
-        let probe = HostProbe::detect();
-        // A branch whose seed and the port after it are both genuinely free on this machine,
-        // so the assertion below is about the allocator and not about what else is running.
-        let (branch, seed) = (0..500)
+        // Bind the seed *inside* the search rather than checking it and binding after: any
+        // gap between the two is a window in which another test on this machine takes the
+        // port, and the walk then steps over it for a reason this test is not about.
+        let (branch, seed, held) = (0..500)
             .find_map(|index| {
                 let branch = format!("real-{}-{index}", std::process::id());
                 let seed = hash_seed(PROJECT, &branch, "web", DEFAULT_RANGE);
-                (seed < DEFAULT_RANGE.1 && probe.is_free(seed) && probe.is_free(seed + 1)).then_some((branch, seed))
+                let held = TcpListener::bind((Ipv4Addr::LOCALHOST, seed)).ok()?;
+                Some((branch, seed, held))
             })
-            .expect("no two consecutive free ports in 10000-19999");
+            .expect("no bindable seed in 10000-19999");
 
-        // Nothing is listening: the seed is exactly what comes back.
-        let (_dir, path) = temp_registry();
-        let mut registry = Registry::load(&path).unwrap();
-        assert_eq!(registry.allocate(PROJECT, &branch, &specs(&["web"])).unwrap()["web"], seed);
-
-        // Hold it for real, and the walk steps over it.
-        let _held = TcpListener::bind((Ipv4Addr::LOCALHOST, seed)).expect("the seed was free a moment ago");
+        // The property: a port something is genuinely listening on is not handed out.
         let (_dir2, path2) = temp_registry();
         let mut registry = Registry::load(&path2).unwrap();
-        assert_eq!(registry.allocate(PROJECT, &branch, &specs(&["web"])).unwrap()["web"], seed + 1);
+        let allocated = registry.allocate(PROJECT, &branch, &specs(&["web"])).unwrap()["web"];
+        assert_ne!(allocated, seed, "a port held by a real listener was handed out anyway");
+        assert!(allocated > seed, "the walk goes forward from the seed, not backwards");
+        drop(held);
+
+        // And with nothing in the way the seed is exactly what comes back. A probe rather than
+        // the host, because between releasing the port above and asking for it again anything
+        // else on this machine may have claimed it — which would make this assert the state of
+        // the machine rather than the behaviour of the allocator.
+        let (_dir, path) = temp_registry();
+        let mut registry = Registry::load(&path).unwrap().with_probe(FakeProbe::busy(&[]));
+        assert_eq!(registry.allocate(PROJECT, &branch, &specs(&["web"])).unwrap()["web"], seed);
     }
 
     #[test]
