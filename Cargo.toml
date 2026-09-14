@@ -1,0 +1,32 @@
+[package]
+name = "canopy-worktree"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "Git worktree dev environments driven by canopy.yaml: create, provision and supervise a worktree without a daemon"
+repository = "https://github.com/igaurab/canopy-worktree"
+license = "MIT OR Apache-2.0"
+keywords = ["git", "worktree", "devenv", "cli"]
+categories = ["command-line-utilities", "development-tools"]
+exclude = ["/.github", "/tests"]
+
+[[bin]]
+name = "canopywt"
+path = "src/bin/canopywt.rs"
+
+[dependencies]
+camino = { version = "1.2", features = ["serde1"] }
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+assert_cmd = "2.2"
+insta = { version = "1.48", features = ["json", "redactions"] }
+predicates = "3.1"
+rstest = "0.27"
+tempfile = "3.27"
+
+[profile.release]
+strip = true
