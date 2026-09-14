@@ -13,13 +13,15 @@ import type { GitRunner } from '../../git/exec'
 import type { PortAllocator } from '../ports/allocator'
 import { resolveEnvironment, writeEnvFile, type ResolvedEnvironment } from '../config/resolve'
 import type { DbAdapter, DbContext, ProvisionContext, ProvisionStepImpl } from '../types'
+import { rulesFor, type Canopywt } from '../worktree/canopywt'
 import type { WorktreeBackend } from '../worktree/backend'
-import { SHARED_STORE_ENV, changedLockfiles, installCommand, linkCaches } from './caches'
-import { copyFiles } from './copy-files'
+import { SHARED_STORE_ENV, changedLockfiles, installCommand } from './caches'
 
 export interface StepDeps {
   git: GitRunner
   backend: WorktreeBackend
+  canopywt: Canopywt
+  /** Still allocates the ports the crate has no concept of — a database fork's container port. */
   ports: PortAllocator
   databases: { adapterFor(name: DbAdapterName): DbAdapter }
   /** Builds the adapter context for a worktree (the façade knows data dirs and port allocation). */
@@ -82,31 +84,45 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     }
   }
 
+  /**
+   * Copy rules and cache rules are one thing to the crate: both name gitignored paths to carry
+   * into a worktree, and `node_modules` is as gitignored as `.env` is. That is why this replaced
+   * two steps and two modules.
+   */
   const copy: ProvisionStepImpl = {
     name: 'copy-files',
-    applies: (ctx) =>
-      same(ctx.sourcePath, ctx.worktreePath) ? { run: false, reason: 'source is this worktree' } : ctx.settings.copyFiles.length === 0 ? { run: false, reason: 'no copy rules' } : { run: true },
+    applies: (ctx) => {
+      if (same(ctx.sourcePath, ctx.worktreePath)) return { run: false, reason: 'source is this worktree' }
+      return rulesFor(ctx.settings.copyFiles, ctx.settings.caches.rules).length === 0 ? { run: false, reason: 'no copy rules' } : { run: true }
+    },
     async run(ctx) {
-      const copied = await copyFiles({ git: deps.git, sourceRoot: ctx.sourcePath, targetRoot: ctx.worktreePath, rules: ctx.settings.copyFiles, logs: ctx.logs })
-      ctx.state.copiedFiles = copied
-      return { detail: copied.length > 0 ? copied.join(', ') : 'nothing to copy' }
-    }
-  }
+      const rules = rulesFor(ctx.settings.copyFiles, ctx.settings.caches.rules)
+      const branch = ctx.branch ?? ctx.worktreeName
+      const outcome = await deps.canopywt.copy({
+        repoPath: ctx.project.path,
+        branch,
+        source: ctx.sourcePath,
+        rules,
+        onLine: (_stream, text) => ctx.logs.out(text)
+      })
 
-  const caches: ProvisionStepImpl = {
-    name: 'link-caches',
-    applies: (ctx) =>
-      same(ctx.sourcePath, ctx.worktreePath) ? { run: false, reason: 'source is this worktree' } : ctx.settings.caches.rules.length === 0 ? { run: false, reason: 'no cache rules' } : { run: true },
-    async run(ctx) {
-      const results = await linkCaches({ sourceRoot: ctx.sourcePath, targetRoot: ctx.worktreePath, rules: ctx.settings.caches.rules, overrides: ctx.options.caches, logs: ctx.logs, signal: ctx.signal })
-      ctx.state.caches = results
+      // Only paths that actually moved are "copied"; a skipped one was already there.
+      const landed = outcome.entries.filter((entry) => entry.result !== 'skipped' && entry.result !== 'planned')
+      ctx.state.copiedFiles = landed.map((entry) => entry.path)
+      for (const failure of outcome.failures) ctx.logs.sys(`could not copy ${failure.path}: ${failure.message}`)
+
       if (ctx.settings.caches.reinstallOnLockChange) {
         ctx.state.reinstall = changedLockfiles(ctx.sourcePath, ctx.worktreePath, ctx.project.ecosystems)
         if (ctx.state.reinstall.length > 0) ctx.logs.sys(`lockfile differs for ${ctx.state.reinstall.join(', ')} — setup will reinstall`)
       }
-      const applied = results.filter((r) => r.result !== 'skipped' && r.result !== 'missing')
-      const summary = applied.map((r) => `${r.path} ${r.result}${r.result === 'cloned' ? ' (CoW)' : ''}`)
-      return { detail: summary.length > 0 ? summary.join(' · ') : results.length > 0 ? 'nothing to link' : 'no caches in source' }
+
+      const cloned = landed.filter((entry) => entry.result === 'cloned').length
+      const bytes = landed.reduce((total, entry) => total + entry.bytes, 0)
+      const detail =
+        landed.length === 0
+          ? 'nothing to copy'
+          : `${landed.length} path(s), ${Math.round(bytes / 1024)}KiB${cloned > 0 ? `, ${cloned} cloned (CoW)` : ''}${outcome.failures.length > 0 ? `, ${outcome.failures.length} failed` : ''}`
+      return { detail }
     }
   }
 
@@ -114,12 +130,17 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     name: 'allocate-ports',
     applies: (ctx) => (!ctx.config ? { run: false, reason: 'no canopy.yaml' } : Object.keys(ctx.config.ports).length === 0 ? { run: false, reason: 'no ports declared' } : { run: true }),
     async run(ctx) {
-      const config = ctx.config as NonNullable<ProvisionContext['config']>
-      const allocated: Record<string, number> = {}
-      for (const [name, spec] of Object.entries(config.ports)) {
-        allocated[name] = await deps.ports.allocate(ctx.worktreeId, name, { seedKey: `${ctx.project.id}/${ctx.branch ?? ctx.worktreeName}/${name}`, preferred: spec.preferred, range: spec.range })
-      }
+      // The crate owns the registry, in the repository's common git dir. Keeping a second
+      // allocator here would mean two tables that can disagree about who holds what.
+      const allocated = await deps.canopywt.ports({
+        repoPath: ctx.project.path,
+        branch: ctx.branch ?? ctx.worktreeName,
+        onLine: (_stream, text) => ctx.logs.out(text)
+      })
       ctx.state.ports = allocated
+      // Mirrored into the daemon's table so database allocation, which the crate knows nothing
+      // about, cannot hand out a number a service already has.
+      for (const [name, port] of Object.entries(allocated)) deps.ports.record(ctx.worktreeId, name, port)
       return { detail: Object.entries(allocated).map(([name, port]) => `${name}=${port}`).join(' ') }
     }
   }
@@ -234,7 +255,7 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     }
   }
 
-  return [createWorktree, copy, caches, ports, databases, env, setup, start]
+  return [createWorktree, copy, ports, databases, env, setup, start]
 }
 
 /** True when any of the globbed files differs between the two roots (content hash), or exists in one only. */

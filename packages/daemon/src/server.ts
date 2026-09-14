@@ -27,6 +27,7 @@ import { createHostRunner } from './env/services/runners/host'
 import { loadAppSettings } from './env/settings/app-settings'
 import type { DockerHelper } from './env/types'
 import { createWorktreeBackend, type WorktreeBackend } from './env/worktree/backend'
+import { createCanopywt, type Canopywt } from './env/worktree/canopywt'
 import { createDiffReader } from './git/diff'
 import { runGit, type GitRunner } from './git/exec'
 import { createRepo } from './git/repo'
@@ -57,6 +58,7 @@ export interface ServerDeps {
   /** Tests inject fakes; production talks to the real docker CLI and `wt`. */
   docker?: DockerHelper
   worktreeBackend?: WorktreeBackend
+  canopywt?: Canopywt
   /** Tests subscribe to the bus they hand in. */
   events?: EventBus
   logger?: boolean
@@ -80,6 +82,7 @@ export function buildServices(deps: ServerDeps): Services {
   const projects = new ProjectsService(deps.db, repo, deps.config.home)
   const events = deps.events ?? createEventBus()
   const worktreeBackend = deps.worktreeBackend ?? createWorktreeBackend(git)
+  const canopywt = deps.canopywt ?? createCanopywt()
   const worktrees = new WorktreesService({ db: deps.db, repo, projects, worktreeRoot: deps.config.worktreeRoot, backend: worktreeBackend, events })
   const agents = deps.agents ?? createAgentRegistry()
   const presence = new PresenceService({ db: deps.db, worktrees, events })
@@ -96,6 +99,7 @@ export function buildServices(deps: ServerDeps): Services {
     events,
     docker,
     backend: worktreeBackend,
+    canopywt,
     ports: new PortAllocator(deps.db, [appSettings.ports.from, appSettings.ports.to]),
     databases: createDbRegistry({ docker, dataRoot: deps.config.dataRoot }),
     runners: { host: createHostRunner(), docker: createDockerRunner(docker), compose: createComposeRunner(docker) },

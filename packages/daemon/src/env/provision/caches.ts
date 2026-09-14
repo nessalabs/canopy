@@ -88,61 +88,6 @@ export interface LinkCachesInput {
 }
 
 /** Applies every cache rule; never throws for one failing directory (records `failed`). */
-export async function linkCaches(input: LinkCachesInput): Promise<CacheResult[]> {
-  const results: CacheResult[] = []
-  const handled = new Set<string>()
-  for (const rule of input.rules) {
-    const strategy = input.overrides[rule.path] ?? rule.strategy
-    for (const path of expandDirGlob(input.sourceRoot, rule.path)) {
-      if (handled.has(path)) continue
-      handled.add(path)
-      const perPathStrategy = input.overrides[path] ?? strategy
-      const source = join(input.sourceRoot, path)
-      const target = join(input.targetRoot, path)
-      const started = Date.now()
-      if (input.signal?.aborted) break
-      if (perPathStrategy === 'fresh') {
-        results.push({ path, strategy: perPathStrategy, result: 'skipped', durationMs: 0, detail: 'fresh — setup installs it' })
-        continue
-      }
-      if (existsSync(target) || isSymlink(target)) {
-        results.push({ path, strategy: perPathStrategy, result: 'skipped', durationMs: 0, detail: 'already present' })
-        continue
-      }
-      try {
-        let result: CacheResult['result']
-        if (perPathStrategy === 'symlink') {
-          mkdirSync(dirname(target), { recursive: true })
-          symlinkSync(source, target, 'dir')
-          result = 'linked'
-        } else if (perPathStrategy === 'clone') {
-          result = await cloneDir(source, target)
-        } else {
-          mkdirSync(dirname(target), { recursive: true })
-          await execa('cp', ['-R', '-p', source, target])
-          result = 'copied'
-        }
-        const durationMs = Date.now() - started
-        input.logs.sys(`${path}: ${result} (${durationMs}ms)`)
-        results.push({ path, strategy: perPathStrategy, result, durationMs, detail: null })
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        input.logs.err(`${path}: ${message}`)
-        results.push({ path, strategy: perPathStrategy, result: 'failed', durationMs: Date.now() - started, detail: message })
-      }
-    }
-  }
-  return results
-}
-
-function isSymlink(path: string): boolean {
-  try {
-    return lstatSync(path).isSymbolicLink()
-  } catch {
-    return false
-  }
-}
-
 const fileHash = (path: string): string | null => {
   try {
     if (!statSync(path).isFile()) return null
@@ -152,7 +97,6 @@ const fileHash = (path: string): string | null => {
   }
 }
 
-/** Ecosystems whose lockfile content differs between the two checkouts (or exists only in one). */
 export function changedLockfiles(sourceRoot: string, targetRoot: string, ecosystems: Ecosystem[]): Ecosystem[] {
   const changed: Ecosystem[] = []
   for (const ecosystem of new Set(ecosystems)) {

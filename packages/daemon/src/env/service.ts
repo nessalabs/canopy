@@ -69,6 +69,7 @@ import { loadAppSettings, saveAppSettings } from './settings/app-settings'
 import { loadProjectSettings, saveProjectSettings } from './settings/project-settings'
 import { sinkFor } from './logs/store'
 import type { DbAdapter, DbContext, DockerHelper, EventBus, LogStore, ProvisionContext, ProvisionState, ServiceRunner } from './types'
+import type { Canopywt } from './worktree/canopywt'
 import type { WorktreeBackend } from './worktree/backend'
 
 export interface EnvironmentDeps {
@@ -81,6 +82,7 @@ export interface EnvironmentDeps {
   events: EventBus
   docker: DockerHelper
   backend: WorktreeBackend
+  canopywt: Canopywt
   ports: PortAllocator
   databases: { adapterFor(name: DbInstanceInfo['adapter']): DbAdapter; all(): DbAdapter[] }
   runners: Record<'host' | 'docker' | 'compose', ServiceRunner>
@@ -156,6 +158,7 @@ export class EnvironmentService {
     this.steps = createSteps({
       git: deps.git,
       backend: deps.backend,
+      canopywt: deps.canopywt,
       ports: deps.ports,
       databases: deps.databases,
       dbContext: (ctx, env) => this.dbContext(ctx.worktreeId, ctx.worktreeName, ctx.branch ?? null, ctx.worktreePath, ctx.project, env),

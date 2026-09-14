@@ -363,7 +363,12 @@ export const DbInstanceInfo = z.object({
 })
 export type DbInstanceInfo = z.infer<typeof DbInstanceInfo>
 
-export const PROVISION_STEPS = ['create-worktree', 'copy-files', 'link-caches', 'allocate-ports', 'fork-databases', 'write-env', 'run-setup', 'start-services'] as const
+/**
+ * The provisioning pipeline. `link-caches` is gone: copying gitignored files and linking
+ * dependency directories are the same operation — `node_modules` is as gitignored as `.env` —
+ * so `copy-files` does both, with copy-on-write where the filesystem supports it.
+ */
+export const PROVISION_STEPS = ['create-worktree', 'copy-files', 'allocate-ports', 'fork-databases', 'write-env', 'run-setup', 'start-services'] as const
 export const ProvisionStepName = z.enum(PROVISION_STEPS)
 export type ProvisionStepName = z.infer<typeof ProvisionStepName>
 
