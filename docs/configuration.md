@@ -75,11 +75,28 @@ steps:
 | `ports` | `${ports.web}` | the port allocated to this worktree |
 | `worktree` | `${worktree.path}`, `${worktree.name}` | this checkout |
 | `project` | `${project.name}` | the repository |
-| `env` | `${env.HOME}` | another variable |
+| `env` | `${env.BASE}` | another variable **declared in this file** |
 | `db` | `${db.main.url}` | a database fork — recognised, not yet resolved |
 
-Only lowercase `[a-z0-9_-]` segments count. `${CANOPY_HOME}` and `$(cat …)` are shell, left
-exactly as written — which is what you want, since `run:` goes to `/bin/sh -c`.
+Scopes and resource names are lowercase `[a-z0-9_-]`, the same rule ports and services follow —
+so `${ports.WEB}` names something that cannot exist and stays literal. The `env` scope is the
+exception: variable names are uppercase by convention, so `${env.DATABASE_URL}` is a reference.
+
+`${CANOPY_HOME}` and `$(cat …)` are shell, left exactly as written — which is what you want,
+since `run:` goes to `/bin/sh -c`.
+
+**`${env.X}` means a variable declared in this file**, not one from your shell:
+
+```yaml
+env:
+  BASE: /srv/app
+  DATA_DIR: ${env.BASE}/data      # → /srv/app/data
+  FROM_SHELL: ${env.HOME}         # HOME is not declared here, so this stays literal
+```
+
+A reference that cannot be resolved is left verbatim rather than blanked — it may be shell
+syntax, or a variable the surrounding environment will supply. Substitution is single-pass, so
+a value that *contains* `${…}` after substitution is not re-scanned.
 
 **`{{ variable | filter }}`** — used *only* in `worktree.path`, which is rendered before a
 worktree exists and so cannot reference anything inside one. See [worktree](#worktree).
@@ -249,9 +266,22 @@ copy:
 | `pattern` | — | glob relative to the repo root |
 | `strategy` | `copy` | `copy`, `clone` or `symlink` |
 
+`*` stops at `/`, as in a shell. A bare directory name carries everything under it. The first
+rule to claim a path wins, and a path is handled exactly once.
+
+A `.canopyinclude` file at the repo root (gitignore syntax) **narrows** the set: with one
+present, a path must be both gitignored *and* matched by it. `!` takes a path back out. No
+`.canopyinclude` means no narrowing.
+
+Nothing is ever overwritten — an existing file, directory or symlink at the target is left
+alone and reported as skipped. One unreadable source does not abort the rest; it is reported as
+a failure alongside the paths that landed.
+
 `clone` is a copy-on-write clone where the filesystem supports it — APFS, btrfs, XFS — and a
 plain copy where it does not. That is what makes carrying a multi-gigabyte `node_modules` or
-`target` a few seconds rather than a few minutes.
+`target` a few seconds rather than a few minutes. The result says which actually happened,
+`cloned` or `copied`, because a silent degradation turns a twenty-second provision into two
+minutes with no explanation.
 
 Only gitignored files are candidates; tracked files are never touched.
 

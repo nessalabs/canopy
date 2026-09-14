@@ -834,13 +834,26 @@ mod tests {
         assert!(!probe.is_free(held_on_v4), "a port held on IPv4 was reported free");
 
         if probe.has_ipv6() {
-            let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)).unwrap();
-            let held_on_v6 = v6.local_addr().unwrap().port();
-            // The half a single-stack probe misses, and the reason this test exists.
-            assert!(!probe.is_free(held_on_v6), "a port held only on IPv6 was reported free");
-            // On a host with no IPv6 the same port is free: `::1` is unbindable for every port
-            // there, and failing all of them would leave nothing to allocate.
-            assert!(HostProbe::with_ipv6(false).is_free(held_on_v6));
+            // The kernel assigns an IPv6 ephemeral port without regard to IPv4, so a port held
+            // on `::1` is not guaranteed free on `127.0.0.1`. Confirm it rather than assume it:
+            // under a parallel suite the same number is occasionally taken on the other stack,
+            // and asserting on that assumption is a flake that only shows up under load.
+            let held = (0..32).find_map(|_| {
+                let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, 0)).ok()?;
+                let port = v6.local_addr().ok()?.port();
+                TcpListener::bind((Ipv4Addr::LOCALHOST, port)).ok().map(|v4| {
+                    drop(v4);
+                    (v6, port)
+                })
+            });
+
+            if let Some((_v6, held_on_v6)) = held {
+                // The half a single-stack probe misses, and the reason this test exists.
+                assert!(!probe.is_free(held_on_v6), "a port held only on IPv6 was reported free");
+                // On a host with no IPv6 the same port is free: `::1` is unbindable for every
+                // port there, and failing all of them would leave nothing to allocate.
+                assert!(HostProbe::with_ipv6(false).is_free(held_on_v6), "IPv4 was busy for a port we confirmed free");
+            }
         }
 
         let spare = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap().local_addr().unwrap().port();

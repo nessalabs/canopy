@@ -59,6 +59,28 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+    /// Show the ports allocated to a branch, allocating them if needed.
+    Ports {
+        /// Defaults to the branch of the worktree you are in.
+        branch: Option<String>,
+        /// Show the whole registry instead of one branch.
+        #[arg(long, conflicts_with = "branch")]
+        all: bool,
+        /// Hand a branch's ports back to the pool.
+        #[arg(long, conflicts_with_all = ["all"])]
+        release: bool,
+    },
+    /// Show the resolved environment for a branch's worktree.
+    Env {
+        /// Defaults to the branch of the worktree you are in.
+        branch: Option<String>,
+        /// Print `export K='v'` lines for `eval`.
+        #[arg(long, conflicts_with = "write")]
+        export: bool,
+        /// Write the file named by `env_file:` into the worktree.
+        #[arg(long)]
+        write: bool,
+    },
     /// Remove a worktree, by branch name or path.
     Rm {
         target: String,
@@ -120,6 +142,8 @@ impl Command {
             Command::Config(ConfigCommand::Init) => "config init",
             Command::Path { .. } => "path",
             Command::New { .. } => "new",
+            Command::Ports { .. } => "ports",
+            Command::Env { .. } => "env",
             Command::Rm { .. } => "rm",
         }
     }
@@ -222,6 +246,67 @@ fn run(cli: &Cli) -> Result<u8> {
                 let verb = if outcome.created_branch { "created" } else { "checked out" };
                 println!("{verb} {}{from}", outcome.branch);
                 println!("{}", outcome.path);
+            }
+        }
+
+        Command::Ports { ref branch, all, release } => {
+            if all {
+                let path = canopy.ports_path();
+                let registry = canopy_worktree::ports::Registry::load(&path)?;
+                let rows: Vec<_> = registry.rows().to_vec();
+                if cli.json {
+                    emit("ports", &rows);
+                } else if rows.is_empty() {
+                    println!("no ports allocated");
+                } else {
+                    for row in &rows {
+                        println!("{:<24} {:<12} {}", row.branch, row.name, row.port);
+                    }
+                }
+            } else {
+                let branch = resolve_branch(&canopy, branch.as_deref())?;
+                if release {
+                    let removed = canopy.release_ports(&branch)?;
+                    if cli.json {
+                        emit("ports", &serde_json::json!({ "branch": branch, "released": removed }));
+                    } else {
+                        println!("released {removed} port(s) for {branch}");
+                    }
+                } else {
+                    let table = canopy.ports_for(&branch)?;
+                    if cli.json {
+                        emit("ports", &table);
+                    } else {
+                        for (name, port) in &table {
+                            println!("{name:<12} {port}");
+                        }
+                    }
+                }
+            }
+        }
+
+        Command::Env { ref branch, export, write } => {
+            let branch = resolve_branch(&canopy, branch.as_deref())?;
+            let worktree = worktree_path_for_branch(&canopy, &branch)?;
+            let table = canopy.env_for(&branch, &worktree)?;
+            if write {
+                let default_config = canopy_worktree::config::CanopyConfig::empty();
+                let config = canopy.config().and_then(|(_, p)| p.config.as_ref()).unwrap_or(&default_config);
+                let written = canopy_worktree::env::write_env_file(config, &worktree, &table)?;
+                match written {
+                    Some(path) if cli.json => emit("env", &serde_json::json!({ "written": path })),
+                    Some(path) => println!("wrote {path}"),
+                    // `env_file: false` is a choice, not a failure.
+                    None if cli.json => emit("env", &serde_json::json!({ "written": null })),
+                    None => println!("env_file is disabled; nothing written"),
+                }
+            } else if cli.json {
+                // Secrets are masked for display; the file and `--export` keep the real values.
+                emit("env", &table.masked());
+            } else if export {
+                print!("{}", table.to_export());
+            } else {
+                print!("{}", table.to_dotenv());
             }
         }
 
@@ -360,6 +445,29 @@ fn searched_description(canopy: &Canopy) -> String {
     format!(
         "looked in {root}, the main checkout, and your user config; `canopywt config init > canopy.yaml` writes a starter"
     )
+}
+
+/// The branch to act on: the one given, else the branch of the worktree we are standing in.
+fn resolve_branch(canopy: &Canopy, given: Option<&str>) -> Result<String> {
+    if let Some(branch) = given {
+        return Ok(branch.to_owned());
+    }
+    let root = canopy.repo().root.as_deref().ok_or_else(|| Error::WorktreeNotFound("(bare repository)".to_owned()))?;
+    canopy
+        .list()?
+        .into_iter()
+        .find(|entry| entry.path == root)
+        .and_then(|entry| entry.branch)
+        // A detached worktree has no branch to default to, so the user has to say.
+        .ok_or_else(|| Error::WorktreeNotFound("the current worktree has no branch; name one".to_owned()))
+}
+
+/// Where a branch's worktree is, preferring the one that exists over the templated guess.
+fn worktree_path_for_branch(canopy: &Canopy, branch: &str) -> Result<Utf8PathBuf> {
+    if let Some(entry) = canopy.list()?.into_iter().find(|entry| entry.branch.as_deref() == Some(branch)) {
+        return Ok(entry.path);
+    }
+    canopy.path_for(branch, None)
 }
 
 fn emit<T: serde::Serialize>(command: &str, data: &T) {

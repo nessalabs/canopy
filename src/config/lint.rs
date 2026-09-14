@@ -123,13 +123,19 @@ pub fn template_refs(text: &str) -> Vec<TemplateRef> {
 
 /// The inside of a `${…}`, if it is a reference at all.
 ///
-/// Only `[a-z0-9_-]` segments count. `${CANOPY_HOME}` and `${ports.WEB}` are shaped like
-/// references but are not ones — they are shell expansions or literal text, and reporting
-/// "unknown port WEB" for them would be worse than useless.
+/// Scopes and most names are lowercase `[a-z0-9_-]`, matching the rule for port, database and
+/// service names. `${CANOPY_HOME}` and `${ports.WEB}` are shaped like references but are not
+/// ones — they are shell expansions or literal text, and reporting "unknown port WEB" for them
+/// would be worse than useless.
+///
+/// `${env.PATH}` is the exception: environment variable names are uppercase by universal
+/// convention, so the `env` scope accepts them. Without this `${env.HOME}` — the obvious thing
+/// to write, and what the documentation shows — would silently stay literal text.
 fn parse_ref(inner: &str) -> Option<TemplateRef> {
     let mut parts = inner.split('.');
     let scope = parts.next().filter(|part| is_ref_segment(part))?;
-    let name = parts.next().filter(|part| is_ref_segment(part))?;
+    let name_rule = if scope == ENV_SCOPE { is_env_name } else { is_ref_segment };
+    let name = parts.next().filter(|part| name_rule(part))?;
     let field = match parts.next() {
         Some(field) => Some(field.to_owned()).filter(|part| is_ref_segment(part))?.into(),
         None => None,
@@ -141,8 +147,19 @@ fn parse_ref(inner: &str) -> Option<TemplateRef> {
     Some(TemplateRef { scope: scope.to_owned(), name: name.to_owned(), field })
 }
 
+/// The scope whose names follow the environment's conventions rather than ours.
+pub const ENV_SCOPE: &str = "env";
+
 fn is_ref_segment(part: &str) -> bool {
     !part.is_empty() && part.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-')
+}
+
+/// An environment variable name: the POSIX set, which is uppercase, digits and `_`, plus
+/// lowercase because plenty of real variables use it.
+fn is_env_name(part: &str) -> bool {
+    !part.is_empty()
+        && !part.as_bytes()[0].is_ascii_digit()
+        && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
 /// Named ports a service listens on.

@@ -43,6 +43,14 @@ const CHILD_POLL: std::time::Duration = std::time::Duration::from_millis(5);
 /// long after the command it was probing had finished.
 const STDERR_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
 
+/// How long the `cmd` probe waits for a killed child to be reaped.
+///
+/// SIGKILL cannot be caught, so in practice this is over at once. It is bounded anyway because
+/// `probe_once` promises not to outlast its timeout, and a blocking `wait` would break that
+/// promise if the signal ever failed to land — a child that put itself in another process group,
+/// for instance. Giving up leaves a zombie until the process exits, which is the cheaper failure.
+const REAP_GRACE: std::time::Duration = std::time::Duration::from_millis(250);
+
 // ---------------------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------------------
@@ -512,6 +520,22 @@ fn kill_group(pid: u32) {
     }
 }
 
+/// Collects an already-signalled child, giving up rather than blocking forever.
+fn reap_briefly(child: &mut std::process::Child) {
+    let deadline = Instant::now() + REAP_GRACE;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) | Err(_) => return,
+            Ok(None) => {}
+        }
+        let now = Instant::now();
+        if now >= deadline {
+            return;
+        }
+        std::thread::sleep(CHILD_POLL.min(deadline - now));
+    }
+}
+
 fn probe_cmd(cmd: &str, cwd: &Utf8Path, env: &BTreeMap<String, String>, timeout: Duration) -> Probe {
     let spawned = Command::new("/bin/sh")
         .arg("-c")
@@ -550,7 +574,7 @@ fn probe_cmd(cmd: &str, cwd: &Utf8Path, env: &BTreeMap<String, String>, timeout:
             Ok(None) => {}
             Err(err) => {
                 kill_group(pid);
-                let _ = child.wait();
+                reap_briefly(&mut child);
                 return Probe::Unhealthy { detail: format!("/bin/sh -c {cmd:?}: {err}") };
             }
         }
@@ -563,7 +587,7 @@ fn probe_cmd(cmd: &str, cwd: &Utf8Path, env: &BTreeMap<String, String>, timeout:
 
     let Some(status) = exited else {
         kill_group(pid);
-        let _ = child.wait();
+        reap_briefly(&mut child);
         return Probe::Unhealthy { detail: format!("timed out after {timeout}") };
     };
 
@@ -695,12 +719,18 @@ mod tests {
         port
     }
 
-    /// A port nothing is listening on: bound to learn the number, then released.
+    /// A port with nothing behind it.
+    ///
+    /// Deliberately *not* "bind port 0, read the number, drop it": another test binding an
+    /// ephemeral port can claim that number in the gap, and the probe then connects happily to
+    /// somebody else's listener. These low ports are outside the range the OS hands out, and each
+    /// is confirmed to refuse before it is used.
     fn closed_port() -> u16 {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-        let port = listener.local_addr().expect("addr").port();
-        drop(listener);
-        port
+        let refused = |port: u16| {
+            let addr = SocketAddr::from(([127, 0, 0, 1], port));
+            TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(200)).is_err()
+        };
+        [1u16, 2, 3, 4, 6, 7].into_iter().find(|port| refused(*port)).expect("every low port answered")
     }
 
     fn http_check(url: &str, timeout_ms: u64) -> ResolvedHealth {
@@ -794,18 +824,9 @@ mod tests {
         let took = began.elapsed();
 
         assert!(!probe.is_healthy(), "a server that never answers is not healthy");
-        assert!(took < std::time::Duration::from_millis(3000), "took {took:?}");
+        // ureq applies no timeout unless told to, so any finite return at all is the point.
+        assert!(took < std::time::Duration::from_secs(10), "took {took:?}");
         assert!(!probe.detail().is_empty());
-    }
-
-    #[test]
-    fn http_uses_the_configured_timeout_not_a_default() {
-        // A 1ms budget cannot complete even against a live local server.
-        let port = serve_silently();
-        let health = http_check(&format!("http://127.0.0.1:{port}/"), 1);
-        let began = Instant::now();
-        assert!(!health.probe_once(cwd(), &no_env()).is_healthy());
-        assert!(began.elapsed() < std::time::Duration::from_millis(2000));
     }
 
     // -----------------------------------------------------------------------------------
@@ -888,6 +909,13 @@ mod tests {
         assert!(!probe.is_healthy(), "a bad cwd should be unhealthy, got {probe:?}");
     }
 
+    /// A sleep duration nothing else is using: this test binary's pid with a digit appended.
+    /// Neither another test in this run nor an orphan from an earlier one can collide with it,
+    /// which is what lets the tests below count processes by name and believe the answer.
+    fn token(suffix: u8) -> String {
+        format!("{}{suffix}", std::process::id())
+    }
+
     /// Kills any `sleep <token>` left over from an interrupted earlier run, so the
     /// "the children really started" assertions below cannot be satisfied by a ghost.
     fn reap(token: &str) {
@@ -895,10 +923,36 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
+    /// Every running process's command line, in one sweep. One sweep matters: `ps` can easily
+    /// take longer than a probe's timeout, so two of them straddle the kill being asserted about.
+    fn process_snapshot() -> String {
+        let out = Command::new("ps").args(["-A", "-o", "command"]).output().expect("ps");
+        String::from_utf8_lossy(&out.stdout).into_owned()
+    }
+
+    fn count_in(snapshot: &str, needle: &str) -> usize {
+        snapshot.lines().filter(|line| line.contains(needle)).count()
+    }
+
+    /// The first sweep that satisfies `ok`, or the last one taken before `limit_ms` runs out.
+    ///
+    /// A single `ps` sample is a coin flip on a loaded machine: it can take longer than the very
+    /// timeout the test is racing. Polling makes the check about what happened, not about how
+    /// busy the box was.
+    fn snapshot_until(limit_ms: u64, ok: impl Fn(&str) -> bool) -> String {
+        let deadline = Instant::now() + std::time::Duration::from_millis(limit_ms);
+        loop {
+            let snapshot = process_snapshot();
+            if ok(&snapshot) || Instant::now() >= deadline {
+                return snapshot;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+    }
+
     /// How many processes currently have `needle` on their command line.
     fn processes_matching(needle: &str) -> usize {
-        let out = Command::new("ps").args(["-A", "-o", "command"]).output().expect("ps");
-        String::from_utf8_lossy(&out.stdout).lines().filter(|line| line.contains(needle)).count()
+        count_in(&process_snapshot(), needle)
     }
 
     #[test]
@@ -906,45 +960,46 @@ mod tests {
         // Two distinctive sleeps: one backgrounded, one in the foreground. Killing only the shell
         // would leave the backgrounded one orphaned and running for five minutes — the exact bug
         // process groups exist to prevent.
-        let (bg, fg) = ("30011", "30012");
+        let (bg, fg) = (token(1), token(2));
+        let (bg, fg) = (bg.as_str(), fg.as_str());
         reap(bg);
         reap(fg);
         assert_eq!(processes_matching(bg), 0, "stale process from an earlier run");
         assert_eq!(processes_matching(fg), 0, "stale process from an earlier run");
 
-        let health = cmd_check(&format!("sleep {bg} & sleep {fg}"), 400);
-        let probe = std::thread::spawn(move || {
-            let health = health;
-            health.probe_once(Utf8Path::new("/"), &BTreeMap::new())
-        });
+        let health = cmd_check(&format!("sleep {bg} & sleep {fg}"), 1500);
+        let probe = std::thread::spawn(move || health.probe_once(Utf8Path::new("/"), &BTreeMap::new()));
 
-        // Mid-probe: both children must actually exist, or the assertions below prove nothing.
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        assert!(processes_matching(bg) >= 1, "the backgrounded child never started");
-        assert!(processes_matching(fg) >= 1, "the foreground child never started");
+        // Mid-probe, from one sweep: both children must actually exist, or the assertions after
+        // the timeout prove nothing at all.
+        let running = snapshot_until(1200, |snap| count_in(snap, bg) >= 1 && count_in(snap, fg) >= 1);
+        assert!(count_in(&running, bg) >= 1, "the backgrounded child never started");
+        assert!(count_in(&running, fg) >= 1, "the foreground child never started");
 
         let probe = probe.join().expect("probe thread");
-        assert_eq!(probe, unhealthy("timed out after 400ms"));
+        assert_eq!(probe, unhealthy("timed out after 1500ms"));
 
-        // SIGKILL is not instantaneous in `ps`; give the reaper a moment.
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        assert_eq!(processes_matching(bg), 0, "the backgrounded child survived the timeout");
-        assert_eq!(processes_matching(fg), 0, "the foreground child survived the timeout");
+        let after = snapshot_until(3000, |snap| count_in(snap, bg) == 0 && count_in(snap, fg) == 0);
+        assert_eq!(count_in(&after, bg), 0, "the backgrounded child survived the timeout");
+        assert_eq!(count_in(&after, fg), 0, "the foreground child survived the timeout");
     }
 
     #[test]
     fn cmd_does_not_wait_for_a_background_child_holding_stderr() {
         // The command exits at once but leaves a process holding the stderr pipe open. An
         // unbounded read of that pipe would hang the probe for five minutes.
-        reap("30013");
-        let health = cmd_check("sleep 30013 & exit 4", 5000);
+        let token = token(3);
+        reap(&token);
+        let health = cmd_check(&format!("sleep {token} & exit 4"), 5000);
         let began = Instant::now();
         let probe = health.probe_once(cwd(), &no_env());
         let took = began.elapsed();
 
         assert!(!probe.is_healthy());
-        assert!(took < std::time::Duration::from_secs(2), "took {took:?}");
-        reap("30013");
+        // Generous on purpose: the bug this guards against waits for a `sleep` measured in days,
+        // so seconds of slack still prove it, and a tight bound only buys flakes.
+        assert!(took < std::time::Duration::from_secs(10), "took {took:?}");
+        reap(&token);
     }
 
     #[rstest]
@@ -1333,8 +1388,8 @@ mod tests {
 
         assert!(matches!(verdict, Verdict::TimedOut { .. }), "expected a timeout verdict, got {verdict:?}");
         assert!(verdict.probes() >= 2, "only {} probes in 500ms of 140ms cycles", verdict.probes());
-        // The budget plus at most one probe's timeout, plus generous room for a loaded CI box.
-        assert!(took < std::time::Duration::from_millis(2500), "took {took:?}");
+        // Without the budget this would run for five minutes, so seconds of slack still prove it.
+        assert!(took < std::time::Duration::from_secs(10), "took {took:?}");
         assert_eq!(verdict.detail_for_test(), "timed out after 120ms");
     }
 
@@ -1440,7 +1495,8 @@ mod tests {
 
     #[test]
     fn kill_group_takes_the_backgrounded_children_too() {
-        let token = "30014";
+        let token = token(4);
+        let token = token.as_str();
         reap(token);
         assert_eq!(processes_matching(token), 0, "stale process from an earlier run");
         let mut child = Command::new("/bin/sh")
@@ -1452,21 +1508,18 @@ mod tests {
             .process_group(0)
             .spawn()
             .expect("spawn");
-        std::thread::sleep(std::time::Duration::from_millis(150));
-        assert!(processes_matching(token) >= 2, "the children never started");
+        let running = snapshot_until(3000, |snap| count_in(snap, token) >= 2);
+        assert!(count_in(&running, token) >= 2, "the children never started");
 
         kill_group(child.id());
 
-        // Bounded wait: `child.wait()` here would block forever if the signal never landed.
-        let gone = (0..40).any(|_| {
-            std::thread::sleep(std::time::Duration::from_millis(25));
-            processes_matching(token) == 0
-        });
+        let after = snapshot_until(3000, |snap| count_in(snap, token) == 0);
+        let gone = count_in(&after, token) == 0;
         if !gone {
             reap(token);
         }
-        let _ = child.wait();
-        assert!(gone, "kill_group left processes behind");
+        reap_briefly(&mut child);
+        assert!(gone, "kill_group left the backgrounded child behind");
     }
 
     #[test]

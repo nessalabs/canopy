@@ -16,6 +16,7 @@
 
 pub mod config;
 pub mod copy;
+pub mod env;
 pub mod error;
 pub mod git;
 pub mod health;
@@ -29,6 +30,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::Serialize;
 
 pub use config::{CanopyConfig, ConfigSource, Diagnostic, LocatedConfig, Parsed, Severity, WorktreeSpec, parse_str};
+pub use env::{EnvSource, EnvTable, EnvVar, Facts};
 pub use error::{Error, ErrorCode, Result};
 pub use repo::{WorktreeEntry, parse_worktree_list};
 pub use wire::{ENVELOPE_VERSION, Envelope};
@@ -123,6 +125,66 @@ impl Canopy {
         options: &worktree::CreateOptions,
     ) -> Result<worktree::CreateOutcome> {
         self.repo.create_worktree(&self.worktree_template(), branch, options)
+    }
+
+    /// The port registry for this repository, kept in the common git dir so every worktree
+    /// sees one table.
+    pub fn ports_path(&self) -> Utf8PathBuf {
+        self.repo.common_dir.join("canopy").join("ports.json")
+    }
+
+    /// Allocate-if-absent for every port the config declares, and return the table. Idempotent:
+    /// the numbers do not move once a branch has them.
+    pub fn ports_for(&self, branch: &str) -> Result<std::collections::BTreeMap<String, u16>> {
+        let declared = self
+            .config()
+            .and_then(|(_, parsed)| parsed.config.as_ref())
+            .map(|config| config.ports.clone())
+            .unwrap_or_default();
+        if declared.is_empty() {
+            return Ok(std::collections::BTreeMap::new());
+        }
+        let path = self.ports_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut registry = ports::Registry::load(&path).map_err(Error::from)?;
+        let table = registry.allocate(&self.repo.name(), branch, &declared).map_err(Error::from)?;
+        registry.save().map_err(Error::from)?;
+        Ok(table)
+    }
+
+    /// Hands a branch's ports back to the pool. Returns how many rows went.
+    pub fn release_ports(&self, branch: &str) -> Result<usize> {
+        let path = self.ports_path();
+        if !path.exists() {
+            return Ok(0);
+        }
+        let mut registry = ports::Registry::load(&path).map_err(Error::from)?;
+        let removed = registry.release(branch);
+        if removed > 0 {
+            registry.save().map_err(Error::from)?;
+        }
+        Ok(removed)
+    }
+
+    /// The resolved environment for a branch's worktree.
+    pub fn env_for(&self, branch: &str, worktree: &Utf8Path) -> Result<env::EnvTable> {
+        let ports = self.ports_for(branch)?;
+        let default_config = config::CanopyConfig::empty();
+        let config = self.config().and_then(|(_, parsed)| parsed.config.as_ref()).unwrap_or(&default_config);
+        let name = worktree.file_name().unwrap_or(branch).to_owned();
+        let project = self.repo.name();
+        let project_path = self.repo.root.clone().unwrap_or_else(|| self.repo.common_dir.clone());
+        let facts = env::Facts {
+            worktree_name: &name,
+            worktree_path: worktree,
+            branch,
+            project: &project,
+            project_path: &project_path,
+            ports: &ports,
+        };
+        Ok(env::resolve(config, &facts, &std::collections::BTreeMap::new()))
     }
 
     /// Removes the worktree for a branch name or a path.

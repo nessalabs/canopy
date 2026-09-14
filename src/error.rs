@@ -121,6 +121,11 @@ pub enum Error {
 
     #[error("{0}")]
     Io(#[from] std::io::Error),
+
+    /// A module-local failure lifted to the crate's error type. The module keeps its own
+    /// precise enum; this carries the message and, crucially, the code it already chose.
+    #[error("{message}")]
+    Module { code: ErrorCode, message: String },
 }
 
 impl Error {
@@ -139,6 +144,7 @@ impl Error {
             Error::ConfigNotFound(_) => ErrorCode::ConfigNotFound,
             Error::ConfigInvalid(_) => ErrorCode::ConfigInvalid,
             Error::Io(_) => ErrorCode::Io,
+            Error::Module { code, .. } => *code,
         }
     }
 
@@ -157,5 +163,32 @@ impl Error {
             }
             _ => None,
         }
+    }
+}
+
+// Each module defines a precise error of its own and says which wire code it deserves; these
+// bridges preserve that choice rather than flattening everything to a generic failure.
+impl From<crate::ports::PortError> for Error {
+    fn from(error: crate::ports::PortError) -> Error {
+        Error::Module { code: error.code(), message: error.to_string() }
+    }
+}
+
+impl From<crate::copy::CopyError> for Error {
+    fn from(error: crate::copy::CopyError) -> Error {
+        let code = match error {
+            crate::copy::CopyError::Candidates { .. } => ErrorCode::GitFailed,
+            crate::copy::CopyError::BadPattern { .. } | crate::copy::CopyError::BadInclude { .. } => {
+                ErrorCode::ConfigInvalid
+            }
+            crate::copy::CopyError::NonUtf8Path(_) => ErrorCode::Io,
+        };
+        Error::Module { code, message: error.to_string() }
+    }
+}
+
+impl From<crate::env::EnvError> for Error {
+    fn from(error: crate::env::EnvError) -> Error {
+        Error::Module { code: ErrorCode::Io, message: error.to_string() }
     }
 }

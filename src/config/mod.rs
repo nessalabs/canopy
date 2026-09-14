@@ -69,6 +69,26 @@ pub struct CanopyConfig {
     pub copy: Vec<CopyRule>,
 }
 
+impl CanopyConfig {
+    /// A config with nothing declared. What a repository without a `canopy.yaml` behaves like,
+    /// so callers need not special-case its absence.
+    pub fn empty() -> CanopyConfig {
+        CanopyConfig {
+            version: 1,
+            name: None,
+            defaults: Defaults::default(),
+            env: Map::new(),
+            ports: Map::new(),
+            databases: Map::new(),
+            setup: Vec::new(),
+            services: Map::new(),
+            env_file: EnvFile::default(),
+            worktree: WorktreeSpec::default(),
+            copy: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Defaults {
     #[serde(default)]

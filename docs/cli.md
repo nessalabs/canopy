@@ -145,14 +145,61 @@ clobbers the file you were editing. The starter passes `config check` with no wa
 
 The only command that works outside a git repository.
 
+## `canopywt ports [<branch>]`
+
+The ports allocated to a branch, allocating them on first ask. Idempotent — the numbers do not
+move once a branch has them.
+
+```console
+$ canopywt ports
+api          14100
+web          11189
+```
+
+Allocation starts from a hash of the branch and walks on, skipping anything the registry holds
+and anything that fails a bind test on **both** `127.0.0.1` and `::1`. A port free on one stack
+and busy on the other is a failure that looks like a broken service.
+
+`ports.<name>.preferred` is honoured when it is free *and inside the range*; one outside is
+ignored rather than silently widening the range. `--all` prints the whole registry — that is
+what another program reads instead of keeping its own table. `--release` hands a branch's ports
+back to the pool.
+
+The registry lives in `.git/canopy/ports.json`, so every worktree of the repository sees one
+table.
+
+## `canopywt env [<branch>]`
+
+The resolved environment: Canopy's own facts, then `defaults.env`, then `env:`, last wins.
+
+```console
+$ canopywt env
+CANOPY_BRANCH=main
+CANOPY_PORT_API=14100
+CANOPY_PORT_WEB=11189
+CANOPY_PROJECT=demo
+CANOPY_WORKTREE=demo
+CANOPY_WORKTREE_PATH=/Users/me/code/demo
+PUBLIC_URL=http://127.0.0.1:11189
+```
+
+Output is sorted and deterministic: writing twice produces byte-identical files, so it never
+shows up as a spurious diff.
+
+- `--export` prints `export K='v'` lines for `eval "$(canopywt env --export)"`
+- `--write` writes the file named by `env_file:` into the worktree
+- `--json` **masks** values that look like secrets; the file and `--export` keep the real ones,
+  because masking is presentation, not storage
+
+Values are single-quoted when they need it. Double quotes would not do: `sh` still expands `$`,
+backticks and `\` inside them, so a password containing `$` would not survive a round trip
+through `. ./.env.canopy`.
+
 ## Planned
 
 | Command | Milestone |
 |---|---|
 | `config schema`, `config set` | M2b |
-| `path <branch>`, `ports [--all\|release\|reserve]` | M3 |
-| `new <branch>`, `rm <branch>` | M4 |
-| `env [--write\|--export]` | M5 |
 | `copy`, `setup` | M6–M7 |
 | `up`, `down`, `ps`, `logs`, `wait` | M8–M9 |
 | `run` | M10 |

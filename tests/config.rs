@@ -457,6 +457,34 @@ fn a_reference_name_may_contain_digits_underscores_and_dashes() {
 }
 
 #[test]
+fn an_env_reference_may_be_uppercase_because_variables_are() {
+    // `${env.HOME}` is the obvious thing to write and what the documentation shows. Applying
+    // the lowercase resource-name rule here would leave it as silent literal text.
+    let refs = config::template_refs("token at ${env.HOME}/.token and ${env.XDG_CONFIG_HOME}");
+    assert_eq!(refs.len(), 2);
+    assert_eq!((refs[0].scope.as_str(), refs[0].name.as_str()), ("env", "HOME"));
+    assert_eq!(refs[1].name, "XDG_CONFIG_HOME");
+    // Lowercase still works; some real variables use it.
+    assert_eq!(config::template_refs("${env.editor}")[0].name, "editor");
+}
+
+#[test]
+fn an_env_reference_still_has_to_look_like_a_variable_name() {
+    // A leading digit or a dash is not a shell variable, so it is not a reference either.
+    assert!(config::template_refs("${env.9lives}").is_empty());
+    assert!(config::template_refs("${env.my-var}").is_empty());
+    assert!(config::template_refs("${env.}").is_empty());
+}
+
+#[test]
+fn the_uppercase_exception_does_not_leak_to_other_scopes() {
+    // Port, database and service names follow the resource-name rule, so an uppercase one is
+    // literal text rather than a reference to something that cannot exist.
+    assert!(config::template_refs("${ports.WEB}").is_empty());
+    assert!(config::template_refs("${db.MAIN.url}").is_empty());
+}
+
+#[test]
 fn an_uppercase_reference_is_not_a_reference() {
     // `${ports.WEB}` is shaped like a reference but is not one, and the difference matters:
     // treating it as a reference would report "unknown port WEB" for what is plain text.
