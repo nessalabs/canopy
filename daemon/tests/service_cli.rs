@@ -28,9 +28,15 @@ fn run(fx: &Fixture, args: &[&str]) -> serde_json::Value {
 /// A sleep duration unique to this test process, so `ps` can find our children and nobody
 /// else's. A shell comment would be tidier but `sh` strips it before `ps` ever sees the
 /// command line, which is exactly the kind of marker that silently matches nothing.
+///
+/// The tag is hashed rather than summed: `outlives` and `run-fg` add up to the same bytes, and
+/// two tests sharing a duration count each other's sleepers — invisibly, until one of them
+/// fails before its `down` and leaks a process into the other's assertion.
 fn marker(tag: &str) -> String {
-    let salt: u32 = tag.bytes().map(u32::from).sum();
-    format!("{}", 200_000 + (std::process::id() % 10_000) * 20 + salt % 20)
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    tag.hash(&mut hasher);
+    format!("{}", 1_000_000 + u64::from(std::process::id() % 1_000) * 1_000 + hasher.finish() % 1_000)
 }
 
 /// The command that sleeps for that distinctive duration.
