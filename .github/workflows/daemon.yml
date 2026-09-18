@@ -1,13 +1,21 @@
-name: CI
+# The Rust half of the repository: the `canopy-worktree` crate in daemon/, which builds the
+# `canopywt` binary canopyd shells out to. Runs only when that directory changes.
+name: daemon
 
 on:
   push:
     branches: [main]
+    paths: [daemon/**, .github/workflows/daemon.yml]
   pull_request:
+    paths: [daemon/**, .github/workflows/daemon.yml]
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
+
+defaults:
+  run:
+    working-directory: daemon
 
 jobs:
   test:
@@ -22,6 +30,8 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: daemon
       # The suite shells out to git; make sure the runner's identity cannot leak into a
       # fixture the way a developer's global config could.
       - run: git --version

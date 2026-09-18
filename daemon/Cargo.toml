@@ -4,11 +4,11 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
 description = "Git worktree dev environments driven by canopy.yaml: create, provision and supervise a worktree without a daemon"
-repository = "https://github.com/igaurab/canopy-worktree"
+repository = "https://github.com/nessalabs/canopy"
 license = "MIT OR Apache-2.0"
 keywords = ["git", "worktree", "devenv", "cli"]
 categories = ["command-line-utilities", "development-tools"]
-exclude = ["/.github", "/tests"]
+exclude = ["/tests"]
 
 [[bin]]
 name = "canopywt"

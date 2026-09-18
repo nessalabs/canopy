@@ -1,7 +1,7 @@
 {
   "name": "canopy",
   "version": "0.1.0",
-  "description": "Canopy \u2014 a development-environment manager for git worktrees (canopyd daemon + desktop/web clients).",
+  "description": "Canopy \u2014 worktree development environments: the canopy-worktree engine (daemon/) plus canopyd and the desktop/web clients.",
   "author": "gp0065@uah.edu",
   "private": true,
   "type": "module",

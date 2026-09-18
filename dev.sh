@@ -4,7 +4,8 @@
 #   ./dev.sh            daemon + Electron desktop app (default)
 #   ./dev.sh web        daemon + web client on http://localhost:5173
 #   ./dev.sh daemon     daemon only (tsx watch)
-#   ./dev.sh setup      install deps, verify the electron binary, typecheck
+#   ./dev.sh setup      install deps, verify the electron binary, build canopywt, typecheck
+#   ./dev.sh canopywt   rebuild + reinstall the canopywt binary from daemon/
 #   ./dev.sh test       run every workspace's tests
 #   ./dev.sh doctor     print tool versions and daemon state
 #
@@ -34,11 +35,29 @@ ensure_electron_binary() {
   fi
 }
 
+# The worktree engine is the Rust crate in daemon/; canopyd shells out to its `canopywt` binary
+# and falls back to plain git without it. Built once here, rebuilt on demand with `canopywt`.
+install_canopywt() {
+  command -v cargo >/dev/null || die "cargo not found (need Rust >= 1.90 to build daemon/)"
+  log "cargo install --path daemon"
+  cargo install --path "$ROOT/daemon" --locked --force
+}
+
+ensure_canopywt() {
+  if command -v canopywt >/dev/null; then return 0; fi
+  if command -v cargo >/dev/null; then
+    install_canopywt
+  else
+    log "canopywt not on PATH and no cargo: worktrees use plain git until you build daemon/"
+  fi
+}
+
 setup() {
   check_node
   log "npm install (workspaces)"
   (cd "$ROOT" && npm install)
   ensure_electron_binary
+  ensure_canopywt
   log "typecheck"
   (cd "$ROOT" && npm run typecheck)
 }
@@ -65,6 +84,8 @@ doctor() {
   echo "node:      $(node --version 2>/dev/null || echo missing)"
   echo "npm:       $(npm --version 2>/dev/null || echo missing)"
   echo "git:       $(git --version 2>/dev/null || echo missing)"
+  echo "cargo:     $(cargo --version 2>/dev/null || echo missing)"
+  echo "canopywt:  $(canopywt --version 2>/dev/null || echo 'missing (./dev.sh canopywt)')"
   echo "claude:    $(command -v claude || echo missing)"
   echo "codex:     $(command -v codex || echo missing)"
   echo "deps:      $([ -d "$ROOT/node_modules" ] && echo installed || echo missing)"
@@ -77,6 +98,7 @@ doctor() {
 cmd="${1:-dev}"
 case "$cmd" in
   setup)  setup ;;
+  canopywt) install_canopywt ;;
   daemon) cd "$ROOT" && exec npm -w @canopy/daemon run dev ;;
   dev)    needs_setup && setup; start_daemon; cd "$ROOT" && npm -w @canopy/desktop run dev ;;
   web)    needs_setup && setup; start_daemon; cd "$ROOT" && npm -w @canopy/web run dev ;;

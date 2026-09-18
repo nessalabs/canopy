@@ -3,8 +3,12 @@
 Work on several branches at once, each with its own running environment — its own ports, its own
 dependencies, its own dev server — described by one file and managed without a daemon.
 
+This crate is the engine under [Canopy](../README.md): `canopyd` and the desktop and web
+apps in the rest of this repository drive it through the JSON interface below. It builds,
+installs and runs on its own.
+
 ```bash
-cargo install canopy-worktree   # installs the `canopywt` binary
+cargo install --path daemon --locked   # from the repository root; installs the `canopywt` binary
 ```
 
 macOS and Linux.
