@@ -1,0 +1,635 @@
+---
+source: tests/schema.rs
+expression: "config::json_schema()"
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "canopy.yaml",
+  "description": "A repository's whole development environment: the ports each worktree gets, the commands\nthat provision it, the long-running services, and where the worktree itself goes.",
+  "type": "object",
+  "properties": {
+    "copy": {
+      "description": "Gitignored files carried from the source checkout into a new worktree.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/CopyRule"
+      }
+    },
+    "databases": {
+      "description": "Database forks. Parsed but not yet acted on; `config check` warns.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/DatabaseSpec"
+      },
+      "default": {}
+    },
+    "defaults": {
+      "description": "Settings every service inherits unless it overrides them.",
+      "$ref": "#/$defs/Defaults",
+      "default": {
+        "env": {},
+        "runtime": "host"
+      }
+    },
+    "env": {
+      "description": "Project-wide env, layered under every service and setup step.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      },
+      "default": {}
+    },
+    "env_file": {
+      "description": "Dotenv written into each worktree with everything resolved; `false` disables it.",
+      "$ref": "#/$defs/EnvFile",
+      "default": ".env.canopy"
+    },
+    "name": {
+      "description": "The project name, used by `${project.name}`. Defaults to the repository directory name.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "ports": {
+      "description": "Named ports. Each worktree gets its own free number for each name.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/PortSpec"
+      },
+      "default": {}
+    },
+    "services": {
+      "description": "Long-running processes `canopywt up` starts and supervises.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/ServiceSpec"
+      },
+      "default": {}
+    },
+    "setup": {
+      "description": "Commands run once when a worktree is provisioned, in order.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/SetupStep"
+      }
+    },
+    "version": {
+      "description": "Only `1` exists. Present so a future format can be recognised rather than guessed at.",
+      "type": "integer",
+      "format": "uint32",
+      "const": 1,
+      "minimum": 0
+    },
+    "worktree": {
+      "description": "Where worktrees go and what they branch from.",
+      "$ref": "#/$defs/WorktreeSpec",
+      "default": {
+        "path": "{{ repo_path }}/../{{ repo }}.{{ branch | sanitize }}"
+      }
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "$defs": {
+    "ComposeSpec": {
+      "description": "`runtime: compose` settings.",
+      "type": "object",
+      "properties": {
+        "file": {
+          "type": "string",
+          "default": "docker-compose.yml"
+        },
+        "profiles": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "services": {
+          "description": "Subset of compose services to bring up; empty means all.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "CopyRule": {
+      "description": "One gitignored path, or glob of paths, carried into a new worktree.",
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "description": "Glob relative to the repo root (`.env`, `config/*.local.json`, `node_modules`).",
+          "type": "string"
+        },
+        "strategy": {
+          "$ref": "#/$defs/CopyStrategy",
+          "default": "copy"
+        }
+      },
+      "required": [
+        "pattern"
+      ]
+    },
+    "CopyStrategy": {
+      "description": "How a copied path is materialised. `clone` is a copy-on-write clone where the filesystem\nsupports it (APFS, btrfs, XFS) and a plain copy where it does not — which is what makes\ncarrying a multi-gigabyte `node_modules` or `target` affordable.",
+      "type": "string",
+      "enum": [
+        "copy",
+        "clone",
+        "symlink"
+      ]
+    },
+    "DatabaseSpec": {
+      "description": "A database fork. Recognised today, acted on in a later milestone.",
+      "type": "object",
+      "properties": {
+        "adapter": {
+          "$ref": "#/$defs/DbAdapter"
+        },
+        "env": {
+          "description": "Env var that receives the fork's URL; defaults to `<NAME>_URL`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Runtime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "seed": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DbSeed"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "description": "sqlite: the file copied for each fork.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "adapter"
+      ]
+    },
+    "DbAdapter": {
+      "description": "The database a fork is made from.",
+      "type": "string",
+      "enum": [
+        "postgres",
+        "mysql",
+        "sqlite",
+        "redis"
+      ]
+    },
+    "DbSeed": {
+      "description": "At most one of `dump`, `sql` or `command`; lint enforces it.",
+      "type": "object",
+      "properties": {
+        "command": {
+          "description": "Shell command run once against the fresh template (migrations, seeders).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dump": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sql": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "Defaults": {
+      "description": "What every service inherits before its own keys are applied.",
+      "type": "object",
+      "properties": {
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "runtime": {
+          "$ref": "#/$defs/Runtime",
+          "default": "host"
+        }
+      }
+    },
+    "DockerSpec": {
+      "description": "`runtime: docker` settings. Needs `image` or `dockerfile`; lint enforces it.",
+      "type": "object",
+      "properties": {
+        "args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "context": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "dockerfile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "image": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "user": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "volumes": {
+          "description": "Extra `-v` mounts, `host:container[:mode]`.",
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "workdir": {
+          "type": "string",
+          "default": "/workspace"
+        }
+      }
+    },
+    "Duration": {
+      "description": "A duration: digits followed by one of the units `ms`, `s` or `m` — `500ms`, `5s`, `2m`. A bare number is an error rather than a guess, and `h` is not a unit.",
+      "type": "string",
+      "pattern": "^\\d+(ms|s|m)$"
+    },
+    "EnvFile": {
+      "description": "The dotenv written into each worktree, with every reference already resolved.",
+      "oneOf": [
+        {
+          "description": "Path to write, relative to the worktree root. Defaults to `.env.canopy`.",
+          "type": "string"
+        },
+        {
+          "description": "`false` disables it — no dotenv is written.",
+          "type": "boolean",
+          "const": false
+        }
+      ]
+    },
+    "HealthCheck": {
+      "description": "Exactly one of `http`, `tcp` or `cmd` must be set; lint enforces it.",
+      "type": "object",
+      "properties": {
+        "cmd": {
+          "description": "Shell command run in the worktree with the service env; exit 0 is healthy.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "http": {
+          "description": "GET this URL; 2xx and 3xx are healthy. Templates allowed (`${ports.api}`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "interval": {
+          "$ref": "#/$defs/Duration",
+          "default": "3s"
+        },
+        "retries": {
+          "description": "Consecutive failures before the service counts as unhealthy.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 10,
+          "minimum": 0
+        },
+        "start_period": {
+          "description": "Grace period after start during which failures do not count.",
+          "$ref": "#/$defs/Duration",
+          "default": "0ms"
+        },
+        "tcp": {
+          "description": "Connect to this port on localhost. A bare number or `${ports.x}`.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TcpTarget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "timeout": {
+          "$ref": "#/$defs/Duration",
+          "default": "3s"
+        }
+      }
+    },
+    "PortSpec": {
+      "description": "A named port. Every key is optional: `web: {}` is a complete declaration.",
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preferred": {
+          "description": "Used when free; otherwise allocation walks on from a hash of the branch.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        "range": {
+          "description": "Restricts allocation to `[from, to]`.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "maxItems": 2,
+          "minItems": 2,
+          "prefixItems": [
+            {
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            },
+            {
+              "type": "integer",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0
+            }
+          ]
+        }
+      }
+    },
+    "RestartPolicy": {
+      "description": "What happens when a supervised service exits.",
+      "type": "string",
+      "enum": [
+        "never",
+        "on-failure",
+        "always"
+      ]
+    },
+    "Runtime": {
+      "description": "Where a service runs.",
+      "type": "string",
+      "enum": [
+        "host",
+        "docker",
+        "compose"
+      ]
+    },
+    "ServiceSpec": {
+      "description": "A long-running process. Needs either `run` or `compose`; lint enforces it.",
+      "type": "object",
+      "properties": {
+        "autostart": {
+          "description": "`false` registers the service without starting it with the worktree.",
+          "type": "boolean",
+          "default": true
+        },
+        "compose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComposeSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cwd": {
+          "description": "Relative to the worktree root.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "depends_on": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "docker": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DockerSpec"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {}
+        },
+        "health": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HealthCheck"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ports": {
+          "description": "Named ports this service listens on. Omitted means \"infer from the run command and env\",\nwhich is what [`service_ports`] does.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "restart": {
+          "$ref": "#/$defs/RestartPolicy",
+          "default": "on-failure"
+        },
+        "run": {
+          "description": "Shell command, run through `/bin/sh -c`. Required unless `compose:` is set.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Runtime"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stop_signal": {
+          "type": "string",
+          "default": "SIGTERM"
+        },
+        "stop_timeout": {
+          "$ref": "#/$defs/Duration",
+          "default": "10s"
+        }
+      }
+    },
+    "SetupStep": {
+      "description": "A command run once when a worktree is provisioned. `- npm ci` and the object form mean the same thing.",
+      "oneOf": [
+        {
+          "description": "The shell command to run, with every other key left at its default.",
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "cwd": {
+              "description": "Relative to the worktree root; created if absent.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "env": {
+              "description": "On top of the resolved environment.",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "default": {}
+            },
+            "if_changed": {
+              "description": "Skip when these files have the same content as in the source checkout.",
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "name": {
+              "description": "For logs and `--only`. Defaults to `step 1`, `step 2`, …",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "run": {
+              "description": "Shell command, run through `/bin/sh -c` in the worktree.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "run"
+          ]
+        }
+      ]
+    },
+    "TcpTarget": {
+      "description": "A port on localhost to connect to.",
+      "oneOf": [
+        {
+          "description": "A literal port number.",
+          "type": "integer",
+          "maximum": 65535,
+          "minimum": 0
+        },
+        {
+          "description": "A `${ports.x}` reference, resolved per worktree.",
+          "type": "string"
+        }
+      ]
+    },
+    "WorktreeSpec": {
+      "type": "object",
+      "properties": {
+        "base": {
+          "description": "What a new branch forks from when `--base` is not given. `None` means the repo's\ncurrent default branch, discovered at the time it is needed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Where a worktree goes. `{{ repo }}`, `{{ repo_path }}`, `{{ branch }}`, `{{ name }}`,\neach optionally `| sanitize`. A relative result resolves against the repo.",
+          "type": "string",
+          "default": "{{ repo_path }}/../{{ repo }}.{{ branch | sanitize }}"
+        }
+      }
+    }
+  }
+}
