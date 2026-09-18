@@ -43,6 +43,25 @@ export interface PreviousRecord {
   restarts: number
 }
 
+/**
+ * What the environment service needs from whatever supervises a worktree's services. Two
+ * implementations: `CanopydSupervisor` hands the work to `canopyd run`, and `WorktreeSupervisor`
+ * below does it in-process for what canopyd does not drive yet (docker and compose runtimes).
+ */
+export interface Supervisor {
+  /** Replaces the service set (after (re)provision). Excluded services appear with `excluded` and never start. */
+  configure(services: ResolvedService[], excluded: Set<string>): void
+  start(names?: string[]): Promise<void>
+  stop(names?: string[]): Promise<void>
+  restart(name: string): Promise<void>
+  snapshot(): ServiceInfo[]
+  handles(): Map<string, RunningHandle>
+  records(): PreviousRecord[]
+  reap(previous: PreviousRecord[]): Promise<void>
+  dispose(): Promise<void>
+  setUsage(usage: Map<string, { cpuPct: number; memMb: number }>): void
+}
+
 const CHANGE_DEBOUNCE_MS = 25
 /** How long a service with no health check must stay up before it counts as healthy. */
 const ALIVE_GRACE_MS = 750
@@ -82,7 +101,7 @@ function syntheticService(name: string, runtime: 'host' | 'docker' | 'compose', 
   return { name, spec, runtime, command: '', cwd, env: {}, ports: [], stopSignal: 'SIGTERM', stopTimeoutMs: 10_000 }
 }
 
-export class WorktreeSupervisor {
+export class WorktreeSupervisor implements Supervisor {
   private entries = new Map<string, Entry>()
   private readonly timers = new Set<NodeJS.Timeout>()
   private readonly waiters = new Set<(giveUp: boolean) => void>()
