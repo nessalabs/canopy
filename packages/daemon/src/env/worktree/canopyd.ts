@@ -199,6 +199,31 @@ export function supportsDatabases(version: string | null): boolean {
   return major > 0 || minor >= 3
 }
 
+/** `runtime: docker` and `compose:` services arrived in canopyd 0.4.0. */
+export function supportsContainers(version: string | null): boolean {
+  const match = /^(\d+)\.(\d+)\./.exec(version ?? '')
+  if (!match) return false
+  const [major, minor] = [Number(match[1]), Number(match[2])]
+  return major > 0 || minor >= 4
+}
+
+/**
+ * The name canopyd gives a docker service's container: `canopy-<id>-<service>`, where the id is
+ * eight hex characters of the FNV-1a hash of the worktree's path. Reproduced here because the
+ * name is how this daemon asks docker about a container it did not start — for CPU and memory.
+ * canopyd pins the algorithm with a test, since its own backstop `rm -f` depends on it too.
+ */
+export function canopydContainerName(worktreePath: string, service: string): string {
+  let hash = 0xcbf29ce484222325n
+  for (const byte of Buffer.from(worktreePath, 'utf8')) {
+    hash ^= BigInt(byte)
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  const id = hash.toString(16).padStart(16, '0').slice(0, 8)
+  const safe = service.replace(/[^a-zA-Z0-9_.-]/g, '-').replace(/^[^a-zA-Z0-9]+/, '')
+  return `canopy-${id}-${safe}`
+}
+
 /**
  * `--env` flags for `env`, and the environment that carries their values.
  *

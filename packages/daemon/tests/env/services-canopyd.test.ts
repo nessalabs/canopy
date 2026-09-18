@@ -3,7 +3,7 @@
  * the class is that the supervising is no longer ours, so a fake canopyd would test nothing: what
  * matters is that the binary's events and this daemon's `ServiceInfo` agree.
  */
-import { existsSync, readFileSync } from 'node:fs'
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ServiceInfo, ServiceSpec } from '@canopy/shared'
 
 import { CanopydSupervisor } from '../../src/env/services/canopyd-supervisor'
+import { canopydContainerName } from '../../src/env/worktree/canopyd'
 import { pidAlive } from '../../src/env/services/runners/host'
 import type { LogSink, ResolvedService } from '../../src/env/types'
 import { createFixtureRepo, type FixtureRepo } from '../helpers/fixture-repo'
@@ -253,6 +254,52 @@ describe.skipIf(!hasTool)('CanopydSupervisor', () => {
     expect(pidAlive(again)).toBe(true)
     await sup.dispose()
     expect(pidAlive(again)).toBe(false)
+  })
+
+  it('runs a docker service the same way, and points the sampler at its container', async () => {
+    // A stand-in for docker that records what it is asked and, for `run`, stays alive the way
+    // the attached CLI does. It is all canopyd needs, so this runs on a machine with no docker.
+    const calls = join(repo.path, '..', `docker-calls-${process.pid}-${Date.now()}.txt`)
+    const fake = `${calls}.sh`
+    writeFileSync(fake, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${calls}'\ncase "$1" in\n  version) echo 27.1.0 ;;\n  run) echo "in the container: $DATABASE_URL"; exec sleep 600 ;;\n  *) exit 0 ;;\nesac\n`)
+    chmodSync(fake, 0o755)
+    const before = process.env['CANOPYD_DOCKER']
+    process.env['CANOPYD_DOCKER'] = fake
+    try {
+      const yaml = 'services:\n  box:\n    runtime: docker\n    run: serve\n    docker:\n      image: node:22\n'
+      const sup = await supervise(yaml, { DATABASE_URL: 'postgres://canopy:hunter2@localhost/fork' })
+      sup.configure([{ ...resolved(repo, 'box', { run: 'serve', runtime: 'docker', docker: { image: 'node:22', volumes: [], args: [], workdir: '/workspace' } }), runtime: 'docker' }], new Set())
+
+      await sup.start()
+
+      const name = canopydContainerName(repo.path, 'box')
+      expect(info('box')).toMatchObject({ status: 'healthy', runtime: 'docker', containerId: name })
+      // CPU and memory come from the container, not from the docker CLI that is attached to it.
+      expect(sup.handles().get('box')).toMatchObject({ kind: 'docker', containerId: name })
+      expect(sup.records()[0]).toMatchObject({ name: 'box', runtime: 'docker', containerId: name })
+
+      const asked = readFileSync(calls, 'utf8').split('\n')
+      const run = asked.find((line) => line.startsWith('run ')) ?? ''
+      expect(run).toContain(`--name ${name} `)
+      expect(run).toContain(' -e DATABASE_URL ')
+      expect(asked.join('\n')).not.toContain('hunter2')
+      // The value arrived all the same, and the container's output is the service's log.
+      await waitFor(() => (serviceLogs.get('box')?.texts('out') ?? []).includes('in the container: postgres://canopy:hunter2@localhost/fork'))
+
+      await sup.stop()
+      expect(info('box')).toMatchObject({ status: 'stopped', containerId: undefined })
+      expect(readFileSync(calls, 'utf8').trimEnd().split('\n').pop()).toBe(`rm -f ${name}`)
+    } finally {
+      if (before === undefined) delete process.env['CANOPYD_DOCKER']
+      else process.env['CANOPYD_DOCKER'] = before
+    }
+  })
+
+  it('names a container exactly as canopyd does', () => {
+    // canopyd pins this same value in its own tests: the two have to agree or the sampler asks
+    // docker about a container that does not exist.
+    expect(canopydContainerName('/code/wt/feat-a', 'web')).toBe('canopy-e083c518-web')
+    expect(canopydContainerName('/code/wt/feat-a', 'my svc/2')).toBe('canopy-e083c518-my-svc-2')
   })
 
   it('reaps whatever an earlier run left behind', async () => {

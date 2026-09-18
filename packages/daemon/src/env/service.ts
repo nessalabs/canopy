@@ -71,7 +71,7 @@ import { loadAppSettings, saveAppSettings } from './settings/app-settings'
 import { loadProjectSettings, saveProjectSettings } from './settings/project-settings'
 import { sinkFor } from './logs/store'
 import type { DbAdapter, DbContext, DockerHelper, EventBus, LogStore, ProvisionContext, ProvisionState, ServiceRunner } from './types'
-import { supportsRunControl, type Canopyd } from './worktree/canopyd'
+import { supportsContainers, supportsRunControl, type Canopyd } from './worktree/canopyd'
 import type { WorktreeBackend } from './worktree/backend'
 
 export interface EnvironmentDeps {
@@ -692,8 +692,10 @@ export class EnvironmentService {
     const loaded = sees.loaded
     const row = this.deps.worktrees.row(rt.id)
     const services = rt.resolved?.services ?? []
-    const foreign = services.find((svc) => svc.runtime !== 'host' && !rt.resolved?.excluded.has(svc.name))
-    if (foreign) return { ok: false, reason: `${foreign.name} runs on ${foreign.runtime}` }
+    const contained = services.find((svc) => svc.runtime !== 'host' && !rt.resolved?.excluded.has(svc.name))
+    if (contained && !supportsContainers(await this.deps.canopyd.version())) {
+      return { ok: false, reason: `${contained.name} runs on ${contained.runtime}, which needs canopyd 0.4.0` }
+    }
     // canopyd resolves `${db.…}` only against forks it made itself.
     const foreignFork = rt.env.databases.find((db) => db.detail[MANAGED_BY] !== 'canopyd')
     if (foreignFork && JSON.stringify(loaded.config?.services ?? {}).includes('${db.')) {

@@ -27,6 +27,7 @@ import type { ServiceInfo, ServiceStatus } from '@canopy/shared'
 
 import type { LogSink, ResolvedService, RunContext, RunningHandle } from '../types'
 import { resolveHealth, type ResolvedHealth } from './health'
+import { canopydContainerName } from '../worktree/canopyd'
 import type { PreviousRecord, Supervisor } from './supervisor'
 
 export interface CanopydSupervisorDeps {
@@ -222,11 +223,18 @@ export class CanopydSupervisor implements Supervisor {
     return [...this.entries.values()].map((entry) => ({ ...entry.info }))
   }
 
-  /** What the resource sampler needs: canopyd makes every service the leader of its own process group. */
+  /**
+   * What the resource sampler needs. canopyd makes every service the leader of its own process
+   * group, which is what gets measured for a host service. For a docker service that group is
+   * only the attached `docker` CLI, so the sampler is pointed at the container instead.
+   */
   handles(): Map<string, RunningHandle> {
     const out = new Map<string, RunningHandle>()
     for (const entry of this.entries.values()) {
-      if (entry.info.pid !== undefined) out.set(entry.info.name, { kind: 'host', pid: entry.info.pid, exited: new Promise(() => undefined) })
+      if (entry.info.pid === undefined) continue
+      const exited = new Promise<never>(() => undefined)
+      if (entry.info.runtime === 'docker') out.set(entry.info.name, { kind: 'docker', containerId: entry.info.containerId, exited })
+      else out.set(entry.info.name, { kind: 'host', pid: entry.info.pid, exited })
     }
     return out
   }
@@ -234,7 +242,7 @@ export class CanopydSupervisor implements Supervisor {
   records(): PreviousRecord[] {
     return [...this.entries.values()]
       .filter((entry) => entry.info.pid !== undefined)
-      .map((entry) => ({ name: entry.info.name, runtime: 'host' as const, pid: entry.info.pid ?? null, pidStart: null, containerId: null, composeProject: null, restarts: entry.info.restarts }))
+      .map((entry) => ({ name: entry.info.name, runtime: entry.info.runtime, pid: entry.info.pid ?? null, pidStart: null, containerId: entry.info.containerId ?? null, composeProject: null, restarts: entry.info.restarts }))
   }
 
   /**
@@ -358,7 +366,8 @@ export class CanopydSupervisor implements Supervisor {
         entry.incarnation += 1
         // With no health check, canopyd only reports `started` once the process has outlived
         // its start grace — which is exactly what `healthy` means for such a service here.
-        this.patch(event.name, { status: entry.health.kind === 'none' ? 'healthy' : 'starting', pid: event.pid, startedAt: this.now(), exitCode: null, lastError: null })
+        const containerId = entry.info.runtime === 'docker' ? canopydContainerName(this.deps.ctx.worktreePath, event.name) : undefined
+        this.patch(event.name, { status: entry.health.kind === 'none' ? 'healthy' : 'starting', pid: event.pid, containerId, startedAt: this.now(), exitCode: null, lastError: null })
         this.follow(entry)
         sys(`${event.name} started (pid ${event.pid})`)
         // The service's own log gets the lifecycle too, so reading it says when each run began
@@ -377,7 +386,7 @@ export class CanopydSupervisor implements Supervisor {
         const status = event.status
         const code = status.exit === 'code' ? status.code : null
         const why = status.exit === 'code' ? `exited with code ${status.code}` : status.exit === 'signal' ? `killed by signal ${status.signal}` : 'exited'
-        this.patch(event.name, { status: 'exited', pid: undefined, exitCode: code, lastError: code === 0 ? null : why })
+        this.patch(event.name, { status: 'exited', pid: undefined, containerId: undefined, exitCode: code, lastError: code === 0 ? null : why })
         sys(`${event.name} ${why}`)
         this.deps.sinkFor(event.name).sys(why)
         return
@@ -393,7 +402,7 @@ export class CanopydSupervisor implements Supervisor {
         sys(`${event.name} gave up after ${event.restarts} restarts`)
         return
       case 'stopped': {
-        this.patch(event.name, { status: 'stopped', pid: undefined, startedAt: null })
+        this.patch(event.name, { status: 'stopped', pid: undefined, containerId: undefined, startedAt: null })
         const entry = this.entries.get(event.name)
         if (entry) this.endFollower(entry)
         sys(`${event.name} stopped`)
