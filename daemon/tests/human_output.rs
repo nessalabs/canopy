@@ -203,10 +203,22 @@ fn service_commands_print_a_table_and_say_when_there_is_nothing() {
     assert!(human(&empty, &["ps", "feat/y"]).contains("no services"));
 }
 
+/// A report with nothing wrong in the repository. `doctor` also warns when the disk has no
+/// copy-on-write clones (ext4 on the Linux CI runners, unlike APFS), which is a fact about the
+/// machine rather than debris, so a report made only of that warning still counts as clean.
+fn clean(report: &str) -> bool {
+    report.contains("no problems found")
+        || report
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .all(|line| line.contains("reflink_unsupported") || line.starts_with("nothing here needs a person"))
+}
+
 #[test]
 fn doctor_and_gc_report_in_words() {
     let fx = prepared();
-    assert!(human(&fx, &["doctor"]).contains("no problems"));
+    let clean_report = human(&fx, &["doctor"]);
+    assert!(clean(&clean_report), "{clean_report}");
 
     // Make debris: allocate ports, then remove the worktree behind our back.
     human(&fx, &["new", "feat/x"]);
@@ -221,7 +233,8 @@ fn doctor_and_gc_report_in_words() {
 
     let swept = human(&fx, &["gc"]);
     assert!(swept.contains("released 1 port"), "{swept}");
-    assert!(human(&fx, &["doctor"]).contains("no problems"));
+    let after = human(&fx, &["doctor"]);
+    assert!(clean(&after), "{after}");
 }
 
 #[test]
