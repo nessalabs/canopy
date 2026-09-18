@@ -191,12 +191,12 @@ export function supportsRunControl(version: string | null): boolean {
   return major > 0 || minor >= 2
 }
 
-/** `canopyd db` — forks, and `${db.…}` resolved natively — arrived in 0.3.0. */
-export function supportsDatabases(version: string | null): boolean {
+/** Whether `version` is `major.minor` or newer. A version that will not parse is not. */
+export function atLeast(version: string | null, major: number, minor: number): boolean {
   const match = /^(\d+)\.(\d+)\./.exec(version ?? '')
   if (!match) return false
-  const [major, minor] = [Number(match[1]), Number(match[2])]
-  return major > 0 || minor >= 3
+  const [have, haveMinor] = [Number(match[1]), Number(match[2])]
+  return have > major || (have === major && haveMinor >= minor)
 }
 
 /** `runtime: docker` and `compose:` services arrived in canopyd 0.4.0. */

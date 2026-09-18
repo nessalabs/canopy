@@ -1,27 +1,32 @@
 /**
- * SQLite forks through `canopyd db`, with the in-process adapter behind it.
+ * Database forks through `canopyd db`, with the in-process adapter behind it.
  *
- * canopyd makes the fork when it can: it keeps the file with the worktree's other state, records
- * it, and — the part that matters — then resolves `${db.main.url}` itself, so a worktree whose
- * services refer to a fork can be supervised by `canopyd run`. It cannot when the worktree is on a
- * detached HEAD (canopyd addresses worktrees by branch), when the binary is missing or older
- * than 0.3.0, when the project has the tool turned off, or when the `canopy.yaml` this daemon
+ * canopyd makes the fork when it can: it records it with the worktree's other state and — the
+ * part that matters — then resolves `${db.main.url}` itself, so a worktree whose services refer
+ * to a fork can be supervised by `canopyd run`. It cannot when the worktree is on a detached
+ * HEAD (canopyd addresses worktrees by branch), when the binary is missing or too old for this
+ * engine, when the project has the tool turned off, or when the `canopy.yaml` this daemon
  * resolved is one canopyd does not see (the project-home copy) and so it has never heard of the
- * database. Every one of those falls back to the file copy this daemon has always done.
+ * database. Every one of those falls back to what this daemon has always done.
  *
- * `destroy` and `status` ask both, because a worktree may hold a fork from before canopyd made
- * them: removing a fork must remove it wherever it is.
+ * The two agree on names — the Postgres server, its port, its templates — so which of them made
+ * a template does not matter to the other. `destroy` and `status` ask both, because a worktree
+ * may hold a fork from before canopyd made them: removing a fork must remove it wherever it is.
  */
 import type { DatabaseSpec, DbSource } from '@canopy/shared'
 
-import { supportsDatabases, type Canopyd, type CanopydFork } from '../worktree/canopyd'
+import { atLeast, type Canopyd, type CanopydFork } from '../worktree/canopyd'
 import type { DbAdapter, DbContext, DbFork } from '../types'
 
 /** Marks a fork canopyd made, so the supervisor choice can tell `${db.…}` will resolve there. */
 export const MANAGED_BY = 'managed_by'
 
-export interface SqliteViaCanopydDeps {
+/** The canopyd release that first drove each engine. */
+const SINCE: Partial<Record<DbAdapter['adapter'], [number, number]>> = { sqlite: [0, 3], postgres: [0, 5] }
+
+export interface ViaCanopydDeps {
   canopyd: Canopyd
+  /** The in-process adapter for the same engine: the fallback, and the engine's name. */
   native: DbAdapter
   /** The project's "use canopyd" setting. */
   enabled: (projectId: string) => boolean
@@ -35,10 +40,12 @@ const notCanopyds = (error: unknown): boolean => {
   return code === 'config_invalid' || code === 'config_not_found' || code === 'worktree_not_found' || code === 'not_a_repository'
 }
 
-export function createSqliteViaCanopyd(deps: SqliteViaCanopydDeps): DbAdapter {
+export function createViaCanopyd(deps: ViaCanopydDeps): DbAdapter {
+  const engine = deps.native.adapter
+  const since = SINCE[engine]
   const usable = async (ctx: DbContext): Promise<string | null> => {
-    if (!ctx.worktreeBranch || !deps.enabled(ctx.projectId)) return null
-    return supportsDatabases(await deps.canopyd.version()) ? ctx.worktreeBranch : null
+    if (!since || !ctx.worktreeBranch || !deps.enabled(ctx.projectId)) return null
+    return atLeast(await deps.canopyd.version(), since[0], since[1]) ? ctx.worktreeBranch : null
   }
 
   const from = (source: DbSource, sourceCtx?: DbContext): string | null => {
@@ -55,9 +62,18 @@ export function createSqliteViaCanopyd(deps: SqliteViaCanopydDeps): DbAdapter {
   })
 
   return {
-    adapter: 'sqlite',
+    adapter: engine,
     available: () => deps.native.available(),
-    ensureSource: (name, spec, ctx, opts) => deps.native.ensureSource(name, spec, ctx, opts),
+
+    /**
+     * canopyd builds a missing template as part of the fork, so there is nothing to do ahead of
+     * it. A *rebuild* is asked for at project level, where there is no worktree for canopyd to
+     * address; the in-process adapter does it, against the template both of them use.
+     */
+    async ensureSource(name, spec, ctx, opts) {
+      if (!opts.refresh && (await usable(ctx))) return
+      await deps.native.ensureSource(name, spec, ctx, opts)
+    },
 
     async fork(name, spec: DatabaseSpec, ctx: DbContext, source: DbSource, sourceCtx?: DbContext): Promise<DbFork> {
       const branch = await usable(ctx)
@@ -69,11 +85,11 @@ export function createSqliteViaCanopyd(deps: SqliteViaCanopydDeps): DbAdapter {
           const fork = await deps.canopyd.dbReset({ cwd: ctx.worktreePath, branch, name, from: origin })
           // One fork, in one place: whatever the in-process adapter held before is stale now.
           await deps.native.destroy(name, spec, ctx).catch(() => undefined)
-          ctx.logs.sys(`sqlite ${name}: forked by canopyd from ${fork.forked_from}${fork.source ? ` (${fork.source})` : ''}`)
+          ctx.logs.sys(`${engine} ${name}: forked by canopyd from ${fork.forked_from}${fork.source ? ` (${fork.source})` : ''}`)
           return toFork(fork)
         } catch (error) {
           if (!notCanopyds(error)) throw error
-          ctx.logs.sys(`sqlite ${name}: canopyd does not see this database — forking it here`)
+          ctx.logs.sys(`${engine} ${name}: canopyd does not see this database — forking it here`)
         }
       }
       return deps.native.fork(name, spec, ctx, source, sourceCtx)

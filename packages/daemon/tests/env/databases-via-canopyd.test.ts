@@ -1,5 +1,5 @@
 /**
- * The adapter that sends SQLite forks to canopyd, against a fake canopyd: what is under test is
+ * The adapter that sends database forks to canopyd, against a fake canopyd: what is under test is
  * when it delegates, when it falls back to the in-process copy, and that a fork is removed
  * wherever it lives.
  */
@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DbSource } from '@canopy/shared'
 
-import { createSqliteViaCanopyd, MANAGED_BY } from '../../src/env/databases/sqlite-canopyd'
+import { createViaCanopyd, MANAGED_BY } from '../../src/env/databases/via-canopyd'
 import type { DbAdapter, DbContext, LogSink } from '../../src/env/types'
 import type { Canopyd, CanopydFork } from '../../src/env/worktree/canopyd'
 import { conflict } from '../../src/lib/errors'
@@ -31,7 +31,7 @@ const ctx = (overrides: Partial<DbContext> = {}): DbContext => ({
 
 const FORK: CanopydFork = { name: 'main', adapter: 'sqlite', status: 'ready', url: 'file:/state/db/main.db', env_key: 'MAIN_URL', forked_from: 'seed template', source: '/repo/data/seed.db', detail: { file: '/state/db/main.db' }, size_bytes: 1_572_864 }
 
-function harness(opts: { version?: string | null; reset?: () => Promise<CanopydFork>; enabled?: boolean } = {}) {
+function harness(opts: { version?: string | null; reset?: () => Promise<CanopydFork>; enabled?: boolean; engine?: 'sqlite' | 'postgres' | 'redis' } = {}) {
   const calls: string[] = []
   const canopyd = {
     version: async () => (opts.version === undefined ? '0.3.0' : opts.version),
@@ -48,7 +48,9 @@ function harness(opts: { version?: string | null; reset?: () => Promise<CanopydF
   const native: DbAdapter = {
     adapter: 'sqlite',
     available: async () => ({ ok: true }),
-    ensureSource: async () => undefined,
+    ensureSource: async (name, _spec, _ctx, opts) => {
+      calls.push(`native ensureSource ${name} refresh=${opts.refresh}`)
+    },
     fork: async (name) => {
       calls.push(`native fork ${name}`)
       return { url: 'file:/data/wt-1/db/main.db', sourceDatabase: null, detail: { file: '/data/wt-1/db/main.db' }, sizeMb: 0 }
@@ -58,7 +60,7 @@ function harness(opts: { version?: string | null; reset?: () => Promise<CanopydF
     },
     status: async () => ({ ready: false, sizeMb: null })
   }
-  const adapter = createSqliteViaCanopyd({ canopyd, native, enabled: () => opts.enabled ?? true })
+  const adapter = createViaCanopyd({ canopyd, native: { ...native, adapter: opts.engine ?? 'sqlite' }, enabled: () => opts.enabled ?? true })
   return { adapter, calls }
 }
 
@@ -73,7 +75,7 @@ interface Case {
   sourceCtx?: DbContext
 }
 
-describe('sqlite forks through canopyd', () => {
+describe('database forks through canopyd', () => {
   it('has canopyd make a fresh fork, marks it, and clears whatever was held in-process', async () => {
     const { adapter, calls } = harness()
     const fork = await adapter.fork('main', SPEC, ctx(), 'template')
@@ -110,6 +112,34 @@ describe('sqlite forks through canopyd', () => {
     const failed = harness({ reset: async () => Promise.reject(conflict('db_failed', 'database main: main has no fork of it to copy')) })
     await expect(failed.adapter.fork('main', SPEC, ctx(), 'template')).rejects.toThrow('has no fork of it')
     expect(failed.calls).toEqual(['canopyd reset main feat/x --from template'])
+  })
+
+  it('knows which canopyd first drove each engine', async () => {
+    // Postgres arrived two releases after SQLite, and Redis has not arrived at all.
+    const fork = async (engine: 'sqlite' | 'postgres' | 'redis', version: string): Promise<string[]> => {
+      const { adapter, calls } = harness({ engine, version })
+      await adapter.fork('main', { ...SPEC, adapter: engine }, ctx(), 'template')
+      return calls.map((call) => call.split(' ')[0] as string)
+    }
+    expect(await fork('postgres', '0.4.9')).toEqual(['native'])
+    expect(await fork('postgres', '0.5.0')).toEqual(['canopyd', 'native'])
+    expect(await fork('postgres', '1.0.0')).toEqual(['canopyd', 'native'])
+    expect(await fork('redis', '9.9.9')).toEqual(['native'])
+  })
+
+  it('leaves a missing template for canopyd to build, and rebuilds one in-process', async () => {
+    // A plain provision: canopyd builds the template as part of the fork, so nothing runs here.
+    const provision = harness()
+    await provision.adapter.ensureSource('main', SPEC, ctx(), { refresh: false })
+    expect(provision.calls).toEqual([])
+    // Without canopyd it is the in-process adapter's job, as it always was.
+    const without = harness({ version: null })
+    await without.adapter.ensureSource('main', SPEC, ctx(), { refresh: false })
+    expect(without.calls).toEqual(['native ensureSource main refresh=false'])
+    // A rebuild is asked for at project level, where there is no worktree to address.
+    const refresh = harness()
+    await refresh.adapter.ensureSource('main', SPEC, ctx({ worktreeBranch: null }), { refresh: true })
+    expect(refresh.calls).toEqual(['native ensureSource main refresh=true'])
   })
 
   it('removes a fork wherever it lives', async () => {

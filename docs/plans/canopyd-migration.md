@@ -23,13 +23,13 @@ result.
 | **Writing `.env.canopy`** | `EnvironmentService.writeEnv` | `env --write --env KEY` | **done in this branch** (the daemon still resolves, for the Variables panel) |
 | Env resolution for display | `env/config/resolve.ts` | `env --json --reveal` | later: needs `${db.…}` and the settings layers in canopyd |
 | **Docker and Compose services** | `CanopydSupervisor`, same as host | attached `docker run --rm --init` / `compose up` | **done in this branch** (canopyd 0.4.0) |
-| **SQLite forks** | `databases/sqlite-canopyd.ts` delegates, file copy as fallback | `db fork\|ls\|reset\|drop`, `${db.…}` | **done in this branch** (canopyd 0.3.0) |
-| Postgres, MySQL, Redis forks | `env/databases/{postgres,mysql,redis}.ts` | parse and warn; `db fork` refuses them | needs crate work (a Docker helper first) |
+| **SQLite and Postgres forks** | `databases/via-canopyd.ts` delegates, in-process adapter as fallback | `db fork\|ls\|reset\|drop\|template`, `${db.…}` | **done in this branch** (canopyd 0.3.0 and 0.5.0) |
+| MySQL, Redis forks | `env/databases/{mysql,redis}.ts` | parse and warn; `db fork` refuses them | needs crate work |
 | Resource sampling (CPU, memory) | `env/resources/sampler.ts` | nothing | needs crate work |
 | `canopy.yaml` lint and scaffold | `@canopy/shared` zod + `env/config/scaffold.ts` | `config check`, `config init` | later |
 | Plain-git fallback | `backend.ts` | — | removed last, once nothing needs it |
 
-## What landed in canopyd for this (0.2.0, 0.3.0, 0.4.0)
+## What landed in canopyd for this (0.2.0 to 0.5.0)
 
 - `--env KEY=VALUE` on `env`, `up`, `down`, `ps`, `run` (it was only on `setup`), through the
   resolver's own override layer. `--env KEY` with no value takes it from canopyd's environment,
@@ -50,6 +50,10 @@ result.
   ordinary supervised process: same logs, health, restart policy and `down`, with `-e KEY` for
   values, `--init` for a prompt stop, and a `docker rm -f` / `compose stop` backstop. Checked
   against a real Docker daemon: `down` in half a second, nothing left behind.
+- 0.5.0: Postgres forks through the docker CLI alone: one `canopy-pg-<version>` server, a
+  template per project, `CREATE DATABASE … TEMPLATE` per worktree, dump / SQL / command seeds,
+  `db template` to rebuild. Same server, port, credentials and template names as this daemon,
+  so the two interoperate. Checked against a real `postgres:16`.
 
 ## How the daemon decides
 
@@ -62,7 +66,7 @@ worktree's `supervisor` stream when it has to fall back. canopyd runs a worktree
   under `~/.canopy/<project>/`)
 - any docker or compose service needs canopyd ≥ 0.4.0
 - if a service refers to `${db.…}`, every fork was made by canopyd (`detail.managed_by`), since
-  it resolves the reference only against its own forks. Today that means SQLite. Worktree-level
+  it resolves the reference only against its own forks: SQLite and Postgres today. Worktree-level
   values reach it either way, as overrides.
 
 Otherwise `WorktreeSupervisor` runs it in-process exactly as before. Both implement `Supervisor`.
@@ -82,8 +86,8 @@ Otherwise `WorktreeSupervisor` runs it in-process exactly as before. Both implem
 
 ## Next, in order
 
-1. **Postgres, Redis and MySQL forks in the crate**, on the `container` module's docker calls.
-   SQLite is done; with the rest, the `${db.…}` clause of the eligibility check goes.
+1. **Redis and MySQL forks in the crate**, on the `container` module's docker calls. SQLite and
+   Postgres are done; with the rest, the `${db.…}` clause of the eligibility check goes.
 2. **Drop `WorktreeSupervisor` and `runners/`** once the fallback in step 5 goes: they are now
    only reached when canopyd cannot be used at all.
 3. **Resource sampling** as `canopyd ps --json` fields or a `stats` command.

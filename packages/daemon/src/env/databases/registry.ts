@@ -13,7 +13,7 @@ import { createMysqlAdapter } from './mysql'
 import { createPostgresAdapter } from './postgres'
 import { createRedisAdapter } from './redis'
 import { createSqliteAdapter } from './sqlite'
-import { createSqliteViaCanopyd } from './sqlite-canopyd'
+import { createViaCanopyd } from './via-canopyd'
 
 export interface DbRegistry {
   adapterFor(name: DbAdapterName): DbAdapter
@@ -30,10 +30,13 @@ export interface DbRegistryDeps {
 }
 
 export function createDbRegistry(deps: DbRegistryDeps): DbRegistry {
-  const sqlite = createSqliteAdapter()
+  const { canopyd } = deps
+  const enabled = deps.canopydEnabled ?? (() => true)
+  // The engines canopyd drives are made by it wherever it can see the worktree; see via-canopyd.
+  const via = (native: DbAdapter): DbAdapter => (canopyd ? createViaCanopyd({ canopyd, native, enabled }) : native)
   const adapters: Record<DbAdapterName, DbAdapter> = {
-    sqlite: deps.canopyd ? createSqliteViaCanopyd({ canopyd: deps.canopyd, native: sqlite, enabled: deps.canopydEnabled ?? (() => true) }) : sqlite,
-    postgres: createPostgresAdapter(deps.docker),
+    sqlite: via(createSqliteAdapter()),
+    postgres: via(createPostgresAdapter(deps.docker)),
     redis: createRedisAdapter(deps.docker),
     mysql: createMysqlAdapter(deps.docker, deps.dataRoot)
   }
