@@ -1,7 +1,10 @@
 # Canopy
 
-A development-environment manager for git worktrees: a `canopyd` daemon owns the state, and
-thin clients (Electron desktop app, web dashboard) talk to it over REST + SSE.
+A development-environment manager for git worktrees: a daemon (`@canopy/daemon`, the Node
+service this README calls canopyd) owns the state, thin clients (Electron desktop app, web
+dashboard) talk to it over REST + SSE, and the worktrees themselves are made by the `canopyd`
+binary from [nessalabs/canopyd](https://github.com/nessalabs/canopyd), the Rust worktree manager
+that shares the name.
 
 ## Layout
 
@@ -17,10 +20,11 @@ apps/web          Vite shell; `npm run build:web` output is served by canopyd at
 ## Run
 
 ```bash
-./dev.sh setup      # npm install (workspaces), electron binary, typecheck
+./dev.sh setup      # npm install (workspaces), electron binary, canopyd binary (cargo install), typecheck
 ./dev.sh            # daemon + Electron
 ./dev.sh web        # daemon + web client on http://localhost:5173 (paste URL + token)
 ./dev.sh daemon     # daemon only — prints nothing secret; token is in ~/.canopy/token
+./dev.sh install-canopyd   # (re)install the canopyd binary from github.com/nessalabs/canopyd
 ./dev.sh test       # vitest across workspaces
 ```
 
@@ -30,11 +34,16 @@ Any repo with a `canopy.yaml` runs each worktree in isolation: own ports, own da
 (Postgres · MySQL · SQLite · Redis), own processes or containers (host · Docker · Compose), and a
 generated `.env.canopy`. `docs/plans/environment-and-resources.md` is the design;
 `packages/shared/src/canopy-yaml.ts` is the schema (also the live linter in project settings,
-which can scaffold a starter file). Worktrees are created through
-[worktrunk](https://worktrunk.dev) (`wt`) when it is installed, with plain `git worktree` as the
-fallback; `packages/daemon/bin/canopy.mjs` is the `canopy provision|teardown|forget|start|stop|status`
-command that worktrunk hooks call so a `wt switch --create` from a terminal is provisioned too
-(`npm link` in `packages/daemon` puts it on PATH).
+which can scaffold a starter file). Creating a worktree, copying files, allocating ports and
+running setup steps go through the `canopyd` binary from
+[nessalabs/canopyd](https://github.com/nessalabs/canopyd), Canopy's worktree manager, with plain
+`git worktree` as the fallback when it is not installed. It reads the same `canopy.yaml` and
+prints one JSON envelope per command with stable error codes, so the daemon maps them straight
+through (`packages/daemon/src/env/worktree/`; the contract is that repo's `docs/json-api.md`).
+`packages/daemon/bin/canopy.mjs` is the `canopy provision|teardown|forget|start|stop|status`
+command that git hooks call (`canopyd hook install` puts the `post-checkout` in place) so a
+worktree created from a terminal is provisioned too (`npm link` in `packages/daemon` puts it on
+PATH).
 
 Canopy runs itself the same way: the repo's own `canopy.yaml` gives every worktree a private
 daemon (`CANOPY_HOME` inside the checkout, the main repo registered as a project) and a web
@@ -63,8 +72,8 @@ Without them the tab falls back to the files each turn's tool calls named.
 
 State lives in `~/.canopy` (`state.db`, `token`, `config.json`, `worktrees/`, `worktrees-data/`
 for logs and file-backed DB forks); `CANOPY_HOME` and `CANOPY_PORT` override. Requires Node ≥ 22
-and git; optional: `wt` (worktrunk), `docker` (Docker/Compose runtimes, Postgres/MySQL/Redis
-forks), and the `claude` / `codex` CLIs.
+and git; a Rust toolchain (≥ 1.90) installs the `canopyd` binary; optional: `docker` (Docker/Compose
+runtimes, Postgres/MySQL/Redis forks) and the `claude` / `codex` CLIs.
 
 ## Menu bar (macOS)
 

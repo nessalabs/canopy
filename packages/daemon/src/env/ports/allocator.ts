@@ -1,5 +1,13 @@
 /**
- * Port allocation. Every named port of every worktree gets one number for its whole life:
+ * Port allocation for the numbers `canopyd` does not own.
+ *
+ * Service ports declared in `canopy.yaml` are the crate's: it keeps the registry in the
+ * repository's common git dir, so every worktree and every tool sees one table. What is left
+ * here is the ports Canopy allocates for things the crate has no concept of — a database fork's
+ * container port — plus `record`, which mirrors the crate's answers into this table so the two
+ * can never hand out the same number.
+ *
+ * Every named port of every worktree gets one number for its whole life:
  * the URL a developer bookmarked must survive daemon restarts, so an existing row always
  * wins and is never re-tested. New names start from a stable hash of the seed key
  * (project/branch/name) so the same branch tends to get the same number on every machine,
@@ -42,6 +50,22 @@ export class PortAllocator {
     private readonly db: Database,
     private readonly range: [number, number]
   ) {}
+
+  /**
+   * Mirrors an allocation the crate made, so database allocation walks past it.
+   *
+   * Two allocators over one range is how you get two services told to listen on the same port.
+   * The crate is the authority for service ports; this is how that answer becomes visible to
+   * the allocation that still happens here.
+   */
+  record(worktreeId: string, name: string, port: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO port_allocations (worktree_id, name, port, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(worktree_id, name) DO UPDATE SET port = excluded.port`
+      )
+      .run(worktreeId, name, port, Date.now())
+  }
 
   /** Every named port this worktree holds. */
   allocated(worktreeId: string): Record<string, number> {

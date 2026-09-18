@@ -110,7 +110,6 @@ function applyEvent(queryClient: QueryClient, samples: SampleStore, event: Canop
       void queryClient.invalidateQueries({ queryKey: keys.projectConfig(event.projectId) })
       void queryClient.invalidateQueries({ queryKey: keys.projectEnvironment(event.projectId) })
       void queryClient.invalidateQueries({ queryKey: keys.projectSettings(event.projectId) })
-      void queryClient.invalidateQueries({ queryKey: keys.projectWtToml(event.projectId) })
       return
     case 'resources':
       samples.pushSample(event.worktreeId, event.sample)

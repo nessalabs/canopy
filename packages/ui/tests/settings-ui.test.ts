@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
-import { WORKTRUNK_HOOKS } from '@canopy/shared'
+import { } from '@canopy/shared'
 
 import {
   CACHE_STRATEGY_HINT,
   SETTINGS_TABS,
   SETTINGS_TAB_LABEL,
-  WORKTRUNK_HOOK_HINT,
   buildCreateInput,
   parseSettingsTab,
   settingsHref,
@@ -51,18 +50,6 @@ describe('tab deep links', () => {
 })
 
 describe('hint tables', () => {
-  it('has a hint for every worktrunk hook and nothing extra', () => {
-    expect(Object.keys(WORKTRUNK_HOOK_HINT).sort()).toEqual([...WORKTRUNK_HOOKS].sort())
-    for (const hook of WORKTRUNK_HOOKS) expect(WORKTRUNK_HOOK_HINT[hook].length).toBeGreaterThan(20)
-  })
-
-  it('says whether each hook blocks', () => {
-    for (const hook of WORKTRUNK_HOOKS) {
-      const hint = WORKTRUNK_HOOK_HINT[hook]
-      expect(hook.startsWith('pre-') ? /block/i.test(hint) : /background/i.test(hint)).toBe(true)
-    }
-  })
-
   it('has a hint for every cache strategy', () => {
     expect(Object.keys(CACHE_STRATEGY_HINT).sort()).toEqual(['clone', 'copy', 'fresh', 'symlink'])
   })

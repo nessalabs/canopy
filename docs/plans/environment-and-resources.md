@@ -8,7 +8,7 @@ Environment tab, Resources tab, project settings, and the create-worktree option
 Every worktree runs its application **in isolation**: its own ports, its own database forks
 (Postgres, MySQL, SQLite, Redis), its own processes or containers (host, Docker, or a whole
 Docker Compose stack), its own resolved env file — and Canopy shows what runs where, streams
-logs, and measures CPU/memory per service. Worktrunk (`wt`) is the worktree backend when
+logs, and measures CPU/memory per service. `canopyd` ([nessalabs/canopyd](https://github.com/nessalabs/canopyd)) is the worktree backend when
 installed; plain `git worktree` is the fallback.
 
 ## Where configuration lives
@@ -115,15 +115,13 @@ otherwise `reset` tells the client to refetch. Logs stream on
 `GET /worktrees/:id/services/:name/logs?follow=1&since=<offset>` with file-backed backfill.
 The UI patches the react-query cache from events; git status keeps its 5 s poll.
 
-## Worktrunk integration
+## Worktree backend
 
-- Creation/removal go through `wt` when installed (`HostInfo.worktrunk`), else git.
-- Project settings → `.config/wt.toml` (`hooks`, `[list] url`) when "sync to repo" is on.
-  The worktree-path template is a Canopy setting passed per call (`--config-set`); worktrunk
-  keeps that key user-level.
-- `canopy provision|teardown|start|stop --path <p>` (bin/canopy.mjs) let hooks call back into
-  the daemon, so `wt switch --create x` in a terminal provisions the worktree too
-  (`POST /worktrees/adopt`). Hooks always exit 0 and no-op when the daemon started them.
+Superseded on 2026-09-16: worktrees are created and provisioned by `canopyd`, the binary built
+from the [canopyd](https://github.com/nessalabs/canopyd) crate (its `docs/json-api.md` is the contract), with plain git as
+the fallback when it is not installed. `packages/daemon/src/env/worktree/backend.ts` is the
+wrapper; `canopyd hook install` is the opt-in `post-checkout` bridge that lets a worktree made
+by plain `git worktree add` be noticed. The original worktrunk plan is kept in git history.
 
 ## Layout
 
@@ -134,7 +132,7 @@ packages/daemon/src/env/
   types.ts        internal interfaces (runner, adapter, log store, events, step ctx)
   config/         canopy.yaml loading, template interpolation
   settings/       project settings, wt.toml writer, app settings
-  worktrunk/      wt CLI wrapper + git fallback
+  worktree/       canopyd wrapper (backend.ts, canopyd.ts) + git fallback
   ports/          allocator
   logs/           NDJSON store + ring + tail
   events/         bus + ring + SSE fan-out

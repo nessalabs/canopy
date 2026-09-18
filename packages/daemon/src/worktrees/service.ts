@@ -6,7 +6,7 @@ import type { Database } from 'better-sqlite3'
 import { emptyEnvironment, projectDirName, type CreateWorktreeInput, type Project, type Worktree, type WorktreeState, type WorktreeStatus } from '@canopy/shared'
 
 import type { EventBus } from '../env/types'
-import type { Worktrunk } from '../env/worktrunk/wt'
+import type { WorktreeBackend } from '../env/worktree/backend'
 import type { Repo } from '../git/repo'
 import { conflict, gone, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
@@ -34,7 +34,7 @@ export interface EnvironmentHooks {
   createAndProvision(project: Project, input: CreateWorktreeInput): WorktreeRow
   teardown(worktreeId: string): Promise<void>
   forget(worktreeId: string): void
-  settings(projectId: string): { worktrunk: { enabled: boolean }; cleanup: { deleteBranch: 'never' | 'if-merged' | 'ask' } }
+  settings(projectId: string): { worktree: { tool: boolean }; cleanup: { deleteBranch: 'never' | 'if-merged' | 'ask' } }
 }
 
 export interface WorktreeRow {
@@ -55,7 +55,7 @@ interface Deps {
   repo: Repo
   projects: ProjectsService
   worktreeRoot: string
-  worktrunk: Worktrunk
+  backend: WorktreeBackend
   events: EventBus
 }
 
@@ -276,7 +276,7 @@ export class WorktreesService {
 
   /**
    * Tears the environment down (services, containers, forks, ports, logs), then removes the
-   * checkout through worktrunk or git. `deleteBranch` overrides the project's cleanup policy.
+   * checkout through canopyd or git. `deleteBranch` overrides the project's cleanup policy.
    *
    * Uncommitted work is saved before the checkout goes. Forcing past the dirty check is the
    * ordinary way to destroy a worktree — the UI sets `force` for you whenever there is
@@ -301,7 +301,7 @@ export class WorktreesService {
     const policy = deleteBranch ?? (settings?.cleanup.deleteBranch === 'if-merged' ? 'if-merged' : 'never')
     await this.environment?.teardown(id)
     if (present) {
-      await this.deps.worktrunk.remove({ repoPath: project.path, path: row.path, branch: row.branch, force, deleteBranch: policy, useWt: settings?.worktrunk.enabled ?? true })
+      await this.deps.backend.remove({ repoPath: project.path, path: row.path, branch: row.branch, force, deleteBranch: policy, useTool: settings?.worktree.tool ?? true })
     } else {
       await this.deps.repo.worktreeRemove(project.path, row.path, true).catch(() => undefined)
     }

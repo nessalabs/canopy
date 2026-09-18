@@ -85,11 +85,11 @@ provisioning run). Mutations return `{ environment }`; the event stream carries 
 
 | Method | Path | Body / query | Response |
 |---|---|---|---|
-| GET | `/host` | | `HostInfo` — cores, memory, docker/worktrunk availability, port range, `canopyCommand` |
+| GET | `/host` | | `HostInfo` — cores, memory, docker/canopyd availability, port range, `canopyCommand` |
 | GET | `/fs/dirs` | `?path=&hidden=1` | `DirListing` — folders then files of a path on the daemon's machine (git repos marked, capped at 2 000 entries with `truncated`), for the Add-project folder picker; 400 `path_not_found` / `not_a_directory`, 403 `path_forbidden` |
 | GET | `/events` | `?since=<seq>` | SSE of `CanopyEvent` (`hello`, `reset`, `environment`, `worktree-removed`, `worktrees-changed`, `project-changed`, `resources`, `host`); `: ping` heartbeat every 15 s |
 | GET/PATCH | `/settings` | `AppSettingsPatch` | `{ settings: AppSettings }` — editor/terminal commands, diff prefs, port range (this machine) |
-| GET/PATCH | `/projects/:id/settings` | `ProjectSettingsPatch` | `{ settings: ProjectSettings, project? }` — worktrunk, copy files, caches, defaults, cleanup |
+| GET/PATCH | `/projects/:id/settings` | `ProjectSettingsPatch` | `{ settings: ProjectSettings, project? }` — worktree tool, copy files, caches, defaults, cleanup |
 | GET/PUT | `/projects/:id/config` | `{ raw }` | `{ raw, path, report }` — the primary checkout's canopy.yaml; PUT validates first (400 `invalid_canopy_yaml`) |
 | POST | `/projects/:id/config/scaffold` | | `{ raw, report }` — starter canopy.yaml from repo detection |
 | GET | `/projects/:id/environment` | | `ProjectEnvironmentPreview` — services/ports/databases/setup, detected caches and copy candidates |
@@ -114,4 +114,4 @@ New error codes: `worktree_create_failed`, `already_provisioning`, `destroying`,
 `invalid_canopy_yaml`, `unknown_worktree`, `no_free_port`, `db_<adapter>_failed`, `no_launch_command`, `bad_port_range`.
 
 The hook-facing CLI `packages/daemon/bin/canopy.mjs` (`canopy provision|teardown|forget|start|stop|status`) drives
-these routes from worktrunk hooks; it exits 0 when the daemon is down and no-ops when `CANOPY_DAEMON=1`.
+these routes from git hooks (`canopyd hook install` puts a `post-checkout` in place); it exits 0 when the daemon is down and no-ops when `CANOPY_DAEMON=1`.

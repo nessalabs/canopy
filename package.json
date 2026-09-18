@@ -1,7 +1,7 @@
 {
   "name": "canopy",
   "version": "0.1.0",
-  "description": "Canopy \u2014 a development-environment manager for git worktrees (canopyd daemon + desktop/web clients).",
+  "description": "Canopy \u2014 desktop and web clients for git worktree dev environments, over the canopyd worktree manager (github.com/nessalabs/canopyd).",
   "author": "gp0065@uah.edu",
   "private": true,
   "type": "module",
