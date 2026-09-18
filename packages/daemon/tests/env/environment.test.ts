@@ -91,9 +91,9 @@ describe('environment end to end (host runtime, git fallback)', () => {
     expect(env.provisioning?.status).toBe('done')
     expect(env.provisioning?.steps.map((s) => `${s.name}:${s.status}`)).toEqual([
       'create-worktree:done',
+      // One step now: copying gitignored files and carrying dependency directories are the same
+      // operation, so `link-caches` folded into this.
       'copy-files:done',
-      // package.json makes this a node project, so cache rules exist; the fixture just has nothing to clone.
-      'link-caches:done',
       'allocate-ports:done',
       'fork-databases:skipped',
       'write-env:done',

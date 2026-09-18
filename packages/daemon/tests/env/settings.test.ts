@@ -35,7 +35,7 @@ describe('project settings', () => {
   it('round-trips and bumps updated_at', () => {
     const settings = defaultProjectSettings(['rust'])
     settings.autoFetch = false
-    settings.worktrunk.worktreePath = '{{ repo_path }}/../{{ name }}'
+    settings.worktree.worktreePath = '{{ repo_path }}/../{{ name }}'
     saveProjectSettings(db, 'p1', settings)
 
     expect(loadProjectSettings(db, 'p1', ['rust'])).toEqual(settings)
@@ -49,7 +49,7 @@ describe('project settings', () => {
     expect(loaded.cleanup.staleDays).toBe(3)
     // Keys the stored blob never heard of still come from the defaults.
     expect(loaded.cleanup.dirtyDestroy).toBe('prompt')
-    expect(loaded.worktrunk.hooks).toEqual(defaultProjectSettings().worktrunk.hooks)
+    expect(loaded.worktree.worktreePath).toEqual(defaultProjectSettings().worktree.worktreePath)
   })
 
   it('falls back to defaults for corrupt or invalid json', () => {

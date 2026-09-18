@@ -13,13 +13,15 @@ import type { GitRunner } from '../../git/exec'
 import type { PortAllocator } from '../ports/allocator'
 import { resolveEnvironment, writeEnvFile, type ResolvedEnvironment } from '../config/resolve'
 import type { DbAdapter, DbContext, ProvisionContext, ProvisionStepImpl } from '../types'
-import type { Worktrunk } from '../worktrunk/wt'
-import { SHARED_STORE_ENV, changedLockfiles, installCommand, linkCaches } from './caches'
-import { copyFiles } from './copy-files'
+import { rulesFor, type Canopyd } from '../worktree/canopyd'
+import type { WorktreeBackend } from '../worktree/backend'
+import { SHARED_STORE_ENV, changedLockfiles, installCommand } from './caches'
 
 export interface StepDeps {
   git: GitRunner
-  worktrunk: Worktrunk
+  backend: WorktreeBackend
+  canopyd: Canopyd
+  /** Still allocates the ports the crate has no concept of — a database fork's container port. */
   ports: PortAllocator
   databases: { adapterFor(name: DbAdapterName): DbAdapter }
   /** Builds the adapter context for a worktree (the façade knows data dirs and port allocation). */
@@ -69,44 +71,58 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     applies: (ctx) => (existsSync(ctx.worktreePath) ? { run: false, reason: 'worktree exists' } : ctx.branchSpec ? { run: true } : { run: false, reason: 'no branch to create from' }),
     async run(ctx) {
       const spec = ctx.branchSpec as NonNullable<ProvisionContext['branchSpec']>
-      const result = await deps.worktrunk.create({
+      const result = await deps.backend.create({
         repoPath: ctx.project.path,
         path: ctx.worktreePath,
         branch: spec,
-        useWt: ctx.settings.worktrunk.enabled,
+        useTool: ctx.settings.worktree.tool,
         env: { CANOPY_WORKTREE_ID: ctx.worktreeId },
         onLine: (_stream, text) => ctx.logs.out(text)
       })
       const verb = spec.mode === 'new' ? `${spec.name} from ${spec.base}` : spec.name
-      return { detail: `${result.backend === 'wt' ? 'wt switch' : 'git worktree add'} ${verb}` }
+      return { detail: `${result.backend === 'canopyd' ? 'canopyd new' : 'git worktree add'} ${verb}` }
     }
   }
 
+  /**
+   * Copy rules and cache rules are one thing to the crate: both name gitignored paths to carry
+   * into a worktree, and `node_modules` is as gitignored as `.env` is. That is why this replaced
+   * two steps and two modules.
+   */
   const copy: ProvisionStepImpl = {
     name: 'copy-files',
-    applies: (ctx) =>
-      same(ctx.sourcePath, ctx.worktreePath) ? { run: false, reason: 'source is this worktree' } : ctx.settings.copyFiles.length === 0 ? { run: false, reason: 'no copy rules' } : { run: true },
+    applies: (ctx) => {
+      if (same(ctx.sourcePath, ctx.worktreePath)) return { run: false, reason: 'source is this worktree' }
+      return rulesFor(ctx.settings.copyFiles, ctx.settings.caches.rules).length === 0 ? { run: false, reason: 'no copy rules' } : { run: true }
+    },
     async run(ctx) {
-      const copied = await copyFiles({ git: deps.git, sourceRoot: ctx.sourcePath, targetRoot: ctx.worktreePath, rules: ctx.settings.copyFiles, logs: ctx.logs })
-      ctx.state.copiedFiles = copied
-      return { detail: copied.length > 0 ? copied.join(', ') : 'nothing to copy' }
-    }
-  }
+      const rules = rulesFor(ctx.settings.copyFiles, ctx.settings.caches.rules)
+      const branch = ctx.branch ?? ctx.worktreeName
+      const outcome = await deps.canopyd.copy({
+        cwd: ctx.worktreePath,
+        branch,
+        source: ctx.sourcePath,
+        rules,
+        onLine: (_stream, text) => ctx.logs.out(text)
+      })
 
-  const caches: ProvisionStepImpl = {
-    name: 'link-caches',
-    applies: (ctx) =>
-      same(ctx.sourcePath, ctx.worktreePath) ? { run: false, reason: 'source is this worktree' } : ctx.settings.caches.rules.length === 0 ? { run: false, reason: 'no cache rules' } : { run: true },
-    async run(ctx) {
-      const results = await linkCaches({ sourceRoot: ctx.sourcePath, targetRoot: ctx.worktreePath, rules: ctx.settings.caches.rules, overrides: ctx.options.caches, logs: ctx.logs, signal: ctx.signal })
-      ctx.state.caches = results
+      // Only paths that actually moved are "copied"; a skipped one was already there.
+      const landed = outcome.entries.filter((entry) => entry.result !== 'skipped' && entry.result !== 'planned')
+      ctx.state.copiedFiles = landed.map((entry) => entry.path)
+      for (const failure of outcome.failures) ctx.logs.sys(`could not copy ${failure.path}: ${failure.message}`)
+
       if (ctx.settings.caches.reinstallOnLockChange) {
         ctx.state.reinstall = changedLockfiles(ctx.sourcePath, ctx.worktreePath, ctx.project.ecosystems)
         if (ctx.state.reinstall.length > 0) ctx.logs.sys(`lockfile differs for ${ctx.state.reinstall.join(', ')} — setup will reinstall`)
       }
-      const applied = results.filter((r) => r.result !== 'skipped' && r.result !== 'missing')
-      const summary = applied.map((r) => `${r.path} ${r.result}${r.result === 'cloned' ? ' (CoW)' : ''}`)
-      return { detail: summary.length > 0 ? summary.join(' · ') : results.length > 0 ? 'nothing to link' : 'no caches in source' }
+
+      const cloned = landed.filter((entry) => entry.result === 'cloned').length
+      const bytes = landed.reduce((total, entry) => total + entry.bytes, 0)
+      const detail =
+        landed.length === 0
+          ? 'nothing to copy'
+          : `${landed.length} path(s), ${Math.round(bytes / 1024)}KiB${cloned > 0 ? `, ${cloned} cloned (CoW)` : ''}${outcome.failures.length > 0 ? `, ${outcome.failures.length} failed` : ''}`
+      return { detail }
     }
   }
 
@@ -114,12 +130,17 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     name: 'allocate-ports',
     applies: (ctx) => (!ctx.config ? { run: false, reason: 'no canopy.yaml' } : Object.keys(ctx.config.ports).length === 0 ? { run: false, reason: 'no ports declared' } : { run: true }),
     async run(ctx) {
-      const config = ctx.config as NonNullable<ProvisionContext['config']>
-      const allocated: Record<string, number> = {}
-      for (const [name, spec] of Object.entries(config.ports)) {
-        allocated[name] = await deps.ports.allocate(ctx.worktreeId, name, { seedKey: `${ctx.project.id}/${ctx.branch ?? ctx.worktreeName}/${name}`, preferred: spec.preferred, range: spec.range })
-      }
+      // The crate owns the registry, in the repository's common git dir. Keeping a second
+      // allocator here would mean two tables that can disagree about who holds what.
+      const allocated = await deps.canopyd.ports({
+        cwd: ctx.worktreePath,
+        branch: ctx.branch ?? ctx.worktreeName,
+        onLine: (_stream, text) => ctx.logs.out(text)
+      })
       ctx.state.ports = allocated
+      // Mirrored into the daemon's table so database allocation, which the crate knows nothing
+      // about, cannot hand out a number a service already has.
+      for (const [name, port] of Object.entries(allocated)) deps.ports.record(ctx.worktreeId, name, port)
       return { detail: Object.entries(allocated).map(([name, port]) => `${name}=${port}`).join(' ') }
     }
   }
@@ -196,6 +217,9 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
       const resolved = deps.resolve(ctx)
       const shellEnv = { ...resolved.envMap, ...(ctx.settings.caches.sharedStores ? SHARED_STORE_ENV : {}) }
       const ran: string[] = []
+
+      // Reinstalls stay here: which command reinstalls a Node or Python project is Canopy's
+      // ecosystem detection, which the crate has no notion of.
       for (const ecosystem of ctx.state.reinstall) {
         const command = installCommand(ctx.worktreePath, ecosystem)
         if (!command) continue
@@ -203,20 +227,29 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
         await runShell(ctx, command, ctx.worktreePath, shellEnv)
         ran.push(command)
       }
-      for (const step of resolved.setup) {
-        if (step.if_changed && step.if_changed.length > 0 && !same(ctx.sourcePath, ctx.worktreePath)) {
-          const changed = await anyChanged(ctx.sourcePath, ctx.worktreePath, step.if_changed)
-          if (!changed) {
-            ctx.logs.sys(`${step.name}: skipped — ${step.if_changed.join(', ')} unchanged`)
-            continue
-          }
+
+      if ((ctx.config as NonNullable<ProvisionContext['config']>).setup.length > 0) {
+        // The steps themselves are the crate's, so `if_changed` has one implementation rather
+        // than two that can disagree about whether a lockfile moved.
+        const outcome = await deps.canopyd.setup({
+          cwd: ctx.worktreePath,
+          branch: ctx.branch ?? ctx.worktreeName,
+          env: shellEnv,
+          onLine: (_stream, text) => ctx.logs.out(text)
+        })
+        for (const step of outcome.steps) {
+          if (step.result.kind === 'ran') ran.push(step.name)
+          else if (step.result.kind === 'skipped') ctx.logs.sys(`${step.name}: skipped — ${step.result.reason}`)
         }
-        mkdirSync(step.cwd, { recursive: true })
-        await runShell(ctx, step.run, step.cwd, { ...shellEnv, ...step.env })
-        ran.push(step.run)
+        const failed = outcome.steps.find((step) => step.result.kind === 'failed')
+        if (failed && failed.result.kind === 'failed') {
+          const tail = failed.result.tail.slice(-3).join(' | ')
+          throw new Error(`setup step ${failed.name} failed (${failed.result.status})${tail ? `: ${tail}` : ''}`)
+        }
       }
-      const normalized = (ctx.config as NonNullable<ProvisionContext['config']>).setup.map(normalizeSetupStep)
-      return { detail: ran.length > 0 ? ran.join(' · ') : normalized.length > 0 ? 'all steps up to date' : 'nothing to run' }
+
+      const declared = (ctx.config as NonNullable<ProvisionContext['config']>).setup.length
+      return { detail: ran.length > 0 ? ran.join(' · ') : declared > 0 ? 'all steps up to date' : 'nothing to run' }
     }
   }
 
@@ -234,29 +267,6 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     }
   }
 
-  return [createWorktree, copy, caches, ports, databases, env, setup, start]
+  return [createWorktree, copy, ports, databases, env, setup, start]
 }
 
-/** True when any of the globbed files differs between the two roots (content hash), or exists in one only. */
-async function anyChanged(sourceRoot: string, targetRoot: string, patterns: string[]): Promise<boolean> {
-  const { createHash } = await import('node:crypto')
-  const { readFileSync, statSync } = await import('node:fs')
-  const picomatch = (await import('picomatch')).default
-  const hash = (path: string): string | null => {
-    try {
-      if (!statSync(path).isFile()) return null
-      return createHash('sha1').update(readFileSync(path)).digest('hex')
-    } catch {
-      return null
-    }
-  }
-  const { execa: run } = await import('execa')
-  const list = async (root: string): Promise<string[]> => {
-    const out = await run('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], { cwd: root, reject: false })
-    return String(out.stdout ?? '').split('\0').filter(Boolean)
-  }
-  const matchers = patterns.map((pattern) => picomatch(pattern, { dot: true }))
-  const files = new Set([...(await list(sourceRoot)), ...(await list(targetRoot))].filter((file) => matchers.some((m) => m(file))))
-  for (const file of files) if (hash(join(sourceRoot, file)) !== hash(join(targetRoot, file))) return true
-  return false
-}

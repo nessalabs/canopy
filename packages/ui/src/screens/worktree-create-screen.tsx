@@ -83,7 +83,7 @@ export function WorktreeCreateScreen({ projectId }: { projectId: string }): Reac
 
   const path =
     settings && host.data
-      ? renderWorktreePath(settings.worktrunk.worktreePath, {
+      ? renderWorktreePath(settings.worktree.worktreePath, {
           root: host.data.worktreeRoot,
           repo: project?.name ?? '',
           repoPath: project?.path ?? '',

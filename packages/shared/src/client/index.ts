@@ -244,8 +244,6 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     scaffoldProjectConfig: (id: string) => post<{ raw: string; report: CanopyYamlReport }>(routes.projectConfigScaffold(id), {}),
     projectEnvironment: (id: string) => get<ProjectEnvironmentPreview>(routes.projectEnvironment(id)),
     /** Rendered `.config/wt.toml` (preview) and whether it matches the file in the repo. */
-    projectWtToml: (id: string) => get<{ toml: string; path: string; inSync: boolean; exists: boolean }>(routes.projectWtToml(id)),
-    writeProjectWtToml: (id: string) => post<{ toml: string; path: string; inSync: boolean; exists: boolean }>(routes.projectWtToml(id), {}),
     refreshProjectDatabase: (id: string, db: string) => post<void>(routes.projectDbRefresh(id, db), {}),
     stopAllWorktrees: (id: string) => post<void>(routes.projectStopAll(id), {}),
     destroyAllWorktrees: (id: string, input: DestroyAllInput) => post<void>(routes.projectDestroyAll(id), input),

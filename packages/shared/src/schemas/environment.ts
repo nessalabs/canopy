@@ -208,35 +208,20 @@ export const CacheSettings = z.object({
 })
 export type CacheSettings = z.infer<typeof CacheSettings>
 
-export const WORKTRUNK_HOOKS = ['pre-switch', 'post-switch', 'pre-start', 'post-start', 'pre-commit', 'post-commit', 'pre-merge', 'post-merge', 'pre-remove', 'post-remove'] as const
-export const WorktrunkHook = z.enum(WORKTRUNK_HOOKS)
-export type WorktrunkHook = z.infer<typeof WorktrunkHook>
-
-export const WorktrunkHookRule = z.object({
-  hook: WorktrunkHook,
-  /** TOML key inside the hook table; several commands per hook run concurrently. */
-  name: z.string().regex(/^[a-z0-9][a-z0-9_-]*$/).optional(),
-  command: z.string(),
-  /** Wired by Canopy (provision/teardown callbacks). */
-  canopy: z.boolean().optional()
-})
-export type WorktrunkHookRule = z.infer<typeof WorktrunkHookRule>
-
-export const WorktrunkSettings = z.object({
-  /** Drive worktrees through `wt` when it is installed; otherwise plain git. */
-  enabled: z.boolean(),
+export const WorktreeSettings = z.object({
+  /**
+   * Drive worktrees through `canopyd` when it is installed; otherwise plain git. The tool
+   * adds a dirty check that reports what is at stake, `worktree prune` after removal, and a
+   * branch-deletion policy — git alone does none of those.
+   */
+  tool: z.boolean(),
   /**
    * Where worktrees are created. Canopy renders `{{ repo }}`, `{{ name }}`, `{{ branch }}`,
-   * `{{ branch | sanitize }}` and `{{ repo_path }}`; the result is passed to wt per call.
+   * `{{ branch | sanitize }}` and `{{ repo_path }}`, and passes the finished path per call.
    */
-  worktreePath: z.string().min(1),
-  hooks: z.array(WorktrunkHookRule),
-  /** Keep `.config/wt.toml` in the primary checkout in sync with `hooks` and `listUrl`. */
-  syncProjectConfig: z.boolean(),
-  /** `[list] url` template shown by `wt list`; empty leaves it alone. */
-  listUrl: z.string()
+  worktreePath: z.string().min(1)
 })
-export type WorktrunkSettings = z.infer<typeof WorktrunkSettings>
+export type WorktreeSettings = z.infer<typeof WorktreeSettings>
 
 export const ProjectEnvVar = z.object({ key: z.string(), value: z.string(), secret: z.boolean().optional() })
 export type ProjectEnvVar = z.infer<typeof ProjectEnvVar>
@@ -268,7 +253,7 @@ export type CleanupSettings = z.infer<typeof CleanupSettings>
 export const ProjectSettings = z.object({
   autoFetch: z.boolean(),
   autoFetchInterval: z.enum(['5m', '15m', '1h']),
-  worktrunk: WorktrunkSettings,
+  worktree: WorktreeSettings,
   copyFiles: z.array(CopyFileRule),
   caches: CacheSettings,
   defaults: WorktreeDefaults,
@@ -280,7 +265,7 @@ export type ProjectSettings = z.infer<typeof ProjectSettings>
 export const ProjectSettingsPatch = z.object({
   autoFetch: z.boolean().optional(),
   autoFetchInterval: ProjectSettings.shape.autoFetchInterval.optional(),
-  worktrunk: WorktrunkSettings.partial().optional(),
+  worktree: WorktreeSettings.partial().optional(),
   copyFiles: z.array(CopyFileRule).optional(),
   caches: CacheSettings.partial().optional(),
   defaults: WorktreeDefaults.partial().optional(),
@@ -378,7 +363,12 @@ export const DbInstanceInfo = z.object({
 })
 export type DbInstanceInfo = z.infer<typeof DbInstanceInfo>
 
-export const PROVISION_STEPS = ['create-worktree', 'copy-files', 'link-caches', 'allocate-ports', 'fork-databases', 'write-env', 'run-setup', 'start-services'] as const
+/**
+ * The provisioning pipeline. `link-caches` is gone: copying gitignored files and linking
+ * dependency directories are the same operation — `node_modules` is as gitignored as `.env` —
+ * so `copy-files` does both, with copy-on-write where the filesystem supports it.
+ */
+export const PROVISION_STEPS = ['create-worktree', 'copy-files', 'allocate-ports', 'fork-databases', 'write-env', 'run-setup', 'start-services'] as const
 export const ProvisionStepName = z.enum(PROVISION_STEPS)
 export type ProvisionStepName = z.infer<typeof ProvisionStepName>
 
@@ -523,7 +513,7 @@ export const HostInfo = z.object({
   cores: z.number().int(),
   memMb: z.number(),
   docker: ToolInfo,
-  worktrunk: ToolInfo,
+  canopyd: ToolInfo,
   worktreeRoot: z.string(),
   dataRoot: z.string(),
   portRange: z.tuple([z.number().int(), z.number().int()]),

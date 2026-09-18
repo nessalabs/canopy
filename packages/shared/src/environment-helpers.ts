@@ -53,27 +53,13 @@ export const ECOSYSTEM_LOCKFILES: Record<Ecosystem, string[]> = {
   'docker-compose': []
 }
 
-export const CANOPY_HOOK_COMMANDS = {
-  provision: 'canopy provision --path {{ worktree_path }}',
-  teardown: 'canopy teardown --path {{ worktree_path }}',
-  /** post-remove: the checkout is gone, so Canopy drops its row instead of showing it as missing. */
-  forget: 'canopy forget --path {{ worktree_path }}'
-} as const
-
 export function defaultProjectSettings(ecosystems: Ecosystem[] = []): ProjectSettings {
   return {
     autoFetch: true,
     autoFetchInterval: '15m',
-    worktrunk: {
-      enabled: true,
-      worktreePath: '{{ repo }}/worktrees/{{ name }}',
-      hooks: [
-        { hook: 'post-start', name: 'canopy', command: CANOPY_HOOK_COMMANDS.provision, canopy: true },
-        { hook: 'pre-remove', name: 'canopy', command: CANOPY_HOOK_COMMANDS.teardown, canopy: true },
-        { hook: 'post-remove', name: 'canopy', command: CANOPY_HOOK_COMMANDS.forget, canopy: true }
-      ],
-      syncProjectConfig: false,
-      listUrl: ''
+    worktree: {
+      tool: true,
+      worktreePath: '{{ repo }}/worktrees/{{ name }}'
     },
     copyFiles: [
       { pattern: '.env', strategy: 'copy' },
@@ -94,7 +80,7 @@ export function applySettingsPatch(current: ProjectSettings, patch: ProjectSetti
   return {
     autoFetch: patch.autoFetch ?? current.autoFetch,
     autoFetchInterval: patch.autoFetchInterval ?? current.autoFetchInterval,
-    worktrunk: { ...current.worktrunk, ...(patch.worktrunk ?? {}) },
+    worktree: { ...current.worktree, ...(patch.worktree ?? {}) },
     copyFiles: patch.copyFiles ?? current.copyFiles,
     caches: { ...current.caches, ...(patch.caches ?? {}) },
     defaults: { ...current.defaults, ...(patch.defaults ?? {}) },
@@ -170,7 +156,7 @@ export function emptyEnvironment(configured: boolean, configErrors: string[] = [
  */
 export const projectDirName = (name: string): string => name.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'project'
 
-/** worktrunk-style filter: what `{{ branch | sanitize }}` produces. */
+/** What `{{ branch | sanitize }}` produces: `feat/login` becomes the directory `feat-login`. */
 export const sanitizeBranch = (branch: string): string => branch.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '')
 
 /**
