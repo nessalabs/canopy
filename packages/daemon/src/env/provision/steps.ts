@@ -11,7 +11,7 @@ import { dbEnvKey as sharedDbEnvKey, normalizeSetupStep, type DbAdapterName, typ
 
 import type { GitRunner } from '../../git/exec'
 import type { PortAllocator } from '../ports/allocator'
-import { resolveEnvironment, writeEnvFile, type ResolvedEnvironment } from '../config/resolve'
+import { resolveEnvironment, type ResolvedEnvironment } from '../config/resolve'
 import type { DbAdapter, DbContext, ProvisionContext, ProvisionStepImpl } from '../types'
 import { rulesFor, type Canopyd } from '../worktree/canopyd'
 import type { WorktreeBackend } from '../worktree/backend'
@@ -32,6 +32,8 @@ export interface StepDeps {
   onDatabase(ctx: ProvisionContext, db: DbInstanceInfo): void
   /** Resolves the environment with everything known so far (ports, databases); the façade caches it. */
   resolve(ctx: ProvisionContext): ResolvedEnvironment
+  /** Writes the env file — through canopyd when it can see the worktree, by hand otherwise. */
+  writeEnv(ctx: ProvisionContext, resolved: ResolvedEnvironment): Promise<void>
   /** Starts the worktree's services (the façade owns supervisors). */
   startServices(ctx: ProvisionContext): Promise<{ started: string[] }>
 }
@@ -198,7 +200,7 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
       ctx.state.env = resolved.env
       ctx.state.envFile = null
       if (resolved.envFile) {
-        writeEnvFile(resolved.envFile, resolved.env)
+        await deps.writeEnv(ctx, resolved)
         ctx.state.envFile = resolved.envFile.startsWith(ctx.worktreePath) ? resolved.envFile.slice(ctx.worktreePath.length + 1) : resolved.envFile
       }
       return { detail: ctx.state.envFile ? `${ctx.state.envFile} · ${resolved.env.length} vars` : `${resolved.env.length} vars (env_file: false)` }

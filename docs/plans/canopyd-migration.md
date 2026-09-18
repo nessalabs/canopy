@@ -20,7 +20,8 @@ result.
 | **Host services: spawn, health, deps, restart, crash budget** | `CanopydSupervisor` | `run --json --control` | **done in this branch**, for eligible worktrees |
 | **Service logs** | tailed from canopyd into the log store | `logs -f --json --since` | **done in this branch** |
 | **Secrets to services** | child environment | `--env KEY` | **done in this branch** |
-| Env resolution + `.env.canopy` | `env/config/resolve.ts` | `env --write --env` exists | next |
+| **Writing `.env.canopy`** | `EnvironmentService.writeEnv` | `env --write --env KEY` | **done in this branch** (the daemon still resolves, for the Variables panel) |
+| Env resolution for display | `env/config/resolve.ts` | `env --json --reveal` | later: needs `${db.…}` and the settings layers in canopyd |
 | Docker and Compose runtimes | `env/services/runners/{docker,compose}.ts` | reports `unsupported` | needs crate work |
 | Database forks (Postgres, MySQL, SQLite, Redis) | `env/databases/*` | parsed, warns "not supported" | needs crate work |
 | Resource sampling (CPU, memory) | `env/resources/sampler.ts` | nothing | needs crate work |
@@ -69,11 +70,11 @@ Otherwise `WorktreeSupervisor` runs it in-process exactly as before. Both implem
 
 ## Next, in order
 
-1. **write-env through canopyd** — `env --write --env …`, keeping the daemon's resolution only for
-   what the Variables panel shows until `env --json --reveal` can replace that too.
-2. **Docker and Compose runtimes in the crate**, then drop `runners/` and `WorktreeSupervisor`.
-3. **Database forks in the crate** (SQLite first: it is a file copy), then `${db.…}` resolves
+1. **Docker and Compose runtimes in the crate**, then drop `runners/` and `WorktreeSupervisor`.
+2. **Database forks in the crate** (SQLite first: it is a file copy), then `${db.…}` resolves
    natively and the eligibility check loses its last clause.
-4. **Resource sampling** as `canopyd ps --json` fields or a `stats` command.
+3. **Resource sampling** as `canopyd ps --json` fields or a `stats` command.
+4. **Env resolution for display** from `env --json --reveal`, once canopyd knows forks and the
+   settings layers, so `resolve.ts` can go.
 5. **Remove the plain-git fallback**; the daemon refuses to provision without canopyd and says
    how to install it.

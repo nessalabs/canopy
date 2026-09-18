@@ -124,6 +124,12 @@ describe.each(WAYS)('environment end to end (host runtime, $name)', ({ tool }) =
     const dotenv = readFileSync(join(worktree.path, '.env.canopy'), 'utf8')
     expect(dotenv).toContain(`CANOPY_PORT_WEB=${port}`)
     expect(dotenv).toContain('GREETING=hi')
+    if (tool) {
+      // canopyd wrote it: sorted by key, so the same inputs always produce the same bytes.
+      const keys = dotenv.split('\n').filter((line) => /^[A-Z_]+=/.test(line)).map((line) => line.split('=')[0] as string)
+      expect(keys).toEqual([...keys].sort())
+      expect(keys).toContain('CANOPY_WORKTREE_ID')
+    }
     expect(env.env.find((v) => v.key === 'CANOPY_WORKTREE')?.value).toBe('feat-x')
 
     // The service really answers on its port with the injected worktree name.

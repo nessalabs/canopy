@@ -70,7 +70,7 @@ import { loadAppSettings, saveAppSettings } from './settings/app-settings'
 import { loadProjectSettings, saveProjectSettings } from './settings/project-settings'
 import { sinkFor } from './logs/store'
 import type { DbAdapter, DbContext, DockerHelper, EventBus, LogStore, ProvisionContext, ProvisionState, ServiceRunner } from './types'
-import type { Canopyd } from './worktree/canopyd'
+import { supportsRunControl, type Canopyd } from './worktree/canopyd'
 import type { WorktreeBackend } from './worktree/backend'
 
 export interface EnvironmentDeps {
@@ -168,6 +168,7 @@ export class EnvironmentService {
       dbContextFor: (id) => this.dbContextFor(id),
       onDatabase: (ctx, db) => this.recordDatabase(ctx.worktreeId, db),
       resolve: (ctx) => this.resolveFor(ctx.worktreeId, ctx.config, ctx.options, ctx.settings, ctx.state.databases),
+      writeEnv: (ctx, resolved) => this.writeEnv(ctx.worktreeId, resolved),
       startServices: (ctx) => this.startFromPipeline(ctx.worktreeId)
     })
     this.load()
@@ -685,7 +686,23 @@ export class EnvironmentService {
    * value reaches it as an override, a command or a service's own `env:` that uses one does not.
    */
   private async canopydCanRun(rt: Runtime): Promise<{ ok: true; branch: string } | { ok: false; reason: string }> {
+    const sees = await this.canopydSees(rt.id)
+    if (!sees.ok) return sees
+    const loaded = sees.loaded
     const row = this.deps.worktrees.row(rt.id)
+    const services = rt.resolved?.services ?? []
+    const foreign = services.find((svc) => svc.runtime !== 'host' && !rt.resolved?.excluded.has(svc.name))
+    if (foreign) return { ok: false, reason: `${foreign.name} runs on ${foreign.runtime}` }
+    if (JSON.stringify(loaded.config?.services ?? {}).includes('${db.')) return { ok: false, reason: 'a service refers to ${db.…}' }
+    return { ok: true, branch: row.branch ?? sees.branch }
+  }
+
+  /**
+   * Whether canopyd, run in this worktree, is looking at the same thing this daemon is: a recent
+   * enough binary, a worktree it can address, and the `canopy.yaml` this daemon resolved.
+   */
+  private async canopydSees(worktreeId: string): Promise<{ ok: true; branch: string; loaded: ReturnType<typeof loadCanopyConfig> } | { ok: false; reason: string }> {
+    const row = this.deps.worktrees.row(worktreeId)
     const project = this.deps.projects.get(row.project_id)
     if (!this.settings(project.id).worktree.tool) return { ok: false, reason: 'the project has canopyd turned off' }
     const tool = await this.deps.backend.info()
@@ -696,11 +713,22 @@ export class EnvironmentService {
     if (!loaded.config || !loaded.path) return { ok: false, reason: 'there is no canopy.yaml' }
     const inCheckout = loaded.path.startsWith(`${row.path}/`) || loaded.path.startsWith(`${project.path}/`)
     if (!inCheckout) return { ok: false, reason: 'canopy.yaml lives outside the repository' }
-    const services = rt.resolved?.services ?? []
-    const foreign = services.find((svc) => svc.runtime !== 'host' && !rt.resolved?.excluded.has(svc.name))
-    if (foreign) return { ok: false, reason: `${foreign.name} runs on ${foreign.runtime}` }
-    if (JSON.stringify(loaded.config.services).includes('${db.')) return { ok: false, reason: 'a service refers to ${db.…}' }
-    return { ok: true, branch: row.branch }
+    return { ok: true, branch: row.branch, loaded }
+  }
+
+  /**
+   * Writes the worktree's env file. canopyd writes it when it can see the worktree, with every
+   * value this daemon resolved layered on top — so the file holds the fork URLs and settings
+   * canopyd knows nothing about, in canopyd's format, and the two cannot drift.
+   */
+  private async writeEnv(worktreeId: string, resolved: ResolvedEnvironment): Promise<void> {
+    if (!resolved.envFile) return
+    const sees = await this.canopydSees(worktreeId)
+    if (sees.ok) {
+      await this.deps.canopyd.writeEnv({ cwd: this.deps.worktrees.row(worktreeId).path, branch: sees.branch, env: resolved.envMap })
+      return
+    }
+    writeEnvFile(resolved.envFile, resolved.env)
   }
 
   private async supervisorFor(rt: Runtime): Promise<Supervisor> {
@@ -892,7 +920,7 @@ export class EnvironmentService {
 
   private async regenerateEnvFileNow(rt: Runtime): Promise<void> {
     const resolved = this.ensureResolved(rt)
-    if (resolved.envFile) writeEnvFile(resolved.envFile, resolved.env)
+    await this.writeEnv(rt.id, resolved)
     const row = this.deps.worktrees.row(rt.id)
     this.update(rt, { env: resolved.env, envFile: resolved.envFile ? resolved.envFile.slice(row.path.length + 1) : null })
   }
@@ -1112,11 +1140,4 @@ export class EnvironmentService {
 
 const round = (value: number): number => Math.round(value * 10) / 10
 
-/** `run --control`, `--env` on the service commands and resumable logs all arrived in canopyd 0.2.0. */
-export function supportsRunControl(version: string | null): boolean {
-  const match = /^(\d+)\.(\d+)\./.exec(version ?? '')
-  if (!match) return false
-  const [major, minor] = [Number(match[1]), Number(match[2])]
-  return major > 0 || minor >= 2
-}
 const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
