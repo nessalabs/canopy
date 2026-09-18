@@ -64,6 +64,7 @@ import { detectCaches } from './provision/caches'
 import { copyCandidates } from './provision/copy-files'
 import { createSteps } from './provision/steps'
 import type { ResourceSampler } from './resources/sampler'
+import { MANAGED_BY } from './databases/sqlite-canopyd'
 import { CanopydSupervisor } from './services/canopyd-supervisor'
 import { WorktreeSupervisor, type PreviousRecord, type Supervisor } from './services/supervisor'
 import { loadAppSettings, saveAppSettings } from './settings/app-settings'
@@ -693,7 +694,11 @@ export class EnvironmentService {
     const services = rt.resolved?.services ?? []
     const foreign = services.find((svc) => svc.runtime !== 'host' && !rt.resolved?.excluded.has(svc.name))
     if (foreign) return { ok: false, reason: `${foreign.name} runs on ${foreign.runtime}` }
-    if (JSON.stringify(loaded.config?.services ?? {}).includes('${db.')) return { ok: false, reason: 'a service refers to ${db.…}' }
+    // canopyd resolves `${db.…}` only against forks it made itself.
+    const foreignFork = rt.env.databases.find((db) => db.detail[MANAGED_BY] !== 'canopyd')
+    if (foreignFork && JSON.stringify(loaded.config?.services ?? {}).includes('${db.')) {
+      return { ok: false, reason: `a service refers to \${db.…} and ${foreignFork.name} was not forked by canopyd` }
+    }
     return { ok: true, branch: row.branch ?? sees.branch }
   }
 

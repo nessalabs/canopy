@@ -43,6 +43,20 @@ export interface CopyResult {
   failures: Array<{ path: string; strategy: string; message: string }>
 }
 
+/** One database fork, as `canopyd db …` reports it. */
+export interface CanopydFork {
+  name: string
+  adapter: string
+  status: 'ready' | 'missing'
+  url: string
+  env_key: string
+  forked_from: string
+  /** What it was copied from; absent when it started empty. */
+  source?: string
+  detail: Record<string, string>
+  size_bytes?: number
+}
+
 export interface Canopyd {
   available(): Promise<boolean>
   /** Carries gitignored files from `source` into the worktree, with explicit rules. */
@@ -57,6 +71,12 @@ export interface Canopyd {
    * Needs canopyd 0.2.0; ask [`Canopyd.version`] first.
    */
   writeEnv(input: { cwd: string; branch: string; env: Record<string, string> }): Promise<string | null>
+  /** Throws the branch's fork of `name` away and makes it again from `from`. Needs canopyd 0.3.0. */
+  dbReset(input: { cwd: string; branch: string; name: string; from: string }): Promise<CanopydFork>
+  /** Removes the branch's fork of `name`. True when there was one. */
+  dbDrop(input: { cwd: string; branch: string; name: string }): Promise<boolean>
+  /** The branch's recorded forks, as they stand on disk. */
+  dbList(input: { cwd: string; branch: string }): Promise<CanopydFork[]>
   /** The installed version, or null when canopyd is not there. Cached for the life of the daemon. */
   version(): Promise<string | null>
   /** Runs the worktree's `setup:` steps, with Canopy's resolved environment layered on top. */
@@ -171,6 +191,14 @@ export function supportsRunControl(version: string | null): boolean {
   return major > 0 || minor >= 2
 }
 
+/** `canopyd db` — forks, and `${db.…}` resolved natively — arrived in 0.3.0. */
+export function supportsDatabases(version: string | null): boolean {
+  const match = /^(\d+)\.(\d+)\./.exec(version ?? '')
+  if (!match) return false
+  const [major, minor] = [Number(match[1]), Number(match[2])]
+  return major > 0 || minor >= 3
+}
+
 /**
  * `--env` flags for `env`, and the environment that carries their values.
  *
@@ -196,6 +224,19 @@ export function createCanopyd(opts: { bin?: string } = {}): Canopyd {
 
   return {
     version: installed,
+
+    async dbReset({ cwd, branch, name, from }) {
+      return unwrap<CanopydFork>('db reset', await run(bin, ['db', 'reset', name, branch, '--from', from, '--json'], cwd))
+    },
+
+    async dbDrop({ cwd, branch, name }) {
+      const data = unwrap<{ dropped: string[] }>('db drop', await run(bin, ['db', 'drop', branch, '--only', name, '--json'], cwd))
+      return data.dropped.includes(name)
+    },
+
+    async dbList({ cwd, branch }) {
+      return unwrap<CanopydFork[]>('db ls', await run(bin, ['db', 'ls', branch, '--json'], cwd))
+    },
 
     async writeEnv({ cwd, branch, env }) {
       const flags = envFlags(env, true)

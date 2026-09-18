@@ -23,12 +23,13 @@ result.
 | **Writing `.env.canopy`** | `EnvironmentService.writeEnv` | `env --write --env KEY` | **done in this branch** (the daemon still resolves, for the Variables panel) |
 | Env resolution for display | `env/config/resolve.ts` | `env --json --reveal` | later: needs `${db.…}` and the settings layers in canopyd |
 | Docker and Compose runtimes | `env/services/runners/{docker,compose}.ts` | reports `unsupported` | needs crate work |
-| Database forks (Postgres, MySQL, SQLite, Redis) | `env/databases/*` | parsed, warns "not supported" | needs crate work |
+| **SQLite forks** | `databases/sqlite-canopyd.ts` delegates, file copy as fallback | `db fork\|ls\|reset\|drop`, `${db.…}` | **done in this branch** (canopyd 0.3.0) |
+| Postgres, MySQL, Redis forks | `env/databases/{postgres,mysql,redis}.ts` | parse and warn; `db fork` refuses them | needs crate work (a Docker helper first) |
 | Resource sampling (CPU, memory) | `env/resources/sampler.ts` | nothing | needs crate work |
 | `canopy.yaml` lint and scaffold | `@canopy/shared` zod + `env/config/scaffold.ts` | `config check`, `config init` | later |
 | Plain-git fallback | `backend.ts` | — | removed last, once nothing needs it |
 
-## What landed in canopyd for this (0.2.0)
+## What landed in canopyd for this (0.2.0, 0.3.0)
 
 - `--env KEY=VALUE` on `env`, `up`, `down`, `ps`, `run` (it was only on `setup`), through the
   resolver's own override layer. `--env KEY` with no value takes it from canopyd's environment,
@@ -42,6 +43,9 @@ result.
   token the daemon writes at boot.
 - `logs --offsets` / `--since <offset>` pages and a `logs -f --json` event stream, with byte
   offsets so a reader resumes with a seek.
+- 0.3.0: `db fork|ls|reset|drop` with a SQLite adapter, forks recorded in the worktree's state
+  directory and removed by `rm`; the fork's URL in the environment (`env:` key,
+  `CANOPY_DB_<NAME>_URL`) and as `${db.<name>.url}` / `${db.<name>.file}`.
 
 ## How the daemon decides
 
@@ -53,8 +57,9 @@ worktree's `supervisor` stream when it has to fall back. canopyd runs a worktree
 - `canopy.yaml` is inside the checkout, where canopyd can find it too (not the project-home copy
   under `~/.canopy/<project>/`)
 - every non-excluded service is `runtime: host`
-- no service refers to `${db.…}`, the one reference canopyd cannot resolve while forks are made
-  here. Worktree-level values still reach it, as overrides.
+- if a service refers to `${db.…}`, every fork was made by canopyd (`detail.managed_by`), since
+  it resolves the reference only against its own forks. Today that means SQLite. Worktree-level
+  values reach it either way, as overrides.
 
 Otherwise `WorktreeSupervisor` runs it in-process exactly as before. Both implement `Supervisor`.
 
@@ -71,8 +76,8 @@ Otherwise `WorktreeSupervisor` runs it in-process exactly as before. Both implem
 ## Next, in order
 
 1. **Docker and Compose runtimes in the crate**, then drop `runners/` and `WorktreeSupervisor`.
-2. **Database forks in the crate** (SQLite first: it is a file copy), then `${db.…}` resolves
-   natively and the eligibility check loses its last clause.
+2. **Postgres, Redis and MySQL forks in the crate**, on the Docker helper from step 1. SQLite is
+   done; with the rest, the `${db.…}` clause of the eligibility check goes.
 3. **Resource sampling** as `canopyd ps --json` fields or a `stats` command.
 4. **Env resolution for display** from `env --json --reveal`, once canopyd knows forks and the
    settings layers, so `resolve.ts` can go.
