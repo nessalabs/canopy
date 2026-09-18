@@ -64,7 +64,8 @@ import { detectCaches } from './provision/caches'
 import { copyCandidates } from './provision/copy-files'
 import { createSteps } from './provision/steps'
 import type { ResourceSampler } from './resources/sampler'
-import { WorktreeSupervisor, type PreviousRecord } from './services/supervisor'
+import { CanopydSupervisor } from './services/canopyd-supervisor'
+import { WorktreeSupervisor, type PreviousRecord, type Supervisor } from './services/supervisor'
 import { loadAppSettings, saveAppSettings } from './settings/app-settings'
 import { loadProjectSettings, saveProjectSettings } from './settings/project-settings'
 import { sinkFor } from './logs/store'
@@ -94,7 +95,9 @@ interface Runtime {
   env: WorktreeEnvironment
   config: CanopyConfig | null
   resolved: ResolvedEnvironment | null
-  supervisor: WorktreeSupervisor | null
+  supervisor: Supervisor | null
+  /** Which implementation `supervisor` is, so a config that stops qualifying for canopyd gets the other one. */
+  supervisorKind: 'canopyd' | 'daemon' | null
   abort: AbortController | null
   history: ResourceSample[]
   /** Serializes lifecycle operations per worktree. */
@@ -231,7 +234,7 @@ export class EnvironmentService {
   }
 
   private newRuntime(id: string, env: WorktreeEnvironment): Runtime {
-    return { id, env, config: null, resolved: null, supervisor: null, abort: null, history: [], chain: Promise.resolve(), persistTimer: null, emitTimer: null }
+    return { id, env, config: null, resolved: null, supervisor: null, supervisorKind: null, abort: null, history: [], chain: Promise.resolve(), persistTimer: null, emitTimer: null }
   }
 
   private persistSoon(rt: Runtime): void {
@@ -673,29 +676,81 @@ export class EnvironmentService {
     return this.resolveFor(rt.id, loaded.config, rt.env.options, this.settings(project.id), rt.env.databases)
   }
 
-  private supervisorFor(rt: Runtime): WorktreeSupervisor {
-    if (rt.supervisor) return rt.supervisor
+  /**
+   * Whether `canopyd run` can supervise this worktree, or why the in-process supervisor has to.
+   *
+   * canopyd reads `canopy.yaml` itself, so it has to be able to find the same file this daemon
+   * resolved, address the worktree by branch, and drive every runtime in it. `${db.…}` is the one
+   * reference it cannot resolve yet — the forks are still made here — and while a worktree-level
+   * value reaches it as an override, a command or a service's own `env:` that uses one does not.
+   */
+  private async canopydCanRun(rt: Runtime): Promise<{ ok: true; branch: string } | { ok: false; reason: string }> {
     const row = this.deps.worktrees.row(rt.id)
     const project = this.deps.projects.get(row.project_id)
-    const supervisor = new WorktreeSupervisor({
-      runners: this.deps.runners,
-      ctx: { worktreeId: rt.id, worktreePath: row.path, projectName: project.name, dataDir: this.dataDir(rt.id), logs: sinkFor(this.deps.logs, rt.id, 'supervisor') },
-      logs: this.deps.logs,
-      sinkFor: (service) => sinkFor(this.deps.logs, rt.id, service),
-      interpolate: (text) => (rt.resolved ? interpolate(text, rt.resolved.scope) : text),
-      onChange: (services) => {
-        const state = rt.env.state === 'provisioning' || rt.env.state === 'creating' || rt.env.state === 'destroying' || rt.env.state === 'error' ? rt.env.state : deriveState(rt.env.desired, services)
-        const startedAt = LIVE_STATES.includes(state) ? (rt.env.startedAt ?? now()) : null
-        this.update(rt, { services, state, startedAt })
-      }
-    })
+    if (!this.settings(project.id).worktree.tool) return { ok: false, reason: 'the project has canopyd turned off' }
+    const tool = await this.deps.backend.info()
+    if (!tool.available) return { ok: false, reason: 'canopyd is not installed' }
+    if (!supportsRunControl(tool.version)) return { ok: false, reason: `canopyd ${tool.version ?? '?'} is older than 0.2.0` }
+    if (!row.branch) return { ok: false, reason: 'the worktree is on a detached HEAD' }
+    const loaded = loadCanopyConfig(row.path, project.path, this.home(project))
+    if (!loaded.config || !loaded.path) return { ok: false, reason: 'there is no canopy.yaml' }
+    const inCheckout = loaded.path.startsWith(`${row.path}/`) || loaded.path.startsWith(`${project.path}/`)
+    if (!inCheckout) return { ok: false, reason: 'canopy.yaml lives outside the repository' }
+    const services = rt.resolved?.services ?? []
+    const foreign = services.find((svc) => svc.runtime !== 'host' && !rt.resolved?.excluded.has(svc.name))
+    if (foreign) return { ok: false, reason: `${foreign.name} runs on ${foreign.runtime}` }
+    if (JSON.stringify(loaded.config.services).includes('${db.')) return { ok: false, reason: 'a service refers to ${db.…}' }
+    return { ok: true, branch: row.branch }
+  }
+
+  private async supervisorFor(rt: Runtime): Promise<Supervisor> {
+    const verdict = await this.canopydCanRun(rt)
+    const kind = verdict.ok ? 'canopyd' : 'daemon'
+    if (rt.supervisor && rt.supervisorKind === kind) return rt.supervisor
+    if (rt.supervisor) {
+      // The config changed what it needs. Nothing moves while services are up: whoever started
+      // them is the only one that can stop them cleanly.
+      if (rt.supervisor.handles().size > 0) return rt.supervisor
+      await rt.supervisor.dispose().catch(() => undefined)
+    }
+    const row = this.deps.worktrees.row(rt.id)
+    const project = this.deps.projects.get(row.project_id)
+    const ctx = { worktreeId: rt.id, worktreePath: row.path, projectName: project.name, dataDir: this.dataDir(rt.id), logs: sinkFor(this.deps.logs, rt.id, 'supervisor') }
+    const onChange = (services: ServiceInfo[]): void => {
+      const state = rt.env.state === 'provisioning' || rt.env.state === 'creating' || rt.env.state === 'destroying' || rt.env.state === 'error' ? rt.env.state : deriveState(rt.env.desired, services)
+      const startedAt = LIVE_STATES.includes(state) ? (rt.env.startedAt ?? now()) : null
+      this.update(rt, { services, state, startedAt })
+    }
+    let supervisor: Supervisor
+    if (verdict.ok) {
+      supervisor = new CanopydSupervisor({
+        branch: verdict.branch,
+        ctx,
+        sinkFor: (service) => sinkFor(this.deps.logs, rt.id, service),
+        onChange,
+        // Everything canopyd would not arrive at from canopy.yaml alone: fork URLs, project and
+        // per-worktree settings, and this daemon's own facts about the worktree.
+        overrides: () => Object.fromEntries((rt.resolved?.env ?? []).filter((v) => v.source !== 'yaml').map((v) => [v.key, v.value]))
+      })
+    } else {
+      ctx.logs.sys(`services are supervised by the daemon: ${verdict.reason}`)
+      supervisor = new WorktreeSupervisor({
+        runners: this.deps.runners,
+        ctx,
+        logs: this.deps.logs,
+        sinkFor: (service) => sinkFor(this.deps.logs, rt.id, service),
+        interpolate: (text) => (rt.resolved ? interpolate(text, rt.resolved.scope) : text),
+        onChange
+      })
+    }
     rt.supervisor = supervisor
+    rt.supervisorKind = kind
     return supervisor
   }
 
   private async startNow(rt: Runtime): Promise<string[]> {
     const resolved = this.ensureResolved(rt)
-    const supervisor = this.supervisorFor(rt)
+    const supervisor = await this.supervisorFor(rt)
     supervisor.configure(resolved.services, resolved.excluded)
     this.update(rt, { desired: 'running', state: 'starting', stateReason: null, startedAt: now(), services: supervisor.snapshot() })
     this.ensureTicker()
@@ -741,8 +796,9 @@ export class EnvironmentService {
     await this.enqueue(rt, async () => {
       const resolved = rt.resolved ?? this.ensureResolved(rt)
       if (!resolved.services.some((svc) => svc.name === service)) throw notFound('service', service)
-      const supervisor = this.supervisorFor(rt)
-      if (rt.env.services.length === 0 || !rt.supervisor) supervisor.configure(resolved.services, resolved.excluded)
+      const fresh = !rt.supervisor
+      const supervisor = await this.supervisorFor(rt)
+      if (rt.env.services.length === 0 || fresh) supervisor.configure(resolved.services, resolved.excluded)
       if (action === 'start') {
         if (rt.env.desired !== 'running') this.update(rt, { desired: 'running', startedAt: rt.env.startedAt ?? now() })
         this.ensureTicker()
@@ -862,7 +918,7 @@ export class EnvironmentService {
       if (rt.supervisor) await rt.supervisor.dispose().catch(() => undefined)
       const records = this.db.prepare('SELECT * FROM service_state WHERE worktree_id = ?').all(worktreeId) as Array<{ name: string; runtime: 'host' | 'docker' | 'compose'; pid: number | null; pid_start: number | null; container_id: string | null; compose_project: string | null; restarts: number }>
       if (records.length > 0) {
-        const supervisor = this.supervisorFor(rt)
+        const supervisor = await this.supervisorFor(rt)
         await supervisor.reap(records.map((r) => ({ name: r.name, runtime: r.runtime, pid: r.pid, pidStart: r.pid_start, containerId: r.container_id, composeProject: r.compose_project, restarts: r.restarts })))
       }
       const row = this.tryRow(worktreeId)
@@ -893,6 +949,7 @@ export class EnvironmentService {
     const project = row ? this.deps.projects.get(row.project_id) : null
     const loaded = row && project ? loadCanopyConfig(row.path, project.path, this.home(project)) : null
     rt.supervisor = null
+    rt.supervisorKind = null
     rt.resolved = null
     this.update(rt, { ...emptyEnvironment(loaded?.config !== null && loaded !== null, loaded?.report.errors ?? []), options: rt.env.options })
   }
@@ -996,7 +1053,7 @@ export class EnvironmentService {
       const records = this.db.prepare('SELECT * FROM service_state WHERE worktree_id = ?').all(rt.id) as Array<{ name: string; runtime: 'host' | 'docker' | 'compose'; pid: number | null; pid_start: number | null; container_id: string | null; compose_project: string | null; restarts: number }>
       if (records.length > 0) {
         try {
-          await this.supervisorFor(rt).reap(records.map((r) => ({ name: r.name, runtime: r.runtime, pid: r.pid, pidStart: r.pid_start, containerId: r.container_id, composeProject: r.compose_project, restarts: r.restarts })))
+          await (await this.supervisorFor(rt)).reap(records.map((r) => ({ name: r.name, runtime: r.runtime, pid: r.pid, pidStart: r.pid_start, containerId: r.container_id, composeProject: r.compose_project, restarts: r.restarts })))
         } catch {
           // best effort
         }
@@ -1054,4 +1111,12 @@ export class EnvironmentService {
 }
 
 const round = (value: number): number => Math.round(value * 10) / 10
+
+/** `run --control`, `--env` on the service commands and resumable logs all arrived in canopyd 0.2.0. */
+export function supportsRunControl(version: string | null): boolean {
+  const match = /^(\d+)\.(\d+)\./.exec(version ?? '')
+  if (!match) return false
+  const [major, minor] = [Number(match[1]), Number(match[2])]
+  return major > 0 || minor >= 2
+}
 const quote = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`

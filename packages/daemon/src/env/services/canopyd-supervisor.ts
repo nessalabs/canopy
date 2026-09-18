@@ -361,6 +361,9 @@ export class CanopydSupervisor implements Supervisor {
         this.patch(event.name, { status: entry.health.kind === 'none' ? 'healthy' : 'starting', pid: event.pid, startedAt: this.now(), exitCode: null, lastError: null })
         this.follow(entry)
         sys(`${event.name} started (pid ${event.pid})`)
+        // The service's own log gets the lifecycle too, so reading it says when each run began
+        // and how the last one ended without having to line it up against another stream.
+        this.deps.sinkFor(event.name).sys(`started (pid ${event.pid})`)
         return
       }
       case 'healthy':
@@ -376,6 +379,7 @@ export class CanopydSupervisor implements Supervisor {
         const why = status.exit === 'code' ? `exited with code ${status.code}` : status.exit === 'signal' ? `killed by signal ${status.signal}` : 'exited'
         this.patch(event.name, { status: 'exited', pid: undefined, exitCode: code, lastError: code === 0 ? null : why })
         sys(`${event.name} ${why}`)
+        this.deps.sinkFor(event.name).sys(why)
         return
       }
       case 'restarting': {
@@ -393,6 +397,7 @@ export class CanopydSupervisor implements Supervisor {
         const entry = this.entries.get(event.name)
         if (entry) this.endFollower(entry)
         sys(`${event.name} stopped`)
+        this.deps.sinkFor(event.name).sys('stopped')
         return
       }
       case 'rejected': {
