@@ -1,4 +1,4 @@
--- Worktrunk is gone; `canopywt` creates worktrees now, and the settings key moved with it.
+-- Worktrunk is gone; `canopyd` creates worktrees now, and the settings key moved with it.
 --
 -- The old `$.worktrunk` object held `enabled`, `worktreePath`, `hooks`, `syncProjectConfig`
 -- and `listUrl`. Only the first two survive: hooks and the `[list] url` existed to drive a

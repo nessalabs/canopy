@@ -210,7 +210,7 @@ export type CacheSettings = z.infer<typeof CacheSettings>
 
 export const WorktreeSettings = z.object({
   /**
-   * Drive worktrees through `canopywt` when it is installed; otherwise plain git. The tool
+   * Drive worktrees through `canopyd` when it is installed; otherwise plain git. The tool
    * adds a dirty check that reports what is at stake, `worktree prune` after removal, and a
    * branch-deletion policy — git alone does none of those.
    */
@@ -513,7 +513,7 @@ export const HostInfo = z.object({
   cores: z.number().int(),
   memMb: z.number(),
   docker: ToolInfo,
-  canopywt: ToolInfo,
+  canopyd: ToolInfo,
   worktreeRoot: z.string(),
   dataRoot: z.string(),
   portRange: z.tuple([z.number().int(), z.number().int()]),

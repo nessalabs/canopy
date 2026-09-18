@@ -10,7 +10,7 @@
 //   canopy status    [--json]                            list worktrees and their environment state
 //
 // Exit code is always 0 (a missing daemon must never break the command that called this); pass
-// --strict to surface failures. When the daemon itself drives `canopywt` it sets CANOPY_DAEMON=1
+// --strict to surface failures. When the daemon itself drives `canopyd` it sets CANOPY_DAEMON=1
 // and this command is a no-op — the daemon is already provisioning that worktree.
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'

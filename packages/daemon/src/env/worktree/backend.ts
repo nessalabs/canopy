@@ -1,16 +1,16 @@
 /**
- * The worktree backend: `canopywt` when it is installed, plain `git worktree` otherwise.
+ * The worktree backend: `canopyd` when it is installed, plain `git worktree` otherwise.
  *
  * This used to drive worktrunk (`wt`). It drives our own tool now, for two reasons. Worktrunk
  * owned a second config file — `.config/wt.toml` — so a project's settings lived in two places
  * and Canopy had to rewrite a slice of a file it did not own. And Canopy used three of its
  * commands out of a tool with an interactive picker, CI status and LLM branch summaries.
  *
- * `canopywt` reads the same `canopy.yaml` Canopy does, prints one JSON envelope per command, and
+ * `canopyd` reads the same `canopy.yaml` Canopy does, prints one JSON envelope per command, and
  * does the parts plain git does not: a dirty check that says what is at stake, `worktree prune`
  * after a removal, and a branch-deletion policy.
  *
- * The git fallback stays until `canopywt` ships as a prebuilt binary — a Canopy user should not
+ * The git fallback stays until `canopyd` ships as a prebuilt binary — a Canopy user should not
  * need a Rust toolchain. It creates and removes worktrees and nothing else.
  */
 import { spawn } from 'node:child_process'
@@ -22,11 +22,11 @@ import type { BranchSpec } from '@canopy/shared'
 import type { GitRunner } from '../../git/exec'
 import { conflict } from '../../lib/errors'
 
-/** `canopywt --version` is a process spawn; the host panel polls, so cache it briefly. */
+/** `canopyd --version` is a process spawn; the host panel polls, so cache it briefly. */
 const INFO_TTL_MS = 10_000
 
 /** Which tool actually did the work, for the provision log and the host panel. */
-export type Backend = 'canopywt' | 'git'
+export type Backend = 'canopyd' | 'git'
 
 export interface WorktreeCreateInput {
   /** Primary checkout — both backends run from the repo, not the new path. */
@@ -34,7 +34,7 @@ export interface WorktreeCreateInput {
   /** Absolute path Canopy wants the worktree at. */
   path: string
   branch: BranchSpec
-  /** Project setting; false forces the git fallback even when `canopywt` is installed. */
+  /** Project setting; false forces the git fallback even when `canopyd` is installed. */
   useTool: boolean
   env?: Record<string, string>
   onLine?: (stream: 'out' | 'err', text: string) => void
@@ -43,7 +43,7 @@ export interface WorktreeCreateInput {
 export interface WorktreeRemoveInput {
   repoPath: string
   path: string
-  /** Null for a detached worktree; `canopywt` addresses those by path. */
+  /** Null for a detached worktree; `canopyd` addresses those by path. */
   branch: string | null
   force: boolean
   deleteBranch: 'never' | 'if-merged' | 'always'
@@ -63,7 +63,7 @@ export interface WorktreeBackend {
   remove(input: WorktreeRemoveInput): Promise<{ backend: Backend; branchDeleted: boolean }>
 }
 
-/** The envelope every `canopywt --json` command prints, success or failure. */
+/** The envelope every `canopyd --json` command prints, success or failure. */
 interface Envelope<T> {
   v: number
   ok: boolean
@@ -151,7 +151,7 @@ function parseEnvelope<T>(stdout: string): Envelope<T> | null {
 }
 
 /**
- * `canopywt` error codes are a stable API, so they map to Canopy's conflicts by code rather
+ * `canopyd` error codes are a stable API, so they map to Canopy's conflicts by code rather
  * than by matching message text.
  */
 function toConflict(code: string, message: string): Error {
@@ -175,7 +175,7 @@ function toConflict(code: string, message: string): Error {
  *   rest of the daemon makes).
  */
 export function createWorktreeBackend(git: GitRunner, opts: { bin?: string } = {}): WorktreeBackend {
-  const bin = opts.bin ?? 'canopywt'
+  const bin = opts.bin ?? 'canopyd'
   let cached: { at: number; value: ToolInfo } | null = null
 
   const info = async (): Promise<ToolInfo> => {
@@ -185,7 +185,7 @@ export function createWorktreeBackend(git: GitRunner, opts: { bin?: string } = {
     if (path) {
       try {
         const result = await run(bin, ['--version'], process.cwd(), undefined)
-        // "canopywt 0.1.0" — keep just the number so the UI can compare versions.
+        // "canopyd 0.1.0" — keep just the number so the UI can compare versions.
         const version = /(\d+\.\d+\.\d+\S*)/.exec(`${result.stdout} ${result.stderr}`)?.[1] ?? null
         if (result.exitCode === 0) value = { available: true, version, path }
       } catch {
@@ -252,19 +252,19 @@ export function createWorktreeBackend(git: GitRunner, opts: { bin?: string } = {
       const result = await run(bin, args, input.repoPath, input.env, input.onLine)
       const envelope = parseEnvelope<CreateData>(result.stdout)
       if (!envelope) {
-        throw conflict('worktree_create_failed', result.stderr.trim() || `canopywt new exited with ${result.exitCode}`)
+        throw conflict('worktree_create_failed', result.stderr.trim() || `canopyd new exited with ${result.exitCode}`)
       }
       if (!envelope.ok || !envelope.data) {
-        throw toConflict(envelope.error?.code ?? 'worktree_create_failed', envelope.error?.message ?? 'canopywt new failed')
+        throw toConflict(envelope.error?.code ?? 'worktree_create_failed', envelope.error?.message ?? 'canopyd new failed')
       }
-      return { path: envelope.data.path, backend: 'canopywt', createdBranch: envelope.data.created_branch }
+      return { path: envelope.data.path, backend: 'canopyd', createdBranch: envelope.data.created_branch }
     },
 
     async remove(input) {
       const usable = input.useTool && (await info()).available
       if (!usable) return gitRemove(input)
 
-      // A detached worktree has no branch, so it is addressed by path. `canopywt rm` accepts
+      // A detached worktree has no branch, so it is addressed by path. `canopyd rm` accepts
       // either.
       const target = input.branch ?? input.path
       const args = ['rm', target, '--delete-branch', input.deleteBranch, '--json']
@@ -273,12 +273,12 @@ export function createWorktreeBackend(git: GitRunner, opts: { bin?: string } = {
       const result = await run(bin, args, input.repoPath, undefined, input.onLine)
       const envelope = parseEnvelope<RemoveData>(result.stdout)
       if (!envelope) {
-        throw conflict('worktree_remove_failed', result.stderr.trim() || `canopywt rm exited with ${result.exitCode}`)
+        throw conflict('worktree_remove_failed', result.stderr.trim() || `canopyd rm exited with ${result.exitCode}`)
       }
       if (!envelope.ok || !envelope.data) {
-        throw toConflict(envelope.error?.code ?? 'worktree_remove_failed', envelope.error?.message ?? 'canopywt rm failed')
+        throw toConflict(envelope.error?.code ?? 'worktree_remove_failed', envelope.error?.message ?? 'canopyd rm failed')
       }
-      return { backend: 'canopywt', branchDeleted: envelope.data.branch_deleted }
+      return { backend: 'canopyd', branchDeleted: envelope.data.branch_deleted }
     }
   }
 }

@@ -53,8 +53,8 @@ export async function createTestServer(opts: { worktreeBackend?: WorktreeBackend
     token: TOKEN,
     agents: createAgentRegistry([agent]),
     docker: opts.docker ?? noDocker,
-    // Tests exercise the git fallback unless one opts into the real `canopywt`.
-    worktreeBackend: opts.worktreeBackend ?? createWorktreeBackend(runGit, { bin: 'canopywt-not-installed-for-tests' })
+    // Tests exercise the git fallback unless one opts into the real `canopyd`.
+    worktreeBackend: opts.worktreeBackend ?? createWorktreeBackend(runGit, { bin: 'canopyd-not-installed-for-tests' })
   })
   await app.ready()
 

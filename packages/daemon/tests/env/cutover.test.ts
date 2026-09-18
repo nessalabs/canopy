@@ -1,5 +1,5 @@
 /**
- * The cutover, end to end: a real canopyd, a real repository, a real `canopywt` binary, and a
+ * The cutover, end to end: a real canopyd, a real repository, a real `canopyd` binary, and a
  * worktree created and destroyed through the HTTP API the clients use.
  *
  * The other backend tests call `createWorktreeBackend` directly. This one goes through the
@@ -17,9 +17,9 @@ import { createFixtureRepo, type FixtureRepo } from '../helpers/fixture-repo'
 import { createTestServer, type TestServer } from '../helpers/test-server'
 
 /** The binary is optional; this test only runs where it is installed. */
-const hasTool = (process.env['PATH'] ?? '').split(delimiter).some((dir) => dir.length > 0 && existsSync(join(dir, 'canopywt')))
+const hasTool = (process.env['PATH'] ?? '').split(delimiter).some((dir) => dir.length > 0 && existsSync(join(dir, 'canopyd')))
 
-describe.skipIf(!hasTool)('canopywt through the daemon', () => {
+describe.skipIf(!hasTool)('canopyd through the daemon', () => {
   let server: TestServer
   let repo: FixtureRepo
 
@@ -35,11 +35,11 @@ describe.skipIf(!hasTool)('canopywt through the daemon', () => {
     repo.cleanup()
   })
 
-  it('reports canopywt in host info', async () => {
-    const host = await server.call<{ canopywt: { available: boolean; version: string | null } }>('GET', '/api/v1/host')
+  it('reports canopyd in host info', async () => {
+    const host = await server.call<{ canopyd: { available: boolean; version: string | null } }>('GET', '/api/v1/host')
     expect(host.status).toBe(200)
-    expect(host.body.canopywt.available).toBe(true)
-    expect(host.body.canopywt.version).toMatch(/^\d+\.\d+\.\d+/)
+    expect(host.body.canopyd.available).toBe(true)
+    expect(host.body.canopyd.version).toMatch(/^\d+\.\d+\.\d+/)
   })
 
   it('defaults a project to creating worktrees with the tool', async () => {

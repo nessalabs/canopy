@@ -1,5 +1,5 @@
 /**
- * Driving `canopywt` for the provisioning steps Canopy used to implement itself.
+ * Driving `canopyd` for the provisioning steps Canopy used to implement itself.
  *
  * Copying gitignored files, linking caches and allocating ports were three TypeScript modules
  * (437 lines) doing what the crate now does behind one flag each. They are gone; this is what
@@ -20,7 +20,7 @@ import type { CacheRule, CacheStrategy, CopyFileRule, PortSpec } from '@canopy/s
 
 import { conflict } from '../../lib/errors'
 
-/** The envelope every `canopywt --json` command prints, success or failure. */
+/** The envelope every `canopyd --json` command prints, success or failure. */
 interface Envelope<T> {
   v: number
   ok: boolean
@@ -43,7 +43,7 @@ export interface CopyResult {
   failures: Array<{ path: string; strategy: string; message: string }>
 }
 
-export interface Canopywt {
+export interface Canopyd {
   available(): Promise<boolean>
   /** Carries gitignored files from `source` into the worktree, with explicit rules. */
   copy(input: { cwd: string; branch: string; source: string; rules: Array<{ pattern: string; strategy: string }>; onLine?: OnLine }): Promise<CopyResult>
@@ -114,11 +114,11 @@ function parseEnvelope<T>(stdout: string): Envelope<T> | null {
 function unwrap<T>(command: string, result: { exitCode: number | null; stdout: string; stderr: string }): T {
   const envelope = parseEnvelope<T>(result.stdout)
   if (!envelope) {
-    throw conflict('provision_failed', result.stderr.trim() || `canopywt ${command} exited with ${result.exitCode}`)
+    throw conflict('provision_failed', result.stderr.trim() || `canopyd ${command} exited with ${result.exitCode}`)
   }
   if (!envelope.ok || envelope.data === undefined) {
     // `error.code` is a stable API, so it is carried through rather than flattened.
-    throw conflict(envelope.error?.code ?? 'provision_failed', envelope.error?.message ?? `canopywt ${command} failed`)
+    throw conflict(envelope.error?.code ?? 'provision_failed', envelope.error?.message ?? `canopyd ${command} failed`)
   }
   return envelope.data
 }
@@ -155,8 +155,8 @@ export function rulesFor(copyFiles: CopyFileRule[], caches: CacheRule[]): Array<
   return rules
 }
 
-export function createCanopywt(opts: { bin?: string } = {}): Canopywt {
-  const bin = opts.bin ?? 'canopywt'
+export function createCanopyd(opts: { bin?: string } = {}): Canopyd {
+  const bin = opts.bin ?? 'canopyd'
 
   return {
     async available() {
@@ -194,12 +194,12 @@ export function createCanopywt(opts: { bin?: string } = {}): Canopywt {
       const result = await run(bin, args, cwd, onLine)
       const envelope = parseEnvelope<SetupResult>(result.stdout)
       if (!envelope) {
-        throw conflict('setup_failed', result.stderr.trim() || `canopywt setup exited with ${result.exitCode}`)
+        throw conflict('setup_failed', result.stderr.trim() || `canopyd setup exited with ${result.exitCode}`)
       }
       // A failing step is a verdict, not a fault: the data is still there, and the caller wants
       // to show which step failed and why rather than just that something did.
       if (envelope.data) return envelope.data
-      throw conflict(envelope.error?.code ?? 'setup_failed', envelope.error?.message ?? 'canopywt setup failed')
+      throw conflict(envelope.error?.code ?? 'setup_failed', envelope.error?.message ?? 'canopyd setup failed')
     }
   }
 }

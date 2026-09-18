@@ -1,7 +1,7 @@
 /**
  * Suggesting copy rules to the user.
  *
- * The copying itself is `canopywt copy` now; this is only the scan behind "detected in the main
+ * The copying itself is `canopyd copy` now; this is only the scan behind "detected in the main
  * checkout but not listed" in project settings, which needs Canopy's own idea of what a
  * developer probably wants carried across.
  */

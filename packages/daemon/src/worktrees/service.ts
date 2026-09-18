@@ -276,7 +276,7 @@ export class WorktreesService {
 
   /**
    * Tears the environment down (services, containers, forks, ports, logs), then removes the
-   * checkout through canopywt or git. `deleteBranch` overrides the project's cleanup policy.
+   * checkout through canopyd or git. `deleteBranch` overrides the project's cleanup policy.
    *
    * Uncommitted work is saved before the checkout goes. Forcing past the dirty check is the
    * ordinary way to destroy a worktree — the UI sets `force` for you whenever there is

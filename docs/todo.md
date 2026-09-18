@@ -186,7 +186,7 @@ item lands, delete it here.
 
 ## Daemon
 
-- No `canopy` CLI yet (plan M6). `packages/daemon/bin/canopyd.mjs` runs the TS source via tsx;
+- No `canopy` CLI yet (plan M6). `packages/daemon/bin/canopy-daemon.mjs` runs the TS source via tsx;
   add a tsup build for a real binary.
 - better-sqlite3 loads a prebuilt binding under Node 25 today; pin Node 22 (`.node-version`)
   if a future Node lacks prebuilds.

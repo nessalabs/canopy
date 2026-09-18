@@ -8,8 +8,8 @@ import { createWorktreeBackend } from '../../src/env/worktree/backend'
 import { runGit } from '../../src/git/exec'
 import { createFixtureRepo, type FixtureRepo } from '../helpers/fixture-repo'
 
-/** `canopywt` is optional; the tool-backed tests only run where it is installed. */
-const hasTool = (process.env['PATH'] ?? '').split(delimiter).some((dir) => dir.length > 0 && existsSync(join(dir, 'canopywt')))
+/** `canopyd` is optional; the tool-backed tests only run where it is installed. */
+const hasTool = (process.env['PATH'] ?? '').split(delimiter).some((dir) => dir.length > 0 && existsSync(join(dir, 'canopyd')))
 
 describe('worktree backend', () => {
   let repo: FixtureRepo
@@ -73,7 +73,7 @@ describe('worktree backend', () => {
     if (hasTool) expect(info.version).toMatch(/^\d+\.\d+\.\d+/)
   })
 
-  it.skipIf(!hasTool)('drives canopywt new and canopywt rm when it is installed', async () => {
+  it.skipIf(!hasTool)('drives canopyd new and canopyd rm when it is installed', async () => {
     const wt = createWorktreeBackend(runGit)
     const path = join(root, 'wt-feature')
     const lines: string[] = []
@@ -84,13 +84,13 @@ describe('worktree backend', () => {
       useTool: true,
       onLine: (_stream, text) => lines.push(text)
     })
-    expect(created.backend).toBe('canopywt')
+    expect(created.backend).toBe('canopyd')
     expect(created.createdBranch).toBe(true)
     expect(realpathSync(created.path)).toBe(realpathSync(path))
     expect(existsSync(join(path, 'a.txt'))).toBe(true)
 
     const removed = await wt.remove({ repoPath: repo.path, path, branch: 'wt-feature', force: false, deleteBranch: 'always', useTool: true })
-    expect(removed.backend).toBe('canopywt')
+    expect(removed.backend).toBe('canopyd')
     expect(removed.branchDeleted).toBe(true)
     expect(existsSync(path)).toBe(false)
   })

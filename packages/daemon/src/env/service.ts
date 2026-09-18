@@ -69,7 +69,7 @@ import { loadAppSettings, saveAppSettings } from './settings/app-settings'
 import { loadProjectSettings, saveProjectSettings } from './settings/project-settings'
 import { sinkFor } from './logs/store'
 import type { DbAdapter, DbContext, DockerHelper, EventBus, LogStore, ProvisionContext, ProvisionState, ServiceRunner } from './types'
-import type { Canopywt } from './worktree/canopywt'
+import type { Canopyd } from './worktree/canopyd'
 import type { WorktreeBackend } from './worktree/backend'
 
 export interface EnvironmentDeps {
@@ -82,7 +82,7 @@ export interface EnvironmentDeps {
   events: EventBus
   docker: DockerHelper
   backend: WorktreeBackend
-  canopywt: Canopywt
+  canopyd: Canopyd
   ports: PortAllocator
   databases: { adapterFor(name: DbInstanceInfo['adapter']): DbAdapter; all(): DbAdapter[] }
   runners: Record<'host' | 'docker' | 'compose', ServiceRunner>
@@ -158,7 +158,7 @@ export class EnvironmentService {
     this.steps = createSteps({
       git: deps.git,
       backend: deps.backend,
-      canopywt: deps.canopywt,
+      canopyd: deps.canopyd,
       ports: deps.ports,
       databases: deps.databases,
       dbContext: (ctx, env) => this.dbContext(ctx.worktreeId, ctx.worktreeName, ctx.branch ?? null, ctx.worktreePath, ctx.project, env),
@@ -438,7 +438,7 @@ export class EnvironmentService {
   }
 
   async hostInfo(): Promise<HostInfo> {
-    const [docker, canopywt] = await Promise.all([this.deps.docker.info(), this.deps.backend.info()])
+    const [docker, canopyd] = await Promise.all([this.deps.docker.info(), this.deps.backend.info()])
     const app = this.appSettings()
     // Hooks in .config/wt.toml call `canopy …`; when it is not on PATH, tell users the absolute invocation instead.
     const which = await execa('sh', ['-c', 'command -v canopy'], { reject: false })
@@ -451,7 +451,7 @@ export class EnvironmentService {
       cores: os.cpus().length,
       memMb: Math.round(os.totalmem() / (1024 * 1024)),
       docker: { available: docker.available, version: docker.version, path: docker.path },
-      canopywt: { available: canopywt.available, version: canopywt.version, path: canopywt.path },
+      canopyd: { available: canopyd.available, version: canopyd.version, path: canopyd.path },
       worktreeRoot: this.deps.config.worktreeRoot,
       dataRoot: this.deps.config.dataRoot,
       portRange: [app.ports.from, app.ports.to],

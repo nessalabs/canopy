@@ -1,5 +1,5 @@
 /**
- * Port allocation for the numbers `canopywt` does not own.
+ * Port allocation for the numbers `canopyd` does not own.
  *
  * Service ports declared in `canopy.yaml` are the crate's: it keeps the registry in the
  * repository's common git dir, so every worktree and every tool sees one table. What is left

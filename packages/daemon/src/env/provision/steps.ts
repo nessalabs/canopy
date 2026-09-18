@@ -13,14 +13,14 @@ import type { GitRunner } from '../../git/exec'
 import type { PortAllocator } from '../ports/allocator'
 import { resolveEnvironment, writeEnvFile, type ResolvedEnvironment } from '../config/resolve'
 import type { DbAdapter, DbContext, ProvisionContext, ProvisionStepImpl } from '../types'
-import { rulesFor, type Canopywt } from '../worktree/canopywt'
+import { rulesFor, type Canopyd } from '../worktree/canopyd'
 import type { WorktreeBackend } from '../worktree/backend'
 import { SHARED_STORE_ENV, changedLockfiles, installCommand } from './caches'
 
 export interface StepDeps {
   git: GitRunner
   backend: WorktreeBackend
-  canopywt: Canopywt
+  canopyd: Canopyd
   /** Still allocates the ports the crate has no concept of — a database fork's container port. */
   ports: PortAllocator
   databases: { adapterFor(name: DbAdapterName): DbAdapter }
@@ -80,7 +80,7 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
         onLine: (_stream, text) => ctx.logs.out(text)
       })
       const verb = spec.mode === 'new' ? `${spec.name} from ${spec.base}` : spec.name
-      return { detail: `${result.backend === 'canopywt' ? 'canopywt new' : 'git worktree add'} ${verb}` }
+      return { detail: `${result.backend === 'canopyd' ? 'canopyd new' : 'git worktree add'} ${verb}` }
     }
   }
 
@@ -98,7 +98,7 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     async run(ctx) {
       const rules = rulesFor(ctx.settings.copyFiles, ctx.settings.caches.rules)
       const branch = ctx.branch ?? ctx.worktreeName
-      const outcome = await deps.canopywt.copy({
+      const outcome = await deps.canopyd.copy({
         cwd: ctx.worktreePath,
         branch,
         source: ctx.sourcePath,
@@ -132,7 +132,7 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     async run(ctx) {
       // The crate owns the registry, in the repository's common git dir. Keeping a second
       // allocator here would mean two tables that can disagree about who holds what.
-      const allocated = await deps.canopywt.ports({
+      const allocated = await deps.canopyd.ports({
         cwd: ctx.worktreePath,
         branch: ctx.branch ?? ctx.worktreeName,
         onLine: (_stream, text) => ctx.logs.out(text)
@@ -231,7 +231,7 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
       if ((ctx.config as NonNullable<ProvisionContext['config']>).setup.length > 0) {
         // The steps themselves are the crate's, so `if_changed` has one implementation rather
         // than two that can disagree about whether a lockfile moved.
-        const outcome = await deps.canopywt.setup({
+        const outcome = await deps.canopyd.setup({
           cwd: ctx.worktreePath,
           branch: ctx.branch ?? ctx.worktreeName,
           env: shellEnv,

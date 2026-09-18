@@ -4,8 +4,8 @@
 #   ./dev.sh            daemon + Electron desktop app (default)
 #   ./dev.sh web        daemon + web client on http://localhost:5173
 #   ./dev.sh daemon     daemon only (tsx watch)
-#   ./dev.sh setup      install deps, verify the electron binary, install canopywt, typecheck
-#   ./dev.sh canopywt   (re)install the canopywt binary from github.com/nessalabs/canopyd
+#   ./dev.sh setup      install deps, verify the electron binary, install canopyd, typecheck
+#   ./dev.sh install-canopyd   (re)install the canopyd binary from github.com/nessalabs/canopyd
 #   ./dev.sh test       run every workspace's tests
 #   ./dev.sh doctor     print tool versions and daemon state
 #
@@ -36,21 +36,21 @@ ensure_electron_binary() {
   fi
 }
 
-# Worktrees are created and provisioned by `canopywt`, the binary of nessalabs/canopyd (Canopy's
+# Worktrees are created and provisioned by `canopyd`, the binary of nessalabs/canopyd (Canopy's
 # worktree manager, a separate Rust repo); canopyd falls back to plain git without it.
 CANOPYD_REPO="${CANOPYD_REPO:-https://github.com/nessalabs/canopyd}"
-install_canopywt() {
-  command -v cargo >/dev/null || die "cargo not found (need Rust >= 1.90 to install canopywt)"
+install_canopyd() {
+  command -v cargo >/dev/null || die "cargo not found (need Rust >= 1.90 to install canopyd)"
   log "cargo install --git $CANOPYD_REPO"
   cargo install --git "$CANOPYD_REPO" --locked --force
 }
 
-ensure_canopywt() {
-  if command -v canopywt >/dev/null; then return 0; fi
+ensure_canopyd() {
+  if command -v canopyd >/dev/null; then return 0; fi
   if command -v cargo >/dev/null; then
-    install_canopywt
+    install_canopyd
   else
-    log "canopywt not on PATH and no cargo: worktrees use plain git until you install it"
+    log "canopyd not on PATH and no cargo: worktrees use plain git until you install it"
   fi
 }
 
@@ -59,7 +59,7 @@ setup() {
   log "npm install (workspaces)"
   (cd "$ROOT" && npm install)
   ensure_electron_binary
-  ensure_canopywt
+  ensure_canopyd
   log "typecheck"
   (cd "$ROOT" && npm run typecheck)
 }
@@ -87,7 +87,7 @@ doctor() {
   echo "npm:       $(npm --version 2>/dev/null || echo missing)"
   echo "git:       $(git --version 2>/dev/null || echo missing)"
   echo "cargo:     $(cargo --version 2>/dev/null || echo missing)"
-  echo "canopywt:  $(canopywt --version 2>/dev/null || echo 'missing (./dev.sh canopywt)')"
+  echo "canopyd:  $(canopyd --version 2>/dev/null || echo 'missing (./dev.sh install-canopyd)')"
   echo "claude:    $(command -v claude || echo missing)"
   echo "codex:     $(command -v codex || echo missing)"
   echo "deps:      $([ -d "$ROOT/node_modules" ] && echo installed || echo missing)"
@@ -100,7 +100,7 @@ doctor() {
 cmd="${1:-dev}"
 case "$cmd" in
   setup)  setup ;;
-  canopywt) install_canopywt ;;
+  install-canopyd) install_canopyd ;;
   daemon) cd "$ROOT" && exec npm -w @canopy/daemon run dev ;;
   dev)    needs_setup && setup; start_daemon; cd "$ROOT" && npm -w @canopy/desktop run dev ;;
   web)    needs_setup && setup; start_daemon; cd "$ROOT" && npm -w @canopy/web run dev ;;
