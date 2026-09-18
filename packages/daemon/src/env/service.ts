@@ -682,9 +682,10 @@ export class EnvironmentService {
    * Whether `canopyd run` can supervise this worktree, or why the in-process supervisor has to.
    *
    * canopyd reads `canopy.yaml` itself, so it has to be able to find the same file this daemon
-   * resolved, address the worktree by branch, and drive every runtime in it. `${db.…}` is the one
-   * reference it cannot resolve yet — the forks are still made here — and while a worktree-level
-   * value reaches it as an override, a command or a service's own `env:` that uses one does not.
+   * resolved, address the worktree by branch, and drive every runtime in it. `${db.…}` it resolves
+   * only against forks it made, so a fork still held in-process (made before canopyd drove that
+   * engine, or a Redis on the host) keeps the worktree here. A worktree-level value reaches it as
+   * an override; a command or a service's own `env:` that uses one does not.
    */
   private async canopydCanRun(rt: Runtime): Promise<{ ok: true; branch: string } | { ok: false; reason: string }> {
     const sees = await this.canopydSees(rt.id)

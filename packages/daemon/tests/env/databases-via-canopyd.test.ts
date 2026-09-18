@@ -31,7 +31,7 @@ const ctx = (overrides: Partial<DbContext> = {}): DbContext => ({
 
 const FORK: CanopydFork = { name: 'main', adapter: 'sqlite', status: 'ready', url: 'file:/state/db/main.db', env_key: 'MAIN_URL', forked_from: 'seed template', source: '/repo/data/seed.db', detail: { file: '/state/db/main.db' }, size_bytes: 1_572_864 }
 
-function harness(opts: { version?: string | null; reset?: () => Promise<CanopydFork>; enabled?: boolean; engine?: 'sqlite' | 'postgres' | 'redis' } = {}) {
+function harness(opts: { version?: string | null; reset?: () => Promise<CanopydFork>; enabled?: boolean; engine?: DbAdapter['adapter'] } = {}) {
   const calls: string[] = []
   const canopyd = {
     version: async () => (opts.version === undefined ? '0.3.0' : opts.version),
@@ -115,16 +115,31 @@ describe('database forks through canopyd', () => {
   })
 
   it('knows which canopyd first drove each engine', async () => {
-    // Postgres arrived two releases after SQLite, and Redis has not arrived at all.
-    const fork = async (engine: 'sqlite' | 'postgres' | 'redis', version: string): Promise<string[]> => {
+    // Postgres arrived two releases after SQLite, and MySQL and Redis one after that.
+    const fork = async (engine: DbAdapter['adapter'], version: string, runtime?: 'docker' | 'host'): Promise<string[]> => {
       const { adapter, calls } = harness({ engine, version })
-      await adapter.fork('main', { ...SPEC, adapter: engine }, ctx(), 'template')
+      await adapter.fork('main', { ...SPEC, adapter: engine, ...(runtime ? { runtime } : {}) }, ctx(), 'template')
       return calls.map((call) => call.split(' ')[0] as string)
     }
     expect(await fork('postgres', '0.4.9')).toEqual(['native'])
     expect(await fork('postgres', '0.5.0')).toEqual(['canopyd', 'native'])
     expect(await fork('postgres', '1.0.0')).toEqual(['canopyd', 'native'])
-    expect(await fork('redis', '9.9.9')).toEqual(['native'])
+    for (const engine of ['mysql', 'redis'] as const) {
+      expect(await fork(engine, '0.5.9')).toEqual(['native'])
+      expect(await fork(engine, '0.6.0')).toEqual(['canopyd', 'native'])
+    }
+  })
+
+  it('keeps a Redis on the host for itself: canopyd would put it in a container', async () => {
+    const host = harness({ engine: 'redis', version: '0.6.0' })
+    const spec = { ...SPEC, adapter: 'redis' as const, runtime: 'host' as const }
+    await host.adapter.fork('cache', spec, ctx(), 'template')
+    await host.adapter.destroy('cache', spec, ctx())
+    expect(host.calls).toEqual(['native fork cache', 'native destroy cache'])
+    // In a container it is canopyd's, whether the file says so or leaves it to the default.
+    const docker = harness({ engine: 'redis', version: '0.6.0' })
+    await docker.adapter.fork('cache', { ...spec, runtime: 'docker' }, ctx(), 'template')
+    expect(docker.calls[0]).toBe('canopyd reset cache feat/x --from template')
   })
 
   it('leaves a missing template for canopyd to build, and rebuilds one in-process', async () => {
