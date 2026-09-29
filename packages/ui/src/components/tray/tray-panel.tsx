@@ -8,6 +8,7 @@ import { Meter } from '@/components/ui/meter'
 import { StatusDot } from '@/components/ui/status-dot'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { trayGroups, traySummary } from '@/lib/tray-model'
+import { useFonts } from '@/lib/use-fonts'
 import { useTheme } from '@/lib/use-theme'
 import { cn } from '@/lib/utils'
 
@@ -85,8 +86,9 @@ function TrayNotice({ title, body, action }: { title: string; body: string; acti
  */
 export function TrayPanel(props: TrayPanelProps): React.JSX.Element {
   const { status, error, projects, worktrees, machine, onDismiss, onOpenApp, onQuit, onRetry, onStopAll, onHeight, daemonHint } = props
-  // Shares the app window's stored choice, so the panel matches whatever theme Canopy is in.
+  // Shares the app window's stored choices, so the panel matches whatever theme and fonts Canopy is in.
   useTheme()
+  useFonts()
   const stopAll = useTrayAction()
   const groups = trayGroups(projects, worktrees)
   const summary = traySummary(worktrees)

@@ -3,6 +3,7 @@ import { useEffect, useMemo } from 'react'
 import { CodeBlockProvider } from '@/components/ui/code-block'
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram'
 import { readDiagram } from '@/lib/pop-out'
+import { useFonts } from '@/lib/use-fonts'
 import { useTheme } from '@/lib/use-theme'
 
 /**
@@ -12,6 +13,7 @@ import { useTheme } from '@/lib/use-theme'
  */
 export function DiagramWindowScreen({ id }: { id: string }): React.JSX.Element {
   const { theme } = useTheme()
+  useFonts()
   const chart = useMemo(() => readDiagram(id), [id])
 
   useEffect(() => {
