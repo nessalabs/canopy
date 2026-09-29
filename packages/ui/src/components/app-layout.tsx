@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronRight, FolderGit2, Gauge, Moon, PanelLeft, Plus, Settings2, Sun, TreePine } from 'lucide-react'
+import { ChevronRight, FolderGit2, Gauge, GitBranch, GitFork, Moon, PanelLeft, Plus, Settings2, Sun, TreePine } from 'lucide-react'
 import { Link, useLocation, useRoute } from 'wouter'
 
 import { environmentDot, type Project, type Worktree } from '@canopy/shared'
@@ -69,6 +69,27 @@ function HoverAction({ label, onClick, children }: { label: string; onClick: () 
   )
 }
 
+/**
+ * A worktree row's leading mark: a branch for the main checkout, a fork for every other worktree,
+ * with the status dot pinned to its corner. The dot's ring follows the row's own background so it
+ * reads as cut out of the icon whether the row is resting, hovered or active.
+ */
+function WorktreeIcon({ worktree }: { worktree: Worktree }): React.JSX.Element {
+  const Icon = worktree.isMain ? GitBranch : GitFork
+  // A checkout that is not there outranks whatever its environment last said it was doing: a
+  // stopped environment must never make a gone worktree look ordinary.
+  const status = worktree.state === 'missing' || worktree.environment.state === 'none' ? WORKTREE_DOT[worktree.state] : environmentDot(worktree.environment)
+  return (
+    <span className="relative inline-flex">
+      <Icon className="size-3.5 text-muted-foreground" />
+      <StatusDot
+        status={status}
+        className="absolute -right-0.5 -bottom-0.5 size-1.5 ring-2 ring-sidebar group-hover/menu-button:ring-sidebar-accent group-data-[active=true]/menu-button:ring-sidebar-accent"
+      />
+    </span>
+  )
+}
+
 function ProjectSection({ project, worktrees }: { project: Project; worktrees: Worktree[] }): React.JSX.Element {
   const [location, navigate] = useLocation()
   const [open, setOpen] = useState(true)
@@ -97,9 +118,7 @@ function ProjectSection({ project, worktrees }: { project: Project; worktrees: W
               <SidebarMenuItem
                 key={wt.id}
                 size="sm"
-                // A checkout that is not there outranks whatever its environment last said it
-                // was doing: a stopped environment must never make a gone worktree look ordinary.
-                icon={<StatusDot status={wt.state === 'missing' || wt.environment.state === 'none' ? WORKTREE_DOT[wt.state] : environmentDot(wt.environment)} />}
+                icon={<WorktreeIcon worktree={wt} />}
                 isActive={location === `/worktrees/${wt.id}`}
                 onClick={() => navigate(`/worktrees/${wt.id}`)}
                 trailing={
@@ -112,7 +131,9 @@ function ProjectSection({ project, worktrees }: { project: Project; worktrees: W
                   </span>
                 }
               >
-                <span className="truncate font-mono text-xs">{wt.name}</span>
+                {/* The main checkout is named after its folder, which says nothing; the branch
+                    it has checked out is what the row is really about. */}
+                <span className="truncate font-mono text-xs">{wt.isMain ? (wt.branch ?? wt.name) : wt.name}</span>
               </SidebarMenuItem>
             ))}
             <SidebarMenuItem size="sm" className="text-muted-foreground" icon={<Plus className="size-3.5" />} onClick={() => navigate(`/projects/${project.id}/new`)}>
