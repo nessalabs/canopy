@@ -1,7 +1,10 @@
 import { useEffect, useRef } from 'react'
 
+import type { LineChange, LineChangeKind } from '@/lib/line-changes'
 import { fileUri, monaco, onOpenFrom, themeFor } from '@/lib/monaco'
 import { codeFontStack, currentFonts, useFonts } from '@/lib/use-fonts'
+
+import './code-editor.css'
 
 /** The line a code link or a "go to definition" named, carried in the trail as `L<n>`. */
 export const lineAnchor = (line: number): string => `L${line}`
@@ -27,6 +30,42 @@ function acquireModel(worktreeId: string, path: string, text: string): monaco.ed
 
 function releaseModel(model: monaco.editor.ITextModel): void {
   if (!monaco.editor.getEditors().some((editor) => editor.getModel() === model)) model.dispose()
+}
+
+/** How each kind of change is painted; the classes live in code-editor.css. */
+const MARK: Record<Exclude<LineChangeKind, 'removed'>, { line: string; gutter: string; ruler: string }> = {
+  added: { line: 'canopy-line-added', gutter: 'canopy-gutter-added', ruler: '#3fb950' },
+  modified: { line: 'canopy-line-modified', gutter: 'canopy-gutter-modified', ruler: '#d29922' }
+}
+const REMOVED_RULER = '#f85149'
+
+/** The patch's changes as editor decorations: a gutter bar and a line wash, and a notch for a cut. */
+function markChanges(changes: LineChange[], lineCount: number): monaco.editor.IModelDeltaDecoration[] {
+  // A mark past the end means the text and the patch disagree for a moment; skip it rather than guess.
+  return changes.filter((change) => change.kind === 'removed' || change.start <= lineCount).map((change) => {
+    if (change.kind === 'removed') {
+      // Lines cut from the end of the file sit below the last line, not above a line that is not there.
+      const below = change.start > lineCount
+      const line = Math.min(change.start, lineCount)
+      return {
+        range: new monaco.Range(line, 1, line, 1),
+        options: {
+          linesDecorationsClassName: below ? 'canopy-gutter-removed-below' : 'canopy-gutter-removed',
+          overviewRuler: { color: REMOVED_RULER, position: monaco.editor.OverviewRulerLane.Left }
+        }
+      }
+    }
+    const mark = MARK[change.kind]
+    return {
+      range: new monaco.Range(change.start, 1, Math.min(change.end, lineCount), 1),
+      options: {
+        isWholeLine: true,
+        className: mark.line,
+        linesDecorationsClassName: mark.gutter,
+        overviewRuler: { color: mark.ruler, position: monaco.editor.OverviewRulerLane.Left }
+      }
+    }
+  })
 }
 
 /**
@@ -70,6 +109,7 @@ export default function CodeEditor({
   text,
   mode,
   anchor,
+  changes,
   onOpenPath
 }: {
   worktreeId: string
@@ -77,10 +117,13 @@ export default function CodeEditor({
   text: string
   mode: 'light' | 'dark'
   anchor?: string
+  /** What the change being reviewed did to this file's lines, marked in the gutter; absent outside a diff. */
+  changes?: LineChange[]
   onOpenPath?: (path: string, hash?: string) => void
 }): React.JSX.Element {
   const host = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor>(null)
+  const marksRef = useRef<monaco.editor.IEditorDecorationsCollection>(null)
   const openPath = useRef(onOpenPath)
   openPath.current = onOpenPath
   const { fonts } = useFonts()
@@ -114,9 +157,11 @@ export default function CodeEditor({
       padding: { top: 8 }
     })
     editorRef.current = editor
+    marksRef.current = editor.createDecorationsCollection()
     onOpenFrom(editor, (target, line) => openPath.current?.(target, line === undefined ? undefined : lineAnchor(line)))
     return () => {
       editorRef.current = null
+      marksRef.current = null
       editor.dispose()
       releaseModel(model)
     }
@@ -127,6 +172,13 @@ export default function CodeEditor({
     const model = editorRef.current?.getModel()
     if (model && model.getValue() !== text) model.setValue(text)
   }, [text])
+
+  // After the text effect above, so the marks are laid over the lines they were computed for.
+  useEffect(() => {
+    const model = editorRef.current?.getModel()
+    if (!model || !marksRef.current) return
+    marksRef.current.set(changes ? markChanges(changes, model.getLineCount()) : [])
+  }, [changes, text])
 
   useEffect(() => {
     monaco.editor.setTheme(themeFor(mode))

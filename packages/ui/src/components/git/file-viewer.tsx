@@ -4,6 +4,7 @@ import { CodeBlockProvider } from '@/components/ui/code-block'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { useFileContents } from '@/lib/api-hooks'
 import { resolveDocLink, slugify } from '@/lib/doc-links'
+import { lineChangesOf } from '@/lib/line-changes'
 import { diffSegments, type SegmentKind } from '@/lib/markdown-diff'
 import { whenIdle } from '@/lib/use-idle-preload'
 import { useTheme } from '@/lib/use-theme'
@@ -56,15 +57,17 @@ function FileText({ worktreeId, path, rev, children }: FileProps & { children: (
 /**
  * One file's source in VS Code's editor, read-only: find, folding, go to definition and the
  * rest come with it. `anchor` is a line (`L42`) to land on; a definition in another file opens
- * it through `onOpenPath`, the same way a link out of a rendered doc does.
+ * it through `onOpenPath`, the same way a link out of a rendered doc does. Given the file's
+ * `patch`, the lines it added and replaced are marked, so the whole file reads with the change on it.
  */
-export function FileViewer({ worktreeId, path, rev, anchor, onOpenPath }: FileProps & { anchor?: string; onOpenPath?: OpenPath }): React.JSX.Element {
+export function FileViewer({ worktreeId, path, rev, anchor, patch, onOpenPath }: FileProps & { anchor?: string; patch?: string; onOpenPath?: OpenPath }): React.JSX.Element {
   const { theme } = useTheme()
+  const changes = useMemo(() => (patch ? lineChangesOf(patch) : undefined), [patch])
   return (
     <FileText worktreeId={worktreeId} path={path} rev={rev}>
       {(text) => (
         <Suspense fallback={<Note>Loading editor…</Note>}>
-          <CodeEditor worktreeId={worktreeId} path={path} text={text} mode={theme} anchor={anchor} onOpenPath={onOpenPath} />
+          <CodeEditor worktreeId={worktreeId} path={path} text={text} mode={theme} anchor={anchor} changes={changes} onOpenPath={onOpenPath} />
         </Suspense>
       )}
     </FileText>

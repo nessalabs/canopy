@@ -82,16 +82,23 @@ function RenderedDiffBody({ worktreeId, spec, file, onOpenPath }: Props): React.
   )
 }
 
+/**
+ * The whole file, with the change marked on its lines. The file shows as soon as it is read; the
+ * marks follow once the patch is in, so a slow diff never holds the file back. A snapshot diff
+ * (`trees`) compares two trees the working copy shown here may have moved on from, so it gets none.
+ */
+function FileBody({ worktreeId, spec, file, anchor, onOpenPath }: Props): React.JSX.Element {
+  const marked = spec.kind !== 'trees'
+  const patch = useFilePatch(worktreeId, spec, file.path, marked)
+  return <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} patch={marked ? (patch.data?.patch ?? undefined) : undefined} onOpenPath={onOpenPath} />
+}
+
 /** Each view is one component; the tabs pick the row of this table, the toggle picks the column. */
 const BODY: Record<View, (props: Props, rendered: boolean) => React.JSX.Element> = {
   diff: (props, rendered) => (rendered ? <RenderedDiffBody {...props} /> : <DiffBody {...props} />),
   hunks: (props) => <HunksBody {...props} />,
-  file: ({ worktreeId, spec, file, anchor, onOpenPath }, rendered) =>
-    rendered ? (
-      <MarkdownPreview worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} onOpenPath={onOpenPath} />
-    ) : (
-      <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} onOpenPath={onOpenPath} />
-    )
+  file: (props, rendered) =>
+    rendered ? <MarkdownPreview worktreeId={props.worktreeId} path={props.file.path} rev={revOf(props.spec)} anchor={props.anchor} onOpenPath={props.onOpenPath} /> : <FileBody {...props} />
 }
 
 /**
