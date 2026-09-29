@@ -32,7 +32,7 @@ export class FakeAgent implements AgentAdapter {
   pendingRequestId = 'req-1'
 
   available = async (): Promise<boolean> => true
-  listSessions = async (): Promise<AgentSessionSummary[]> => this.sessions
+  listSessions: AgentAdapter['listSessions'] = async () => this.sessions
   /** Undefined, like a provider with no lookup, until a test gives the fake one. */
   describeSession: AgentAdapter['describeSession'] = undefined
   transcript = async (): Promise<TranscriptResponse> => ({

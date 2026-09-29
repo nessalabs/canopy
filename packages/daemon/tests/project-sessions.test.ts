@@ -87,6 +87,17 @@ describe('sessions across a project’s checkouts', () => {
     ])
   })
 
+  it('keeps older main-checkout sessions on a worktree’s branch past the usual cut', async () => {
+    const live = await worktree('deep')
+    const main = Array.from({ length: 30 }, (_, i): AgentSessionSummary => ({ ...sessionIn(repo.path, 100 - i), sessionId: `m${i}` }))
+    main[25] = { ...main[25]!, gitBranch: 'feat/deep' }
+    byCwd.set(repo.path, main)
+
+    const listed = (await list(live.id)).filter((s) => s.origin?.kind === 'main').map((s) => s.sessionId)
+    expect(listed).toHaveLength(16)
+    expect(listed).toContain('m25')
+  })
+
   it('finds worktrees removed before Canopy recorded them, from Claude Code’s store', async () => {
     const old = join(repo.path, '.worktrees', 'old')
     storeSession(server, old)

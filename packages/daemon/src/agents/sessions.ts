@@ -27,6 +27,11 @@ export const RECENT_HOOK_MS = 60_000
 export const DESCRIBE_TTL_MS = 30_000
 /** Sessions listed per other checkout: enough to find a conversation, not a full history. */
 export const OTHER_CHECKOUT_LIMIT = 15
+/**
+ * How far back a worktree looks through the main checkout for sessions on its own branch, which
+ * are listed however old they are among those: they are the conversations about this worktree.
+ */
+export const MAIN_BRANCH_LOOKBACK = 60
 
 /**
  * What a session is doing, from the two things that can know: its terminal's registry entry,
@@ -82,9 +87,15 @@ export function createSessionLister({ agents, presence, live = liveSessions, che
       const project = projects.get(projectId)
       const all = await checkouts.list(project)
       const targets = all.filter((c) => c.path !== worktree.path && (worktree.isMain ? true : c.kind === 'main'))
+      const branch = worktree.isMain ? undefined : all.find((c) => c.worktreeId === worktree.id)?.branch
+      const sessionsOf = async (path: string): Promise<AgentSessionSummary[]> => {
+        if (!branch) return agents.listWorktreeSessions(path, OTHER_CHECKOUT_LIMIT)
+        const found = await agents.listWorktreeSessions(path, MAIN_BRANCH_LOOKBACK)
+        return found.filter((session, index) => index < OTHER_CHECKOUT_LIMIT || session.gitBranch === branch)
+      }
       const lists = await Promise.all(
         targets.map(async (checkout) =>
-          (await agents.listWorktreeSessions(checkout.path, OTHER_CHECKOUT_LIMIT)).map((session): AgentSessionSummary => {
+          (await sessionsOf(checkout.path)).map((session): AgentSessionSummary => {
             // A subdirectory of this very checkout is not another checkout; its sessions are ours.
             if (checkout.worktreeId === worktree.id) return session
             return {
