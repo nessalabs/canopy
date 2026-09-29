@@ -1,0 +1,57 @@
+/*
+ * Change marks on a file read in full: a bar in the gutter and a light wash across the line,
+ * green where the change added lines and yellow where it replaced them, and a red notch where
+ * lines were cut. The classes are the ones `markChanges` in code-editor.tsx hands the editor.
+ */
+
+.monaco-editor {
+  --canopy-mark-added: var(--nessa-diff-addition);
+  --canopy-mark-modified: oklch(0.72 0.16 75);
+  --canopy-mark-removed: var(--nessa-diff-deletion);
+}
+
+.dark .monaco-editor {
+  --canopy-mark-modified: oklch(0.82 0.15 85);
+}
+
+.canopy-line-added {
+  background: color-mix(in oklch, var(--canopy-mark-added) 12%, transparent);
+}
+
+.canopy-line-modified {
+  background: color-mix(in oklch, var(--canopy-mark-modified) 14%, transparent);
+}
+
+.canopy-gutter-added,
+.canopy-gutter-modified {
+  margin-left: 3px;
+  width: 3px !important;
+}
+
+.canopy-gutter-added {
+  background: var(--canopy-mark-added);
+}
+
+.canopy-gutter-modified {
+  background: var(--canopy-mark-modified);
+}
+
+/* A cut covers no line, so the notch sits on the seam: above the line that now follows it. */
+.canopy-gutter-removed::after,
+.canopy-gutter-removed-below::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 6px solid var(--canopy-mark-removed);
+}
+
+.canopy-gutter-removed::after {
+  top: -4px;
+}
+
+/* Lines cut from the end of the file have nothing after them; the notch hangs off the last line. */
+.canopy-gutter-removed-below::after {
+  bottom: -4px;
+}
