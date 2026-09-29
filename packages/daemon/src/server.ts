@@ -33,6 +33,8 @@ import { createWorktreeBackend, type WorktreeBackend } from './env/worktree/back
 import { createCanopyd, type Canopyd } from './env/worktree/canopyd'
 import { createDiffReader } from './git/diff'
 import { runGit, type GitRunner } from './git/exec'
+import { runGh, type GhRunner } from './github/gh'
+import { GitHubService } from './github/service'
 import { createRepo } from './git/repo'
 import { ProjectsService } from './projects/service'
 import { ReviewService } from './review/service'
@@ -41,6 +43,7 @@ import { registerCommitRoutes } from './routes/commit'
 import type { Services } from './routes/context'
 import { registerEnvironmentRoutes } from './routes/environment'
 import { registerFsRoutes } from './routes/fs'
+import { registerGitHubRoutes } from './routes/github'
 import { registerProjectRoutes } from './routes/projects'
 import { registerReviewRoutes } from './routes/review'
 import { registerStatic } from './routes/static'
@@ -58,6 +61,8 @@ export interface ServerDeps {
   version?: string
   agents?: AgentRegistry
   git?: GitRunner
+  /** Tests fake the GitHub CLI; production runs `gh`. */
+  gh?: GhRunner
   /** Tests inject fakes; production talks to the real docker CLI and `wt`. */
   docker?: DockerHelper
   worktreeBackend?: WorktreeBackend
@@ -135,6 +140,7 @@ export function buildServices(deps: ServerDeps): Services {
     history,
     commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
     merges: new MergeService({ repo, git, worktrees, projects, events }),
+    github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees }),
     review: new ReviewService({ db: deps.db, worktrees, agents }),
     agents,
     editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots: createSnapshots(git) }),
@@ -169,6 +175,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   registerProjectRoutes(app, services)
   registerWorktreeRoutes(app, services)
   registerCommitRoutes(app, services)
+  registerGitHubRoutes(app, services)
   registerReviewRoutes(app, services)
   registerAgentRoutes(app, services)
   registerEnvironmentRoutes(app, services)

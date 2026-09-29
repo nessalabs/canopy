@@ -39,6 +39,10 @@ import type {
   CommitInput,
   MergeInput,
   MergeResult,
+  CreatePullRequestInput,
+  PullRequest,
+  PullRequestResponse,
+  PushResult,
   CommitResponse,
   ExcludeInput,
   HiddenResponse,
@@ -191,6 +195,10 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     commitChanges: (worktreeId: string, input: CommitInput) =>
       post<{ commit: Commit }>(routes.commitChanges(worktreeId), input).then((r) => r.commit),
     mergeWorktree: (worktreeId: string, input: MergeInput) => post<MergeResult>(routes.merge(worktreeId), input),
+    pullRequest: (worktreeId: string) => get<PullRequestResponse>(routes.pullRequest(worktreeId)),
+    createPullRequest: (worktreeId: string, input: CreatePullRequestInput) =>
+      post<{ pr: PullRequest }>(routes.pullRequest(worktreeId), input).then((r) => r.pr),
+    pushBranch: (worktreeId: string) => post<PushResult>(routes.push(worktreeId), {}),
     excludePaths: (worktreeId: string, input: ExcludeInput) => post<ChangesResponse>(routes.exclude(worktreeId), input),
     hiddenPaths: (worktreeId: string) => get<HiddenResponse>(routes.hidden(worktreeId)).then((r) => r.hidden),
     unhidePaths: (worktreeId: string, input: UnhideInput) => post<ChangesResponse>(routes.unhide(worktreeId), input),
