@@ -8,22 +8,37 @@ import type { DbAdapterName } from '@canopy/shared'
 
 import { ApiError } from '../../lib/errors'
 import type { DbAdapter, DockerHelper } from '../types'
+import type { Canopyd } from '../worktree/canopyd'
 import { createMysqlAdapter } from './mysql'
 import { createPostgresAdapter } from './postgres'
 import { createRedisAdapter } from './redis'
 import { createSqliteAdapter } from './sqlite'
+import { createViaCanopyd } from './via-canopyd'
 
 export interface DbRegistry {
   adapterFor(name: DbAdapterName): DbAdapter
   all(): DbAdapter[]
 }
 
-export function createDbRegistry(deps: { docker: DockerHelper; dataRoot: string }): DbRegistry {
+export interface DbRegistryDeps {
+  docker: DockerHelper
+  dataRoot: string
+  /** With it, forks are made by `canopyd db` wherever it can see the worktree. */
+  canopyd?: Canopyd
+  /** The project's "use canopyd" setting; on unless told otherwise. */
+  canopydEnabled?: (projectId: string) => boolean
+}
+
+export function createDbRegistry(deps: DbRegistryDeps): DbRegistry {
+  const { canopyd } = deps
+  const enabled = deps.canopydEnabled ?? (() => true)
+  // canopyd drives every engine, and makes the fork wherever it can see the worktree; see via-canopyd.
+  const via = (native: DbAdapter): DbAdapter => (canopyd ? createViaCanopyd({ canopyd, native, enabled }) : native)
   const adapters: Record<DbAdapterName, DbAdapter> = {
-    sqlite: createSqliteAdapter(),
-    postgres: createPostgresAdapter(deps.docker),
-    redis: createRedisAdapter(deps.docker),
-    mysql: createMysqlAdapter(deps.docker, deps.dataRoot)
+    sqlite: via(createSqliteAdapter()),
+    postgres: via(createPostgresAdapter(deps.docker)),
+    redis: via(createRedisAdapter(deps.docker)),
+    mysql: via(createMysqlAdapter(deps.docker, deps.dataRoot))
   }
   return {
     adapterFor(name) {

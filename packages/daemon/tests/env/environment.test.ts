@@ -1,17 +1,25 @@
 /**
  * End-to-end through the HTTP layer: a fixture repo with a canopy.yaml and a tiny Node HTTP
- * service is registered, a worktree is created and provisioned (git fallback, no docker), the
- * service comes up healthy on its allocated port, logs stream, and destroy leaves nothing behind.
+ * service is registered, a worktree is created and provisioned (no docker), the service comes up
+ * healthy on its allocated port, logs stream, and destroy leaves nothing behind.
+ *
+ * Run twice, because there are two ways through: without canopyd the daemon makes the worktree
+ * with plain git and supervises the service itself, and with it canopyd makes the worktree and
+ * `canopyd run` supervises. A client must not be able to tell which one it got.
  */
 import { existsSync, readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { routes, type Worktree } from '@canopy/shared'
 
+import { createWorktreeBackend } from '../../src/env/worktree/backend'
+import { runGit } from '../../src/git/exec'
 import { createFixtureRepo, type FixtureRepo } from '../helpers/fixture-repo'
 import { createTestServer, type TestServer } from '../helpers/test-server'
+
+const hasTool = (process.env['PATH'] ?? '').split(delimiter).some((dir) => dir.length > 0 && existsSync(join(dir, 'canopyd')))
 
 const SERVER_JS = `
 const http = require('node:http')
@@ -50,21 +58,27 @@ async function waitFor<T>(read: () => Promise<T>, done: (value: T) => boolean, t
   }
 }
 
-describe('environment end to end (host runtime, git fallback)', () => {
+const WAYS = [
+  { name: 'git fallback, supervised by the daemon', tool: false },
+  { name: 'canopyd, supervised by canopyd run', tool: true }
+]
+
+describe.each(WAYS)('environment end to end (host runtime, $name)', ({ tool }) => {
   let server: TestServer
   let repo: FixtureRepo
   let projectId: string
 
-  beforeEach(async () => {
-    server = await createTestServer()
+  beforeEach(async (context) => {
+    if (tool && !hasTool) context.skip()
+    server = await createTestServer(tool ? { worktreeBackend: createWorktreeBackend(runGit) } : {})
     repo = await createFixtureRepo()
     await repo.commit({ 'canopy.yaml': CANOPY_YAML, 'server.js': SERVER_JS, 'package.json': '{"name":"fixture"}', '.gitignore': '.env\n.env.canopy\nsetup.txt\n' }, 'init')
     repo.write({ '.env': 'FROM_PRIMARY=1\n' })
     projectId = (await server.call('POST', routes.projects(), { path: repo.path })).body.project.id
   })
   afterEach(async () => {
-    await server.close()
-    repo.cleanup()
+    await server?.close()
+    repo?.cleanup()
   })
 
   it('reports the canopy.yaml and a preview for the project', async () => {
@@ -104,15 +118,26 @@ describe('environment end to end (host runtime, git fallback)', () => {
     expect(port).toBeGreaterThan(0)
     expect(env.services[0]).toMatchObject({ name: 'web', status: 'healthy', runtime: 'host', ports: [{ name: 'web', port }] })
     expect(env.services[0]?.pid).toBeGreaterThan(0)
-    // Copying is canopyd's, and this server has none: the step says so rather than failing,
-    // and ports and setup still come from the daemon itself. `cutover.test.ts` copies for real.
-    expect(env.provisioning?.steps.find((s) => s.name === 'copy-files')?.detail).toBe('skipped — needs canopyd')
-    expect(env.copiedFiles).toEqual([])
-    expect(existsSync(join(worktree.path, '.env'))).toBe(false)
+    if (tool) {
+      expect(env.copiedFiles).toEqual(['.env'])
+      expect(existsSync(join(worktree.path, '.env'))).toBe(true)
+    } else {
+      // Copying is canopyd's: without it the step says so rather than failing, and ports and
+      // setup still come from the daemon itself.
+      expect(env.provisioning?.steps.find((s) => s.name === 'copy-files')?.detail).toBe('skipped — needs canopyd')
+      expect(env.copiedFiles).toEqual([])
+      expect(existsSync(join(worktree.path, '.env'))).toBe(false)
+    }
     expect(readFileSync(join(worktree.path, 'setup.txt'), 'utf8').trim()).toBe('setup-ran')
     const dotenv = readFileSync(join(worktree.path, '.env.canopy'), 'utf8')
     expect(dotenv).toContain(`CANOPY_PORT_WEB=${port}`)
     expect(dotenv).toContain('GREETING=hi')
+    if (tool) {
+      // canopyd wrote it: sorted by key, so the same inputs always produce the same bytes.
+      const keys = dotenv.split('\n').filter((line) => /^[A-Z_]+=/.test(line)).map((line) => line.split('=')[0] as string)
+      expect(keys).toEqual([...keys].sort())
+      expect(keys).toContain('CANOPY_WORKTREE_ID')
+    }
     expect(env.env.find((v) => v.key === 'CANOPY_WORKTREE')?.value).toBe('feat-x')
 
     // The service really answers on its port with the injected worktree name.
@@ -126,6 +151,9 @@ describe('environment end to end (host runtime, git fallback)', () => {
     expect(logs.lines.some((line: { stream: string }) => line.stream === 'sys')).toBe(true)
     const provisionLog = (await server.call('GET', `${routes.serviceLogs(id, 'provision')}?limit=200`)).body
     expect(provisionLog.lines.some((line: { text: string }) => line.text.includes('run-setup'))).toBe(true)
+    // Which supervisor ran it is visible in exactly one place: the worktree's own log.
+    const supervisorLog = (await server.call('GET', `${routes.serviceLogs(id, 'supervisor')}?limit=200`)).body
+    expect(supervisorLog.lines.some((line: { text: string }) => line.text === 'canopyd run web')).toBe(tool)
 
     const stopped = await server.call('POST', routes.worktreeStop(id))
     expect(stopped.body.environment.state).toBe('stopped')

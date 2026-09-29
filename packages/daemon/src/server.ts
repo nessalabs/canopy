@@ -103,6 +103,7 @@ export function buildServices(deps: ServerDeps): Services {
   const presence = new PresenceService({ db: deps.db, worktrees, events })
   const docker = deps.docker ?? createDocker()
   const logs = createLogStore(deps.config.dataRoot)
+  const environmentRef: { current: EnvironmentService | null } = { current: null }
   const environment = new EnvironmentService({
     db: deps.db,
     config: deps.config,
@@ -114,11 +115,14 @@ export function buildServices(deps: ServerDeps): Services {
     docker,
     backend: worktreeBackend,
     canopyd,
+    canopydEnv,
     ports: new PortAllocator(deps.db, portRange),
-    databases: createDbRegistry({ docker, dataRoot: deps.config.dataRoot }),
+    // Settings live in the service being built here, so the registry asks for them late.
+    databases: createDbRegistry({ docker, dataRoot: deps.config.dataRoot, canopyd, canopydEnabled: (projectId) => environmentRef.current?.settings(projectId).worktree.tool ?? true }),
     runners: { host: createHostRunner(), docker: createDockerRunner(docker), compose: createComposeRunner(docker) },
     sampler: new ResourceSampler(docker)
   })
+  environmentRef.current = environment
   worktrees.attachEnvironment(environment)
   const history = new HistoryService({ repo, diffs, worktrees })
   return {
