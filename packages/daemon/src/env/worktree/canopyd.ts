@@ -33,6 +33,20 @@ export interface CopyResult {
   failures: Array<{ path: string; strategy: string; message: string }>
 }
 
+/** One database fork, as `canopyd db …` reports it. */
+export interface CanopydFork {
+  name: string
+  adapter: string
+  status: 'ready' | 'missing'
+  url: string
+  env_key: string
+  forked_from: string
+  /** What it was copied from; absent when it started empty. */
+  source?: string
+  detail: Record<string, string>
+  size_bytes?: number
+}
+
 /**
  * What every call carries: the worktree it runs in, the key its ports are filed under (the
  * branch, or the worktree's name when it is detached), and — for a project whose canopy.yaml
@@ -59,6 +73,20 @@ export interface Canopyd {
   reserve(input: Target & { ports: Record<string, number> }): Promise<Record<string, number>>
   /** Hands a branch's ports back to the pool. */
   releasePorts(input: Target): Promise<number>
+  /**
+   * Writes the worktree's env file (`env_file:`, `.env.canopy` by default) with `env` layered over
+   * what canopyd resolves, and returns its path — null when the config turns the file off.
+   * Needs canopyd 0.2.0; ask [`Canopyd.version`] first.
+   */
+  writeEnv(input: Target & { env: Record<string, string> }): Promise<string | null>
+  /** Throws the branch's fork of `name` away and makes it again from `from`. Needs canopyd 0.3.0. */
+  dbReset(input: Target & { name: string; from: string }): Promise<CanopydFork>
+  /** Removes the branch's fork of `name`. True when there was one. */
+  dbDrop(input: Target & { name: string }): Promise<boolean>
+  /** The branch's recorded forks, as they stand on disk. */
+  dbList(input: Target): Promise<CanopydFork[]>
+  /** The installed version, or null when canopyd is not there. Cached for the life of the daemon. */
+  version(): Promise<string | null>
   /** Runs the worktree's `setup:` steps, with Canopy's resolved environment layered on top. */
   setup(input: Target & { env: Record<string, string>; force?: boolean; onLine?: OnLine }): Promise<SetupResult>
 }
@@ -119,16 +147,93 @@ export function rulesFor(copyFiles: CopyFileRule[], caches: CacheRule[]): Array<
   return rules
 }
 
+/** `run --control`, `--env` on every service command, bare `--env KEY` and resumable logs arrived in canopyd 0.2.0. */
+export function supportsRunControl(version: string | null): boolean {
+  return atLeast(version, 0, 2)
+}
+
+/** Whether `version` is `major.minor` or newer. A version that will not parse is not. */
+export function atLeast(version: string | null, major: number, minor: number): boolean {
+  const match = /^(\d+)\.(\d+)\./.exec(version ?? '')
+  if (!match) return false
+  const [have, haveMinor] = [Number(match[1]), Number(match[2])]
+  return have > major || (have === major && haveMinor >= minor)
+}
+
+/** `runtime: docker` and `compose:` services arrived in canopyd 0.4.0. */
+export function supportsContainers(version: string | null): boolean {
+  return atLeast(version, 0, 4)
+}
+
+/**
+ * The name canopyd gives a docker service's container: `canopy-<id>-<service>`, where the id is
+ * eight hex characters of the FNV-1a hash of the worktree's path. Reproduced here because the
+ * name is how this daemon asks docker about a container it did not start — for CPU and memory.
+ * canopyd pins the algorithm with a test, since its own backstop `rm -f` depends on it too.
+ */
+export function canopydContainerName(worktreePath: string, service: string): string {
+  let hash = 0xcbf29ce484222325n
+  for (const byte of Buffer.from(worktreePath, 'utf8')) {
+    hash ^= BigInt(byte)
+    hash = (hash * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  const id = hash.toString(16).padStart(16, '0').slice(0, 8)
+  const safe = service.replace(/[^a-zA-Z0-9_.-]/g, '-').replace(/^[^a-zA-Z0-9]+/, '')
+  return `canopy-${id}-${safe}`
+}
+
+/**
+ * `--env` flags for `env`, and the environment that carries their values.
+ *
+ * From 0.2.0 a bare `--env KEY` means "the value you were started with", so a database password
+ * never appears in an argument list, which every user on the machine can read through `ps`.
+ * Older versions only know `KEY=VALUE`.
+ */
+function envFlags(env: Record<string, string>, bare: boolean): { args: string[]; env: Record<string, string> } {
+  const args: string[] = []
+  for (const [key, value] of Object.entries(env)) args.push('--env', bare ? key : `${key}=${value}`)
+  return { args, env: bare ? env : {} }
+}
+
 /**
  * @param opts.env the environment every call runs with: the shared port registry and the
  *   daemon's port range. A function, so a range changed in settings applies to the next call.
  */
 export function createCanopyd(opts: { bin?: string; env?: () => Record<string, string> } = {}): Canopyd {
   const bin = opts.bin ?? 'canopyd'
-  const call = (args: string[], target: Target, onLine?: OnLine): Promise<ToolRun> =>
-    runTool(bin, args, { cwd: target.cwd, env: { ...(opts.env?.() ?? {}), ...(target.config ? { CANOPYD_CONFIG: target.config } : {}) }, onLine })
+  // `extra` is the values bare `--env KEY` flags name; they travel in the environment, not argv.
+  const call = (args: string[], target: Target, onLine?: OnLine, extra: Record<string, string> = {}): Promise<ToolRun> =>
+    runTool(bin, args, { cwd: target.cwd, env: { ...extra, ...(opts.env?.() ?? {}), ...(target.config ? { CANOPYD_CONFIG: target.config } : {}) }, onLine })
+  let version: Promise<string | null> | null = null
+  const installed = (): Promise<string | null> => {
+    version ??= runTool(bin, ['--version'], { cwd: process.cwd() })
+      .then((result) => (result.exitCode === 0 ? (/(\d+\.\d+\.\d+\S*)/.exec(`${result.stdout} ${result.stderr}`)?.[1] ?? null) : null))
+      .catch(() => null)
+    return version
+  }
 
   return {
+    version: installed,
+
+    async dbReset({ name, from, ...target }) {
+      return unwrap<CanopydFork>('db reset', await call(['db', 'reset', name, target.branch, '--from', from, '--json'], target))
+    },
+
+    async dbDrop({ name, ...target }) {
+      const data = unwrap<{ dropped: string[] }>('db drop', await call(['db', 'drop', target.branch, '--only', name, '--json'], target))
+      return data.dropped.includes(name)
+    },
+
+    async dbList(target) {
+      return unwrap<CanopydFork[]>('db ls', await call(['db', 'ls', target.branch, '--json'], target))
+    },
+
+    async writeEnv({ env, ...target }) {
+      const flags = envFlags(env, true)
+      const data = unwrap<{ written: string | null }>('env', await call(['env', target.branch, '--write', '--json', ...flags.args], target, undefined, flags.env))
+      return data.written
+    },
+
     async available() {
       try {
         return (await runTool(bin, ['--version'], { cwd: process.cwd() })).exitCode === 0
@@ -164,9 +269,10 @@ export function createCanopyd(opts: { bin?: string; env?: () => Record<string, s
       if (force) args.push('--force')
       // Canopy's environment is richer than the crate can resolve on its own — database URLs
       // come from forks it knows nothing about — so it is passed through rather than re-derived.
-      for (const [key, value] of Object.entries(env)) args.push('--env', `${key}=${value}`)
+      const flags = envFlags(env, supportsRunControl(await installed()))
+      args.push(...flags.args)
 
-      const result = await call(args, target, onLine)
+      const result = await call(args, target, onLine, flags.env)
       const envelope = parseEnvelope<SetupResult>(result.stdout)
       if (!envelope) {
         throw conflict('setup_failed', result.stderr.trim() || `canopyd setup exited with ${result.exitCode}`)
