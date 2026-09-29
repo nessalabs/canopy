@@ -584,6 +584,18 @@ export const usePullRequest = (worktreeId: string) => {
   })
 }
 
+/**
+ * Starts the PR read when the pointer reaches the Pull request tab, so the answer (a round trip
+ * to GitHub) is mostly in by the time the click lands. Still lazy: nothing asks until then.
+ */
+export const usePrefetchPullRequest = (worktreeId: string) => {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useCallback(() => {
+    void queryClient.prefetchQuery({ queryKey: keys.pullRequest(worktreeId), queryFn: () => api.pullRequest(worktreeId), staleTime: 30_000 })
+  }, [api, queryClient, worktreeId])
+}
+
 /** Opening a PR pushes the branch too, so the worktree's own status is read again with it. */
 export const useCreatePullRequest = (worktreeId: string) => {
   const api = useApi()

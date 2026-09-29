@@ -7,7 +7,7 @@ import type { DiffMode } from '@/components/worktree-diff'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useComments, useProviders } from '@/lib/api-hooks'
+import { useComments, usePrefetchPullRequest, useProviders } from '@/lib/api-hooks'
 import { plural } from '@/lib/format'
 import { mergeAffordance } from '@/lib/status'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
@@ -50,6 +50,7 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
   const [merging, setMerging] = useState(false)
   const unsent = comments.filter((c) => !c.sent)
   const merge = mergeAffordance(worktree)
+  const prefetchPr = usePrefetchPullRequest(worktree.id)
 
   const onJump = (comment: ReviewComment): void => {
     const next = jumpFor(comment)
@@ -66,7 +67,9 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
           <TabsList>
             <TabsTrigger value="changes">Changes{worktree.status?.dirtyTotal ? ` · ${worktree.status.dirtyTotal}` : ''}</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
-            <TabsTrigger value="pr">Pull request</TabsTrigger>
+            <TabsTrigger value="pr" onPointerEnter={prefetchPr} onFocus={prefetchPr}>
+              Pull request
+            </TabsTrigger>
             <TabsTrigger value="comments">Comments{comments.length ? ` · ${comments.length}` : ''}</TabsTrigger>
           </TabsList>
           {merge.shown ? (
