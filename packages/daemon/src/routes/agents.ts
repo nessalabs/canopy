@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 import type { FastifyInstance } from 'fastify'
@@ -60,6 +61,9 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, r
   app.post(routes.messages(':provider', ':sid'), async (request, reply) => {
     const { provider, sid } = SessionParams.parse(request.params)
     const { text, ...options } = SendMessageInput.parse(request.body)
+    // A session from a removed worktree is continued somewhere else (the listing's `origin.runIn`);
+    // asked to run in the directory that is gone, the provider would fail to spawn with no reason given.
+    if (options.cwd !== undefined && !existsSync(options.cwd)) throw new ApiError(409, 'checkout_gone', `${options.cwd} no longer exists; continue this session from a checkout that does`)
     const adapter = agents.adapterFor(provider)
     await streamSse(request, reply, (signal) => adapter.send(sid, text, { ...options, signal }))
   })

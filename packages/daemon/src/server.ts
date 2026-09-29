@@ -11,6 +11,7 @@ import { ApiError, routes } from '@canopy/shared'
 import { EditDiffsService } from './agents/edit-diffs/service'
 import { createSnapshots } from './agents/edit-diffs/snapshots'
 import { PresenceService } from './agents/presence'
+import { ProjectCheckouts } from './agents/checkouts'
 import { createAgentRegistry, type AgentRegistry } from './agents/registry'
 import { createSessionLister } from './agents/sessions'
 import { CommitService } from './commit/service'
@@ -62,6 +63,8 @@ export interface ServerDeps {
   docker?: DockerHelper
   worktreeBackend?: WorktreeBackend
   canopyd?: Canopyd
+  /** Claude Code's session store (`~/.claude/projects`); tests point it at a fixture. */
+  claudeProjects?: string
   /** Tests subscribe to the bus they hand in. */
   events?: EventBus
   logger?: boolean
@@ -139,7 +142,12 @@ export function buildServices(deps: ServerDeps): Services {
     agents,
     editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots: createSnapshots(git) }),
     presence,
-    sessions: createSessionLister({ agents, presence }),
+    sessions: createSessionLister({
+      agents,
+      presence,
+      projects,
+      checkouts: new ProjectCheckouts({ db: deps.db, git, worktreeRoot: deps.config.worktreeRoot, claudeProjects: deps.claudeProjects })
+    }),
     environment,
     logs,
     events
