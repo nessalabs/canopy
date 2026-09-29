@@ -28,7 +28,17 @@ export interface MergedQuery {
   /** Commits on HEAD that the local base lacks, from the status pass; 0 answers without git. */
   ahead: number | null
   behind: number | null
+  /**
+   * The base's tips, when the caller already has them. Every worktree of a repository shares
+   * its refs, so a listing looks them up once and hands the same answer to each worktree.
+   */
+  tips?: () => Promise<BaseTips>
 }
+
+export type BaseTips = { ref: string; sha: string }[]
+
+/** The refs `isMerged` compares against: the local base and its `origin/` counterpart. */
+export const baseRefs = (base: string): string[] => [`refs/heads/${base}`, `refs/remotes/origin/${base}`]
 
 export class MergedDetector {
   private readonly cache = new Map<string, boolean>()
@@ -40,9 +50,9 @@ export class MergedDetector {
    * or a fast-forward the base has not moved past yet), no base ref, or too far behind to
    * check patches.
    */
-  async isMerged({ cwd, head, base, ahead, behind }: MergedQuery): Promise<boolean | null> {
+  async isMerged({ cwd, head, base, ahead, behind, tips: knownTips }: MergedQuery): Promise<boolean | null> {
     if (ahead === 0) return behind === 0 ? null : true
-    const tips = await this.repo.refTips(cwd, [`refs/heads/${base}`, `refs/remotes/origin/${base}`])
+    const tips = await (knownTips?.() ?? this.repo.refTips(cwd, baseRefs(base)))
     if (tips.length === 0) return null
     const key = `${head}|${tips.map((tip) => tip.sha).join('|')}`
     const cached = this.cache.get(key)

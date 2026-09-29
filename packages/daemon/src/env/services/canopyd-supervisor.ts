@@ -50,6 +50,12 @@ export interface CanopydSupervisorDeps {
   now?: () => number
   /** Test seam. */
   spawn?: typeof nodeSpawn
+  /**
+   * The environment every `canopyd` call of this daemon runs with — the shared port registry
+   * and the daemon's range. `canopyd run` allocates as it starts, so without it a service would
+   * be given a number from a different table than the provisioning step's.
+   */
+  toolEnv?: () => Record<string, string>
 }
 
 /** One JSON line of `canopyd run --json` on stderr. See canopyd's docs/json-api.md. */
@@ -115,6 +121,10 @@ export class CanopydSupervisor implements Supervisor {
   private readonly bin: string
   private readonly spawn: typeof nodeSpawn
   private readonly now: () => number
+
+  private toolEnv(): Record<string, string> {
+    return this.deps.toolEnv?.() ?? {}
+  }
 
   constructor(private readonly deps: CanopydSupervisorDeps) {
     this.bin = deps.bin ?? 'canopyd'
@@ -283,7 +293,7 @@ export class CanopydSupervisor implements Supervisor {
     const child = this.spawn(this.bin, args, {
       cwd: this.deps.ctx.worktreePath,
       // CANOPY_DAEMON=1 turns the `canopy` hook CLI into a no-op, as it does for `canopyd new`.
-      env: { ...process.env, ...overrides, CANOPY_DAEMON: '1' },
+      env: { ...process.env, ...overrides, ...this.toolEnv(), CANOPY_DAEMON: '1' },
       stdio: ['pipe', 'pipe', 'pipe']
     })
     this.child = child
@@ -441,7 +451,7 @@ export class CanopydSupervisor implements Supervisor {
     const sink = this.deps.sinkFor(entry.info.name)
     const follower = this.spawn(this.bin, ['logs', entry.info.name, this.deps.branch, '-f', '--json', '--since', String(entry.logOffset)], {
       cwd: this.deps.ctx.worktreePath,
-      env: { ...process.env, CANOPY_DAEMON: '1' },
+      env: { ...process.env, ...this.toolEnv(), CANOPY_DAEMON: '1' },
       stdio: ['ignore', 'pipe', 'ignore']
     })
     entry.follower = follower
@@ -477,7 +487,7 @@ export class CanopydSupervisor implements Supervisor {
   private exec(args: string[]): Promise<string> {
     return new Promise((resolve) => {
       let out = ''
-      const child = this.spawn(this.bin, args, { cwd: this.deps.ctx.worktreePath, env: { ...process.env, CANOPY_DAEMON: '1' }, stdio: ['ignore', 'pipe', 'ignore'] })
+      const child = this.spawn(this.bin, args, { cwd: this.deps.ctx.worktreePath, env: { ...process.env, ...this.toolEnv(), CANOPY_DAEMON: '1' }, stdio: ['ignore', 'pipe', 'ignore'] })
       child.stdout?.setEncoding('utf8')
       child.stdout?.on('data', (chunk: string) => (out += chunk))
       child.once('error', () => resolve(''))

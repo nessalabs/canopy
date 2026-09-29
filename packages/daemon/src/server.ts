@@ -1,3 +1,6 @@
+import { join } from 'node:path'
+
+
 import cors from '@fastify/cors'
 import type { Database } from 'better-sqlite3'
 import Fastify, { type FastifyInstance } from 'fastify'
@@ -81,14 +84,25 @@ export function buildServices(deps: ServerDeps): Services {
   const diffs = createDiffReader(git, repo.untracked)
   const projects = new ProjectsService(deps.db, repo, deps.config.home)
   const events = deps.events ?? createEventBus()
-  const worktreeBackend = deps.worktreeBackend ?? createWorktreeBackend(git)
-  const canopyd = deps.canopyd ?? createCanopyd()
+  // Every `canopyd` call files its ports in one registry for all of this daemon's projects, in
+  // the daemon's range. Per-repository registries each keep their own numbers unique, but two
+  // projects could be handed the same one. Read per call, so a range changed in settings
+  // applies to the next allocation rather than the next restart.
+  const portRange = (): [number, number] => {
+    const { from, to } = loadAppSettings(deps.config.home).ports
+    return [from, to]
+  }
+  const canopydEnv = (): Record<string, string> => ({
+    CANOPYD_PORTS_FILE: join(deps.config.home, 'ports.json'),
+    CANOPYD_PORT_RANGE: portRange().join('-')
+  })
+  const worktreeBackend = deps.worktreeBackend ?? createWorktreeBackend(git, { env: canopydEnv })
+  const canopyd = deps.canopyd ?? createCanopyd({ env: canopydEnv })
   const worktrees = new WorktreesService({ db: deps.db, repo, projects, worktreeRoot: deps.config.worktreeRoot, backend: worktreeBackend, events })
   const agents = deps.agents ?? createAgentRegistry()
   const presence = new PresenceService({ db: deps.db, worktrees, events })
   const docker = deps.docker ?? createDocker()
   const logs = createLogStore(deps.config.dataRoot)
-  const appSettings = loadAppSettings(deps.config.home)
   const environmentRef: { current: EnvironmentService | null } = { current: null }
   const environment = new EnvironmentService({
     db: deps.db,
@@ -101,7 +115,8 @@ export function buildServices(deps: ServerDeps): Services {
     docker,
     backend: worktreeBackend,
     canopyd,
-    ports: new PortAllocator(deps.db, [appSettings.ports.from, appSettings.ports.to]),
+    canopydEnv,
+    ports: new PortAllocator(deps.db, portRange),
     // Settings live in the service being built here, so the registry asks for them late.
     databases: createDbRegistry({ docker, dataRoot: deps.config.dataRoot, canopyd, canopydEnabled: (projectId) => environmentRef.current?.settings(projectId).worktree.tool ?? true }),
     runners: { host: createHostRunner(), docker: createDockerRunner(docker), compose: createComposeRunner(docker) },

@@ -46,9 +46,10 @@ export function hashPort(seedKey: string, range: [number, number]): number {
  * two different projects can never collide.
  */
 export class PortAllocator {
+  /** @param range the default range, or a function returning it so a settings change applies at once. */
   constructor(
     private readonly db: Database,
-    private readonly range: [number, number]
+    private readonly range: [number, number] | (() => [number, number])
   ) {}
 
   /**
@@ -59,6 +60,11 @@ export class PortAllocator {
    * the allocation that still happens here.
    */
   record(worktreeId: string, name: string, port: number): void {
+    // The crate's registry is the authority, and it has just said this number is this
+    // worktree's. A row here holding it for anyone else is stale — left from before the two
+    // shared one registry, or by a worktree removed while the daemon was down — and would
+    // otherwise fail this insert on the port's uniqueness.
+    this.db.prepare('DELETE FROM port_allocations WHERE port = ? AND NOT (worktree_id = ? AND name = ?)').run(port, worktreeId, name)
     this.db
       .prepare(
         `INSERT INTO port_allocations (worktree_id, name, port, created_at) VALUES (?, ?, ?, ?)
@@ -84,17 +90,18 @@ export class PortAllocator {
    * stored allocation is handed back untouched even if something else is bound to it right
    * now (a still-running service from the previous daemon, typically).
    */
-  async allocate(worktreeId: string, name: string, opts: { seedKey: string; preferred?: number; range?: [number, number] }): Promise<number> {
+  async allocate(worktreeId: string, name: string, opts: { seedKey: string; preferred?: number; range?: [number, number]; avoid?: ReadonlySet<number> }): Promise<number> {
     const existing = this.db.prepare('SELECT port FROM port_allocations WHERE worktree_id = ? AND name = ?').get(worktreeId, name) as
       | { port: number }
       | undefined
     if (existing) return existing.port
 
-    const [from, to] = opts.range ?? this.range
+    const [from, to] = opts.range ?? (typeof this.range === 'function' ? this.range() : this.range)
     const lo = Math.min(from, to)
     const hi = Math.max(from, to)
     const span = hi - lo + 1
-    const taken = new Set((this.db.prepare('SELECT port FROM port_allocations').all() as Array<{ port: number }>).map((row) => row.port))
+    // `avoid` is numbers someone else's table holds: the caller tried them and was refused.
+    const taken = new Set([...(this.db.prepare('SELECT port FROM port_allocations').all() as Array<{ port: number }>).map((row) => row.port), ...(opts.avoid ?? [])])
 
     const claim = (port: number): number | null => {
       try {
