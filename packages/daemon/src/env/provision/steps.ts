@@ -7,7 +7,7 @@ import { join } from 'node:path'
 
 import { execa } from 'execa'
 
-import { dbEnvKey as sharedDbEnvKey, normalizeSetupStep, type DbAdapterName, type DbInstanceInfo, type DbSource } from '@canopy/shared'
+import { dbEnvKey as sharedDbEnvKey, normalizeSetupStep, type DbAdapterName, type DbInstanceInfo, type DbSource, type PortSpec } from '@canopy/shared'
 
 import type { GitRunner } from '../../git/exec'
 import type { PortAllocator } from '../ports/allocator'
@@ -34,6 +34,13 @@ export interface StepDeps {
   resolve(ctx: ProvisionContext): ResolvedEnvironment
   /** Starts the worktree's services (the façade owns supervisors). */
   startServices(ctx: ProvisionContext): Promise<{ started: string[] }>
+  /**
+   * Whether the steps go through `canopyd`: the project allows it and it is installed. Without
+   * it a worktree still gets ports and setup — from the daemon itself — but no copy rules.
+   */
+  toolUsable(ctx: ProvisionContext): Promise<boolean>
+  /** The project's out-of-repo canopy.yaml, which `canopyd` would not otherwise find. */
+  homeConfig(ctx: ProvisionContext): string | undefined
 }
 
 const same = (a: string, b: string): boolean => a.replace(/\/$/, '') === b.replace(/\/$/, '')
@@ -66,6 +73,19 @@ async function runShell(ctx: ProvisionContext, command: string, cwd: string, env
 }
 
 export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
+  /** The declared ports from the daemon's own allocator, for when `canopyd` is not there. */
+  const allocateHere = async (ctx: ProvisionContext, declared: Record<string, PortSpec>): Promise<Record<string, number>> => {
+    const allocated: Record<string, number> = {}
+    for (const [name, spec] of Object.entries(declared)) {
+      allocated[name] = await deps.ports.allocate(ctx.worktreeId, name, {
+        seedKey: `${ctx.project.id}/${ctx.branch ?? ctx.worktreeName}/${name}`,
+        preferred: spec.preferred,
+        range: spec.range
+      })
+    }
+    return allocated
+  }
+
   const createWorktree: ProvisionStepImpl = {
     name: 'create-worktree',
     applies: (ctx) => (existsSync(ctx.worktreePath) ? { run: false, reason: 'worktree exists' } : ctx.branchSpec ? { run: true } : { run: false, reason: 'no branch to create from' }),
@@ -97,10 +117,16 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     },
     async run(ctx) {
       const rules = rulesFor(ctx.settings.copyFiles, ctx.settings.caches.rules)
+      if (!(await deps.toolUsable(ctx))) {
+        // Copying is the crate's; the daemon no longer carries an implementation of its own.
+        ctx.logs.sys(`copy rules skipped: canopyd is ${ctx.settings.worktree.tool ? 'not installed (./dev.sh install-canopyd)' : 'turned off for this project'}`)
+        return { detail: 'skipped — needs canopyd' }
+      }
       const branch = ctx.branch ?? ctx.worktreeName
       const outcome = await deps.canopyd.copy({
         cwd: ctx.worktreePath,
         branch,
+        config: deps.homeConfig(ctx),
         source: ctx.sourcePath,
         rules,
         onLine: (_stream, text) => ctx.logs.out(text)
@@ -130,13 +156,17 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     name: 'allocate-ports',
     applies: (ctx) => (!ctx.config ? { run: false, reason: 'no canopy.yaml' } : Object.keys(ctx.config.ports).length === 0 ? { run: false, reason: 'no ports declared' } : { run: true }),
     async run(ctx) {
-      // The crate owns the registry, in the repository's common git dir. Keeping a second
-      // allocator here would mean two tables that can disagree about who holds what.
-      const allocated = await deps.canopyd.ports({
-        cwd: ctx.worktreePath,
-        branch: ctx.branch ?? ctx.worktreeName,
-        onLine: (_stream, text) => ctx.logs.out(text)
-      })
+      const declared = (ctx.config as NonNullable<ProvisionContext['config']>).ports
+      // The crate owns the registry, shared by every project this daemon runs. Without it the
+      // daemon's own allocator hands the numbers out, so services still start.
+      const allocated = (await deps.toolUsable(ctx))
+        ? await deps.canopyd.ports({
+            cwd: ctx.worktreePath,
+            branch: ctx.branch ?? ctx.worktreeName,
+            config: deps.homeConfig(ctx),
+            onLine: (_stream, text) => ctx.logs.out(text)
+          })
+        : await allocateHere(ctx, declared)
       ctx.state.ports = allocated
       // Mirrored into the daemon's table so database allocation, which the crate knows nothing
       // about, cannot hand out a number a service already has.
@@ -231,9 +261,22 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
       if ((ctx.config as NonNullable<ProvisionContext['config']>).setup.length > 0) {
         // The steps themselves are the crate's, so `if_changed` has one implementation rather
         // than two that can disagree about whether a lockfile moved.
+        if (!(await deps.toolUsable(ctx))) {
+          // The steps as the daemon resolved them, run in order. No `if_changed`: telling
+          // whether a lockfile moved is the crate's, so without it every step runs.
+          for (const step of resolved.setup) {
+            // Created if absent, as the crate does.
+            mkdirSync(step.cwd, { recursive: true })
+            await runShell(ctx, step.run, step.cwd, { ...shellEnv, ...step.env })
+            ran.push(step.name)
+          }
+          const declared = (ctx.config as NonNullable<ProvisionContext['config']>).setup.length
+          return { detail: ran.length > 0 ? ran.join(' · ') : declared > 0 ? 'all steps up to date' : 'nothing to run' }
+        }
         const outcome = await deps.canopyd.setup({
           cwd: ctx.worktreePath,
           branch: ctx.branch ?? ctx.worktreeName,
+          config: deps.homeConfig(ctx),
           env: shellEnv,
           onLine: (_stream, text) => ctx.logs.out(text)
         })

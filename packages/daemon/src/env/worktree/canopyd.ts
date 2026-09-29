@@ -14,21 +14,11 @@
  * to where it was invoked, so running from the main checkout would silently use the wrong file
  * for a branch that changed what it runs.
  */
-import { spawn } from 'node:child_process'
-
 import type { CacheRule, CacheStrategy, CopyFileRule, PortSpec } from '@canopy/shared'
 
 import { conflict } from '../../lib/errors'
 
-/** The envelope every `canopyd --json` command prints, success or failure. */
-interface Envelope<T> {
-  v: number
-  ok: boolean
-  command: string
-  data?: T
-  error?: { code: string; message: string; details?: unknown }
-  warnings: string[]
-}
+import { parseEnvelope, runTool, type OnLine, type ToolRun } from './exec'
 
 export interface CopiedEntry {
   path: string
@@ -43,16 +33,34 @@ export interface CopyResult {
   failures: Array<{ path: string; strategy: string; message: string }>
 }
 
+/**
+ * What every call carries: the worktree it runs in, the key its ports are filed under (the
+ * branch, or the worktree's name when it is detached), and — for a project whose canopy.yaml
+ * lives in its Canopy home rather than the repository — that file, which the tool would not
+ * otherwise look for.
+ */
+interface Target {
+  cwd: string
+  branch: string
+  config?: string
+}
+
 export interface Canopyd {
   available(): Promise<boolean>
   /** Carries gitignored files from `source` into the worktree, with explicit rules. */
-  copy(input: { cwd: string; branch: string; source: string; rules: Array<{ pattern: string; strategy: string }>; onLine?: OnLine }): Promise<CopyResult>
+  copy(input: Target & { source: string; rules: Array<{ pattern: string; strategy: string }>; onLine?: OnLine }): Promise<CopyResult>
   /** Allocate-if-absent for every declared port; idempotent, and the numbers never move. */
-  ports(input: { cwd: string; branch: string; onLine?: OnLine }): Promise<Record<string, number>>
+  ports(input: Target & { onLine?: OnLine }): Promise<Record<string, number>>
+  /**
+   * Pins numbers the daemon picked itself — a database fork's container port — in the same
+   * registry, so the tool never hands them to a service. Rejects with `port_in_use` when
+   * another worktree holds one. Returns the branch's whole table.
+   */
+  reserve(input: Target & { ports: Record<string, number> }): Promise<Record<string, number>>
   /** Hands a branch's ports back to the pool. */
-  releasePorts(input: { cwd: string; branch: string }): Promise<number>
+  releasePorts(input: Target): Promise<number>
   /** Runs the worktree's `setup:` steps, with Canopy's resolved environment layered on top. */
-  setup(input: { cwd: string; branch: string; env: Record<string, string>; force?: boolean; onLine?: OnLine }): Promise<SetupResult>
+  setup(input: Target & { env: Record<string, string>; force?: boolean; onLine?: OnLine }): Promise<SetupResult>
 }
 
 export interface SetupStepOutcome {
@@ -66,52 +74,8 @@ export interface SetupResult {
   ok: boolean
 }
 
-type OnLine = (stream: 'out' | 'err', text: string) => void
-
-/**
- * Runs the tool with stdout buffered (it is the envelope) and stderr streamed — progress goes
- * to stderr by design, and it is what belongs in the provision log.
- */
-function run(bin: string, args: string[], cwd: string, onLine?: OnLine): Promise<{ exitCode: number | null; stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { cwd, env: { ...process.env, CANOPY_DAEMON: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
-    let stdout = ''
-    let stderr = ''
-    let pending = ''
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
-      stdout += chunk
-    })
-    child.stderr?.on('data', (chunk: string) => {
-      stderr += chunk
-      pending += chunk
-      const parts = pending.split('\n')
-      pending = parts.pop() ?? ''
-      for (const part of parts) onLine?.('out', part.replace(/\r$/, ''))
-    })
-    child.once('error', reject)
-    child.once('close', (code) => {
-      if (pending.length > 0) onLine?.('out', pending)
-      resolve({ exitCode: code, stdout, stderr })
-    })
-  })
-}
-
-/** The envelope, or null when stdout was not one. */
-function parseEnvelope<T>(stdout: string): Envelope<T> | null {
-  const trimmed = stdout.trim()
-  if (trimmed.length === 0) return null
-  try {
-    const parsed = JSON.parse(trimmed) as Envelope<T>
-    return parsed.v === 1 ? parsed : null
-  } catch {
-    return null
-  }
-}
-
 /** Unwraps a successful envelope, or throws with the code the tool chose. */
-function unwrap<T>(command: string, result: { exitCode: number | null; stdout: string; stderr: string }): T {
+function unwrap<T>(command: string, result: ToolRun): T {
   const envelope = parseEnvelope<T>(result.stdout)
   if (!envelope) {
     throw conflict('provision_failed', result.stderr.trim() || `canopyd ${command} exited with ${result.exitCode}`)
@@ -155,43 +119,54 @@ export function rulesFor(copyFiles: CopyFileRule[], caches: CacheRule[]): Array<
   return rules
 }
 
-export function createCanopyd(opts: { bin?: string } = {}): Canopyd {
+/**
+ * @param opts.env the environment every call runs with: the shared port registry and the
+ *   daemon's port range. A function, so a range changed in settings applies to the next call.
+ */
+export function createCanopyd(opts: { bin?: string; env?: () => Record<string, string> } = {}): Canopyd {
   const bin = opts.bin ?? 'canopyd'
+  const call = (args: string[], target: Target, onLine?: OnLine): Promise<ToolRun> =>
+    runTool(bin, args, { cwd: target.cwd, env: { ...(opts.env?.() ?? {}), ...(target.config ? { CANOPYD_CONFIG: target.config } : {}) }, onLine })
 
   return {
     async available() {
       try {
-        const result = await run(bin, ['--version'], process.cwd())
-        return result.exitCode === 0
+        return (await runTool(bin, ['--version'], { cwd: process.cwd() })).exitCode === 0
       } catch {
         return false
       }
     },
 
-    async copy({ cwd, branch, source, rules, onLine }) {
+    async copy({ source, rules, onLine, ...target }) {
       if (rules.length === 0) return { entries: [], failures: [] }
-      const args = ['copy', branch, '--from', source, '--json']
+      const args = ['copy', target.branch, '--from', source, '--json']
       for (const rule of rules) args.push('--rule', `${rule.pattern}=${rule.strategy}`)
-      return unwrap<CopyResult>('copy', await run(bin, args, cwd, onLine))
+      return unwrap<CopyResult>('copy', await call(args, target, onLine))
     },
 
-    async ports({ cwd, branch, onLine }) {
-      return unwrap<Record<string, number>>('ports', await run(bin, ['ports', branch, '--json'], cwd, onLine))
+    async ports({ onLine, ...target }) {
+      return unwrap<Record<string, number>>('ports', await call(['ports', target.branch, '--json'], target, onLine))
     },
 
-    async releasePorts({ cwd, branch }) {
-      const data = unwrap<{ released: number }>('ports', await run(bin, ['ports', branch, '--release', '--json'], cwd))
+    async reserve({ ports, ...target }) {
+      const args = ['ports', target.branch, '--json']
+      for (const [name, port] of Object.entries(ports)) args.push('--reserve', `${name}=${port}`)
+      return unwrap<Record<string, number>>('ports', await call(args, target))
+    },
+
+    async releasePorts(target) {
+      const data = unwrap<{ released: number }>('ports', await call(['ports', target.branch, '--release', '--json'], target))
       return data.released
     },
 
-    async setup({ cwd, branch, env, force, onLine }) {
-      const args = ['setup', branch, '--json']
+    async setup({ env, force, onLine, ...target }) {
+      const args = ['setup', target.branch, '--json']
       if (force) args.push('--force')
       // Canopy's environment is richer than the crate can resolve on its own — database URLs
       // come from forks it knows nothing about — so it is passed through rather than re-derived.
       for (const [key, value] of Object.entries(env)) args.push('--env', `${key}=${value}`)
 
-      const result = await run(bin, args, cwd, onLine)
+      const result = await call(args, target, onLine)
       const envelope = parseEnvelope<SetupResult>(result.stdout)
       if (!envelope) {
         throw conflict('setup_failed', result.stderr.trim() || `canopyd setup exited with ${result.exitCode}`)

@@ -13,7 +13,6 @@
  * The git fallback stays until `canopyd` ships as a prebuilt binary — a Canopy user should not
  * need a Rust toolchain. It creates and removes worktrees and nothing else.
  */
-import { spawn } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 
@@ -21,6 +20,8 @@ import type { BranchSpec } from '@canopy/shared'
 
 import type { GitRunner } from '../../git/exec'
 import { conflict } from '../../lib/errors'
+
+import { parseEnvelope, runTool } from './exec'
 
 /** `canopyd --version` is a process spawn; the host panel polls, so cache it briefly. */
 const INFO_TTL_MS = 10_000
@@ -63,16 +64,6 @@ export interface WorktreeBackend {
   remove(input: WorktreeRemoveInput): Promise<{ backend: Backend; branchDeleted: boolean }>
 }
 
-/** The envelope every `canopyd --json` command prints, success or failure. */
-interface Envelope<T> {
-  v: number
-  ok: boolean
-  command: string
-  data?: T
-  error?: { code: string; message: string; details?: unknown }
-  warnings: string[]
-}
-
 interface CreateData {
   path: string
   branch: string
@@ -97,76 +88,23 @@ function whichSync(bin: string): string | null {
   return null
 }
 
-interface Run {
-  exitCode: number | null
-  stdout: string
-  stderr: string
-}
-
-/**
- * Runs the tool with stdout buffered (it is the JSON envelope) and stderr forwarded line by
- * line — progress goes to stderr by design, and it is what the user wants to see in the
- * provision log, so it is reported as ordinary output rather than as an error.
- */
-function run(bin: string, args: string[], cwd: string, env: Record<string, string> | undefined, onLine?: (stream: 'out' | 'err', text: string) => void): Promise<Run> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, {
-      cwd,
-      env: { ...process.env, ...(env ?? {}), CANOPY_DAEMON: '1' },
-      stdio: ['ignore', 'pipe', 'pipe']
-    })
-    let stdout = ''
-    let stderr = ''
-    let pending = ''
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
-      stdout += chunk
-    })
-    child.stderr?.on('data', (chunk: string) => {
-      stderr += chunk
-      pending += chunk
-      const parts = pending.split('\n')
-      pending = parts.pop() ?? ''
-      for (const part of parts) onLine?.('out', part.replace(/\r$/, ''))
-    })
-    child.once('error', reject)
-    child.once('close', (code) => {
-      if (pending.length > 0) onLine?.('out', pending)
-      resolve({ exitCode: code, stdout, stderr })
-    })
-  })
-}
-
-/** The envelope, or null when stdout was not one. */
-function parseEnvelope<T>(stdout: string): Envelope<T> | null {
-  const trimmed = stdout.trim()
-  if (trimmed.length === 0) return null
-  try {
-    const parsed = JSON.parse(trimmed) as Envelope<T>
-    return parsed.v === 1 ? parsed : null
-  } catch {
-    return null
-  }
-}
-
 /**
  * `canopyd` error codes are a stable API, so they map to Canopy's conflicts by code rather
- * than by matching message text.
+ * than by matching message text. A code with no meaning of its own here falls back to the
+ * operation's own failure: a `git_failed` during `new` is a create that failed, not a removal.
  */
-function toConflict(code: string, message: string): Error {
+function toConflict(operation: 'create' | 'remove', code: string, message: string): Error {
   switch (code) {
     case 'worktree_dirty':
-      return conflict('worktree_dirty', message)
     case 'worktree_exists':
-      return conflict('worktree_exists', message)
     case 'worktree_not_found':
-      return conflict('worktree_not_found', message)
-    case 'worktree_create_failed':
+    case 'config_invalid':
+    case 'locked':
+      return conflict(code, message)
     case 'branch_not_found':
       return conflict('worktree_create_failed', message)
     default:
-      return conflict('worktree_remove_failed', message)
+      return conflict(operation === 'create' ? 'worktree_create_failed' : 'worktree_remove_failed', message)
   }
 }
 
@@ -174,7 +112,7 @@ function toConflict(code: string, message: string): Error {
  * @param git the daemon's single git runner (injected so tests observe the same calls the
  *   rest of the daemon makes).
  */
-export function createWorktreeBackend(git: GitRunner, opts: { bin?: string } = {}): WorktreeBackend {
+export function createWorktreeBackend(git: GitRunner, opts: { bin?: string; env?: () => Record<string, string> } = {}): WorktreeBackend {
   const bin = opts.bin ?? 'canopyd'
   let cached: { at: number; value: ToolInfo } | null = null
 
@@ -184,7 +122,7 @@ export function createWorktreeBackend(git: GitRunner, opts: { bin?: string } = {
     let value: ToolInfo = { available: false, version: null, path }
     if (path) {
       try {
-        const result = await run(bin, ['--version'], process.cwd(), undefined)
+        const result = await runTool(bin, ['--version'], { cwd: process.cwd() })
         // "canopyd 0.1.0" — keep just the number so the UI can compare versions.
         const version = /(\d+\.\d+\.\d+\S*)/.exec(`${result.stdout} ${result.stderr}`)?.[1] ?? null
         if (result.exitCode === 0) value = { available: true, version, path }
@@ -249,13 +187,13 @@ export function createWorktreeBackend(git: GitRunner, opts: { bin?: string } = {
       if (input.branch.mode === 'existing') args.push('--existing')
       else if (input.branch.base) args.push('--base', input.branch.base)
 
-      const result = await run(bin, args, input.repoPath, input.env, input.onLine)
+      const result = await runTool(bin, args, { cwd: input.repoPath, env: { ...(opts.env?.() ?? {}), ...(input.env ?? {}) }, onLine: input.onLine })
       const envelope = parseEnvelope<CreateData>(result.stdout)
       if (!envelope) {
         throw conflict('worktree_create_failed', result.stderr.trim() || `canopyd new exited with ${result.exitCode}`)
       }
       if (!envelope.ok || !envelope.data) {
-        throw toConflict(envelope.error?.code ?? 'worktree_create_failed', envelope.error?.message ?? 'canopyd new failed')
+        throw toConflict('create', envelope.error?.code ?? 'worktree_create_failed', envelope.error?.message ?? 'canopyd new failed')
       }
       return { path: envelope.data.path, backend: 'canopyd', createdBranch: envelope.data.created_branch }
     },
@@ -270,13 +208,15 @@ export function createWorktreeBackend(git: GitRunner, opts: { bin?: string } = {
       const args = ['rm', target, '--delete-branch', input.deleteBranch, '--json']
       if (input.force) args.push('--force')
 
-      const result = await run(bin, args, input.repoPath, undefined, input.onLine)
+      // Same environment as the ports step: `rm` releases the branch's ports, and it has to do it
+      // in the registry they were allocated in.
+      const result = await runTool(bin, args, { cwd: input.repoPath, env: opts.env?.(), onLine: input.onLine })
       const envelope = parseEnvelope<RemoveData>(result.stdout)
       if (!envelope) {
         throw conflict('worktree_remove_failed', result.stderr.trim() || `canopyd rm exited with ${result.exitCode}`)
       }
       if (!envelope.ok || !envelope.data) {
-        throw toConflict(envelope.error?.code ?? 'worktree_remove_failed', envelope.error?.message ?? 'canopyd rm failed')
+        throw toConflict('remove', envelope.error?.code ?? 'worktree_remove_failed', envelope.error?.message ?? 'canopyd rm failed')
       }
       return { backend: 'canopyd', branchDeleted: envelope.data.branch_deleted }
     }
