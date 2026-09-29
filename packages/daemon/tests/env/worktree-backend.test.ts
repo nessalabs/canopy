@@ -1,10 +1,11 @@
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { delimiter, join } from 'node:path'
 import { tmpdir } from 'node:os'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { createWorktreeBackend } from '../../src/env/worktree/backend'
+import { ApiError } from '../../src/lib/errors'
 import { runGit } from '../../src/git/exec'
 import { createFixtureRepo, type FixtureRepo } from '../helpers/fixture-repo'
 
@@ -93,5 +94,49 @@ describe('worktree backend', () => {
     expect(removed.backend).toBe('canopyd')
     expect(removed.branchDeleted).toBe(true)
     expect(existsSync(path)).toBe(false)
+  })
+})
+
+describe('worktree backend errors', () => {
+  let dir: string
+  beforeEach(() => {
+    dir = realpathSync(mkdtempSync(join(tmpdir(), 'canopy-fake-')))
+  })
+  afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+  /**
+   * A stand-in `canopyd`: `--version` answers, `new` prints the envelopes it is given one per
+   * call, in order, so a test can script "locked, then fine".
+   */
+  const fake = (...envelopes: object[]): string => {
+    envelopes.forEach((envelope, index) => writeFileSync(join(dir, `reply-${index}`), JSON.stringify(envelope)))
+    const bin = join(dir, 'canopyd')
+    writeFileSync(
+      bin,
+      `#!/bin/sh
+if [ "$1" = "--version" ]; then echo "canopyd 9.9.9"; exit 0; fi
+n=$(cat "${dir}/count" 2>/dev/null || echo 0)
+echo $((n + 1)) > "${dir}/count"
+cat "${dir}/reply-$n"
+`
+    )
+    chmodSync(bin, 0o755)
+    return bin
+  }
+  const failure = (code: string) => ({ v: 1, ok: false, command: 'new', error: { code, message: `${code} happened` }, warnings: [] })
+  const create = (bin: string) =>
+    createWorktreeBackend(runGit, { bin }).create({ repoPath: dir, path: join(dir, 'wt'), branch: { mode: 'new', name: 'feat/x', base: 'main' }, useTool: true })
+
+  it('reports an unmapped failure of new as a create failure, not a removal', async () => {
+    const error = await create(fake(failure('git_failed'))).catch((caught: unknown) => caught)
+    expect(error).toBeInstanceOf(ApiError)
+    expect((error as ApiError).code).toBe('worktree_create_failed')
+  })
+
+  it('tries again while the registry is locked', async () => {
+    const ok = { v: 1, ok: true, command: 'new', data: { path: join(dir, 'wt'), branch: 'feat/x', created_branch: true, base: 'main' }, warnings: [] }
+    const created = await create(fake(failure('locked'), ok))
+    expect(created).toEqual({ path: join(dir, 'wt'), backend: 'canopyd', createdBranch: true })
+    expect(readFileSync(join(dir, 'count'), 'utf8').trim()).toBe('2')
   })
 })

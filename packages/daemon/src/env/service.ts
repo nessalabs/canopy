@@ -51,7 +51,7 @@ import {
 
 import { projectHome, type DaemonConfig } from '../config'
 import type { GitRunner } from '../git/exec'
-import { badRequest, conflict, notFound } from '../lib/errors'
+import { ApiError, badRequest, conflict, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
 import type { ProjectsService } from '../projects/service'
 import type { WorktreeRow, WorktreesService } from '../worktrees/service'
@@ -71,6 +71,9 @@ import { sinkFor } from './logs/store'
 import type { DbAdapter, DbContext, DockerHelper, EventBus, LogStore, ProvisionContext, ProvisionState, ServiceRunner } from './types'
 import type { Canopyd } from './worktree/canopyd'
 import type { WorktreeBackend } from './worktree/backend'
+
+/** How many numbers a database port may lose to `canopyd`'s registry before allocation gives up. */
+const MAX_RESERVE_ATTEMPTS = 8
 
 export interface EnvironmentDeps {
   db: Database
@@ -162,6 +165,8 @@ export class EnvironmentService {
       ports: deps.ports,
       databases: deps.databases,
       dbContext: (ctx, env) => this.dbContext(ctx.worktreeId, ctx.worktreeName, ctx.branch ?? null, ctx.worktreePath, ctx.project, env),
+      toolUsable: (ctx) => this.toolUsable(ctx.settings.worktree.tool),
+      homeConfig: (ctx) => this.homeConfig(ctx.project),
       dbContextFor: (id) => this.dbContextFor(id),
       onDatabase: (ctx, db) => this.recordDatabase(ctx.worktreeId, db),
       resolve: (ctx) => this.resolveFor(ctx.worktreeId, ctx.config, ctx.options, ctx.settings, ctx.state.databases),
@@ -349,6 +354,69 @@ export class EnvironmentService {
   /** `~/.canopy/<project>/` — where a repo that carries no canopy.yaml can keep one. */
   private home(project: { name: string }): string {
     return projectHome(this.deps.config.home, project.name)
+  }
+
+  /**
+   * The canopy.yaml in the project's Canopy home, when there is one. `canopyd` looks for its
+   * out-of-repo file somewhere else, so it is told about this one; it still prefers a file the
+   * repository carries, exactly as `loadCanopyConfig` does.
+   */
+  private homeConfig(project: { name: string }): string | undefined {
+    const home = this.home(project)
+    return ['canopy.yaml', 'canopy.yml'].map((name) => join(home, name)).find((path) => existsSync(path))
+  }
+
+  /** Whether this project's worktrees go through `canopyd`: the setting allows it and it is installed. */
+  private async toolUsable(setting: boolean): Promise<boolean> {
+    return setting && (await this.deps.backend.info()).available
+  }
+
+  /**
+   * The key a worktree's ports are filed under in `canopyd`'s registry: its branch, or its
+   * name when it is detached. The ports step, database reservations and teardown all use this,
+   * so a release finds what an allocation filed.
+   */
+  private portKey(row: { branch: string | null; name: string }): string {
+    return row.branch ?? row.name
+  }
+
+  /**
+   * A database fork's port. The daemon picks it — `canopyd` has no notion of these containers —
+   * and then reserves it in `canopyd`'s registry, which is where every service port comes
+   * from; otherwise a service could later be handed the number a stopped fork is holding. A
+   * number the registry already gave someone else is dropped and the walk goes on.
+   */
+  private async allocateDbPort(worktreeId: string, name: string, key: string, project: { id: string; path: string }): Promise<number> {
+    const seedKey = `${project.id}/${worktreeId}/${name}`
+    if (!(await this.toolUsable(this.settings(project.id).worktree.tool))) return this.deps.ports.allocate(worktreeId, name, { seedKey })
+    const avoid = new Set<number>()
+    for (let attempt = 0; attempt < MAX_RESERVE_ATTEMPTS; attempt += 1) {
+      const port = await this.deps.ports.allocate(worktreeId, name, { seedKey, avoid })
+      try {
+        await this.deps.canopyd.reserve({ cwd: project.path, branch: key, ports: { [name]: port } })
+        return port
+      } catch (error) {
+        if (!(error instanceof ApiError && error.code === 'port_in_use')) throw error
+        this.deps.ports.release(worktreeId, name)
+        avoid.add(port)
+      }
+    }
+    throw conflict('no_free_port', `no port for ${name} that canopyd's registry does not already hold (tried ${[...avoid].join(', ')})`)
+  }
+
+  /**
+   * Hands a worktree's rows in `canopyd`'s registry back. Best effort, like the rest of a
+   * teardown: `canopyd rm` does it too, but a worktree removed with plain git, reaped after an
+   * outside removal, or detached (which `rm` addresses by path and cannot release by branch)
+   * would otherwise hold its numbers forever.
+   */
+  private async releaseToolPorts(worktreeId: string, row: WorktreeRow | undefined, project: { id: string; path: string } | null): Promise<void> {
+    if (!row || !project || !(await this.toolUsable(this.settings(project.id).worktree.tool))) return
+    try {
+      await this.deps.canopyd.releasePorts({ cwd: project.path, branch: this.portKey(row) })
+    } catch (error) {
+      sinkFor(this.deps.logs, worktreeId, 'provision').err(`release ports: ${error instanceof Error ? error.message : String(error)}`)
+    }
   }
 
   settings(projectId: string): ProjectSettings {
@@ -771,7 +839,7 @@ export class EnvironmentService {
       worktreePath,
       dataDir: this.dataDir(worktreeId),
       logs: sinkFor(this.deps.logs, worktreeId, 'provision'),
-      allocatePort: (name) => this.deps.ports.allocate(worktreeId, name, { seedKey: `${project.id}/${worktreeId}/${name}` }),
+      allocatePort: (name) => this.allocateDbPort(worktreeId, name, this.portKey({ branch: worktreeBranch, name: worktreeName }), project),
       env
     }
   }
@@ -852,6 +920,8 @@ export class EnvironmentService {
   async teardown(worktreeId: string): Promise<void> {
     const rt = this.runtimes.get(worktreeId)
     if (!rt) {
+      const row = this.tryRow(worktreeId)
+      await this.releaseToolPorts(worktreeId, row, row ? this.deps.projects.get(row.project_id) : null)
       this.deps.ports.release(worktreeId)
       await this.deps.logs.remove(worktreeId).catch(() => undefined)
       return
@@ -879,6 +949,7 @@ export class EnvironmentService {
       }
       this.db.prepare('DELETE FROM db_instances WHERE worktree_id = ?').run(worktreeId)
       this.db.prepare('DELETE FROM service_state WHERE worktree_id = ?').run(worktreeId)
+      await this.releaseToolPorts(worktreeId, row, project)
       this.deps.ports.release(worktreeId)
       await this.deps.logs.remove(worktreeId).catch(() => undefined)
       rmSync(this.dataDir(worktreeId), { recursive: true, force: true })
