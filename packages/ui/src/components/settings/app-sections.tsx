@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+import { CODE_FONTS, UI_FONTS, codeFontFeatures, codeFontStack, uiFontStack, useFonts, type CodeFontId, type UiFontId } from '@/lib/use-fonts'
 import { useTheme, type ThemePreference } from '@/lib/use-theme'
 
 import { Row, TabHeader } from './settings-chrome'
@@ -22,9 +23,61 @@ const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: React.
   { value: 'dark', label: 'Dark', icon: Moon }
 ]
 
-/** Theme lives in this browser, not the daemon: it is about the screen in front of you. */
+/** Enough to tell fonts apart where it matters in code: 0/O, 1/l/I, and the operators ligatures redraw. */
+const CODE_SAMPLE = 'if (row.id != case_id && 0O == 1lI) return => []'
+
+/**
+ * A preset picker with a free-text family for `custom`. The typed name is kept when a preset is
+ * picked, so switching back to Custom brings it back.
+ */
+function FontPicker<Id extends string>({
+  label,
+  presets,
+  value,
+  custom,
+  placeholder,
+  onChange
+}: {
+  label: string
+  presets: Record<string, { label: string; bundled: boolean }>
+  value: Id
+  custom: string
+  placeholder: string
+  onChange: (next: { id: Id; custom: string }) => void
+}): React.JSX.Element {
+  return (
+    <div className="flex flex-col gap-2">
+      <Select value={value} onValueChange={(id) => onChange({ id: id as Id, custom })}>
+        <SelectTrigger className="w-52" aria-label={label}>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {Object.entries(presets).map(([id, preset]) => (
+            <SelectItem key={id} value={id}>
+              {preset.label}
+              {preset.bundled ? null : <span className="text-muted-foreground"> · if installed</span>}
+            </SelectItem>
+          ))}
+          <SelectItem value="custom">Custom…</SelectItem>
+        </SelectContent>
+      </Select>
+      {value === 'custom' ? (
+        <Input
+          className="max-w-sm text-xs"
+          placeholder={placeholder}
+          aria-label={`${label} family`}
+          value={custom}
+          onChange={(event) => onChange({ id: value, custom: event.target.value })}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+/** Theme and fonts live in this browser, not the daemon: they are about the screen in front of you. */
 export function AppearanceSection(): React.JSX.Element {
   const { preference, setPreference, theme } = useTheme()
+  const { fonts, setFonts } = useFonts()
   return (
     <div className="flex max-w-2xl flex-col gap-6">
       <TabHeader title="Appearance" description="Kept by this browser or app window, not the daemon." />
@@ -39,6 +92,45 @@ export function AppearanceSection(): React.JSX.Element {
             </SegmentedControlOption>
           ))}
         </SegmentedControl>
+      </Row>
+
+      <Row label="Code font" hint="Diffs, file previews, code blocks and every other monospaced text.">
+        <FontPicker<CodeFontId>
+          label="Code font"
+          presets={CODE_FONTS}
+          value={fonts.code.id}
+          custom={fonts.code.custom}
+          placeholder="Fira Code — any font installed on this machine"
+          onChange={(code) => setFonts((current) => ({ ...current, code }))}
+        />
+        <pre
+          className="mt-2 max-w-lg overflow-x-auto rounded-md border bg-muted/40 px-3 py-2 text-xs"
+          style={{ fontFamily: codeFontStack(fonts), fontFeatureSettings: codeFontFeatures(fonts) }}
+        >
+          {CODE_SAMPLE}
+        </pre>
+      </Row>
+
+      <label className="flex items-center gap-3 text-sm">
+        <Switch checked={fonts.ligatures} onCheckedChange={(ligatures) => setFonts((current) => ({ ...current, ligatures }))} aria-label="Code font ligatures" />
+        <span>
+          Ligatures
+          <span className="block text-xs text-muted-foreground">Draws != as ≠ and {'=>'} as ⇒ in fonts that have them. Off shows the characters in the file.</span>
+        </span>
+      </label>
+
+      <Row label="Interface font" hint="Everything that is not code.">
+        <FontPicker<UiFontId>
+          label="Interface font"
+          presets={UI_FONTS}
+          value={fonts.ui.id}
+          custom={fonts.ui.custom}
+          placeholder="Inter — any font installed on this machine"
+          onChange={(ui) => setFonts((current) => ({ ...current, ui }))}
+        />
+        <p className="mt-2 text-sm" style={{ fontFamily: uiFontStack(fonts) }}>
+          The quick brown fox jumps over the lazy dog.
+        </p>
       </Row>
     </div>
   )

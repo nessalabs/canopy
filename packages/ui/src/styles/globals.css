@@ -5,8 +5,9 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-    --font-sans: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
-    --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+    --font-sans: var(--canopy-font-ui);
+    --font-mono: var(--canopy-font-code);
+    --font-mono--font-feature-settings: var(--canopy-font-code-features);
     --nessa-motion-duration-instant: 0ms;
     --nessa-motion-duration-fast: 120ms;
     --nessa-motion-duration-normal: 200ms;
@@ -118,6 +119,20 @@
     --color-nessa-activity-ring-1: var(--nessa-activity-ring-1);
     --color-nessa-notification-success: var(--nessa-notification-success);
     --color-nessa-notification-error: var(--nessa-notification-error);
+}
+
+/*
+ * The fonts, as variables on the document so Preferences → Appearance can swap them at runtime
+ * (lib/use-fonts.ts writes them as inline styles, which win over these defaults). Diffs and code
+ * blocks render inside @pierre/diffs's shadow root; custom properties inherit into it, so the
+ * diff font follows the code font too.
+ */
+:root {
+    --canopy-font-ui: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
+    --canopy-font-code: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+    --canopy-font-code-features: "liga" 0, "calt" 0;
+    --diffs-font-family: var(--canopy-font-code);
+    --diffs-font-features: var(--canopy-font-code-features);
 }
 
 :root {

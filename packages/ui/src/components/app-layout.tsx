@@ -34,6 +34,7 @@ import { useProjects, useWorktrees } from '@/lib/api-hooks'
 import { useEventsConnection } from '@/lib/events-provider'
 import { readStored, writeStored } from '@/lib/local-store'
 import { WORKTREE_DOT } from '@/lib/status'
+import { useFonts } from '@/lib/use-fonts'
 import { useTheme } from '@/lib/use-theme'
 import { cn } from '@/lib/utils'
 import { useApi } from '@/providers/api'
@@ -153,6 +154,7 @@ function ProjectSection({ project, worktrees }: { project: Project; worktrees: W
 
 export function AppLayout({ children }: { children: React.ReactNode }): React.JSX.Element {
   const { theme, toggleTheme } = useTheme()
+  useFonts()
   const connection = useEventsConnection()
   const [location, navigate] = useLocation()
   const projects = useProjects().data ?? []

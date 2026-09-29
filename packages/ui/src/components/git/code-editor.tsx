@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 
 import { fileUri, monaco, onOpenFrom, themeFor } from '@/lib/monaco'
+import { codeFontStack, currentFonts, useFonts } from '@/lib/use-fonts'
 
 /** The line a code link or a "go to definition" named, carried in the trail as `L<n>`. */
 export const lineAnchor = (line: number): string => `L${line}`
@@ -38,7 +39,8 @@ export function warmCodeEditor(): void {
   host.style.cssText = 'position:absolute;left:-10000px;top:0;width:400px;height:200px;overflow:hidden'
   document.body.appendChild(host)
   const model = monaco.editor.createModel('export const warm: number = 1\n', 'typescript', monaco.Uri.parse('inmemory://canopy/warm.ts'))
-  const editor = monaco.editor.create(host, { model, readOnly: true, automaticLayout: false, fontFamily: codeFont(), minimap: { enabled: false } })
+  const fonts = currentFonts()
+  const editor = monaco.editor.create(host, { model, readOnly: true, automaticLayout: false, fontFamily: codeFontStack(fonts), fontLigatures: fonts.ligatures, minimap: { enabled: false } })
   void monaco.typescript.getTypeScriptWorker().catch(() => {})
   setTimeout(() => {
     editor.dispose()
@@ -47,8 +49,15 @@ export function warmCodeEditor(): void {
   }, 0)
 }
 
-/** The app's code font, as the editor must be told it: a literal stack, not a css variable. */
-const codeFont = (): string => getComputedStyle(document.documentElement).getPropertyValue('--font-mono').trim() || 'ui-monospace, monospace'
+/**
+ * The editor measures its font once, when it is created. A bundled font arrives only when
+ * something first asks for it, so measure again once it has — otherwise the cursor and the
+ * selection sit a fraction of a character off the text.
+ */
+function remeasureWhenLoaded(family: string): void {
+  if (typeof document.fonts?.load !== 'function') return
+  document.fonts.load(`12px ${family}`).then(() => monaco.editor.remeasureFonts(), () => {})
+}
 
 /**
  * One file in a read-only VS Code editor: its tokens, folding, sticky scroll, find and replace
@@ -74,6 +83,8 @@ export default function CodeEditor({
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor>(null)
   const openPath = useRef(onOpenPath)
   openPath.current = onOpenPath
+  const { fonts } = useFonts()
+  const fontFamily = codeFontStack(fonts)
 
   useEffect(() => {
     const element = host.current
@@ -86,7 +97,8 @@ export default function CodeEditor({
       domReadOnly: true,
       readOnlyMessage: { value: 'This is a preview; edit the file in your editor.' },
       automaticLayout: true,
-      fontFamily: codeFont(),
+      fontFamily,
+      fontLigatures: fonts.ligatures,
       fontSize: 12,
       lineHeight: 20,
       lineNumbersMinChars: 3,
@@ -119,6 +131,11 @@ export default function CodeEditor({
   useEffect(() => {
     monaco.editor.setTheme(themeFor(mode))
   }, [mode])
+
+  useEffect(() => {
+    editorRef.current?.updateOptions({ fontFamily, fontLigatures: fonts.ligatures })
+    remeasureWhenLoaded(fontFamily)
+  }, [fontFamily, fonts.ligatures])
 
   useEffect(() => {
     const line = parseLineAnchor(anchor)
