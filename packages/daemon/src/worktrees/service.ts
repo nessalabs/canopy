@@ -12,7 +12,7 @@ import { conflict, gone, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
 import type { ProjectsService } from '../projects/service'
 
-import { MergedDetector } from './merged'
+import { baseRefs, MergedDetector, type BaseTips } from './merged'
 
 /** Where a destroyed worktree's uncommitted work is kept; `git for-each-ref` finds them all. */
 export const SALVAGE_REFS = 'refs/canopy/salvage'
@@ -59,6 +59,9 @@ interface Deps {
   events: EventBus
 }
 
+/** One listing's lookups of a base's tips, shared by every worktree of the project. */
+type TipsMemo = Map<string, Promise<BaseTips>>
+
 const stateOf = (row: WorktreeRow, status: WorktreeStatus | null): WorktreeState =>
   row.missing ? 'missing' : row.branch === null ? 'detached' : status && status.dirtyTotal > 0 ? 'dirty' : 'clean'
 
@@ -73,6 +76,14 @@ export class WorktreesService {
   private readonly merged: MergedDetector
   /** Rows a reap is working through; the sync that lands mid-reap must not start it over. */
   private readonly reaping = new Set<string>()
+  /**
+   * `status()` reads still in flight, by path and base. Every client polls the list — the
+   * window, the menu-bar panel, a web tab — and each read is three or four git processes per
+   * worktree, `git status` walking the whole tree among them; readers that arrive while one is
+   * running share it. A finished read is never reused, so an answer is never older than the
+   * request that asked for it.
+   */
+  private readonly statuses = new Map<string, Promise<WorktreeStatus | null>>()
 
   constructor(private readonly deps: Deps) {
     this.merged = new MergedDetector(deps.repo)
@@ -181,8 +192,25 @@ export class WorktreesService {
     this.deps.events.emit({ type: 'worktrees-changed', projectId: project.id })
   }
 
-  async status(row: WorktreeRow, base: string): Promise<WorktreeStatus | null> {
-    if (row.missing || !existsSync(row.path)) return null
+  /**
+   * `fresh` starts a read of its own, for a caller about to act on the answer (destroy's dirty
+   * check) rather than show it.
+   */
+  status(row: WorktreeRow, base: string, opts: { fresh?: boolean; tips?: TipsMemo } = {}): Promise<WorktreeStatus | null> {
+    if (row.missing || !existsSync(row.path)) return Promise.resolve(null)
+    const key = `${row.path}\0${base}`
+    const running = this.statuses.get(key)
+    if (!opts.fresh && running) return running
+    const value = this.readStatus(row, base, opts.tips)
+    this.statuses.set(key, value)
+    const settle = (): void => {
+      if (this.statuses.get(key) === value) this.statuses.delete(key)
+    }
+    value.then(settle, settle)
+    return value
+  }
+
+  private async readStatus(row: WorktreeRow, base: string, tipsMemo?: TipsMemo): Promise<WorktreeStatus | null> {
     const [counts, aheadBehind, lastCommit] = await Promise.all([
       this.deps.repo.status(row.path),
       this.deps.repo.aheadBehind(row.path, base),
@@ -191,7 +219,7 @@ export class WorktreesService {
     const ahead = aheadBehind?.ahead ?? null
     const behind = aheadBehind?.behind ?? null
     // The main checkout is its own base; "merged" would always be true and mean nothing.
-    const merged = row.is_main || !lastCommit ? null : await this.merged.isMerged({ cwd: row.path, head: lastCommit.sha, base, ahead, behind })
+    const merged = row.is_main || !lastCommit ? null : await this.merged.isMerged({ cwd: row.path, head: lastCommit.sha, base, ahead, behind, tips: tipsMemo && (() => this.tipsOf(tipsMemo, row.path, base)) })
     return {
       head: counts.head,
       ahead,
@@ -206,9 +234,19 @@ export class WorktreesService {
     }
   }
 
-  async toWorktree(row: WorktreeRow, project: Project): Promise<Worktree> {
+  /** A base's tips, looked up at most once per listing; refs are shared by every worktree of a repo. */
+  private tipsOf(memo: TipsMemo, cwd: string, base: string): Promise<BaseTips> {
+    let tips = memo.get(base)
+    if (!tips) {
+      tips = this.deps.repo.refTips(cwd, baseRefs(base))
+      memo.set(base, tips)
+    }
+    return tips
+  }
+
+  async toWorktree(row: WorktreeRow, project: Project, tips?: TipsMemo): Promise<Worktree> {
     const baseBranch = row.base_branch ?? project.defaultBase
-    const status = await this.status(row, baseBranch)
+    const status = await this.status(row, baseBranch, { tips })
     return {
       id: row.id,
       projectId: row.project_id,
@@ -226,7 +264,8 @@ export class WorktreesService {
 
   async listForProject(project: Project): Promise<Worktree[]> {
     const rows = await this.sync(project)
-    return Promise.all(rows.map((row) => this.toWorktree(row, project)))
+    const tips: TipsMemo = new Map()
+    return Promise.all(rows.map((row) => this.toWorktree(row, project, tips)))
   }
 
   async listAll(): Promise<Worktree[]> {
@@ -291,7 +330,7 @@ export class WorktreesService {
     const present = !row.missing && existsSync(row.path)
     let salvaged: Salvage | null = null
     if (present) {
-      const status = await this.status(row, project.defaultBase)
+      const status = await this.status(row, project.defaultBase, { fresh: true })
       if (status && status.dirtyTotal > 0 && !force) {
         throw conflict('worktree_dirty', `${row.name} has ${status.dirtyTotal} uncommitted change(s); pass force=true`, status)
       }
