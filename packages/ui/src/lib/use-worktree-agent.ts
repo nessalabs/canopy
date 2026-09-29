@@ -25,17 +25,21 @@ export function useWorktreeAgent(worktree: Worktree) {
   const [modelOverride, setModel] = useState<string>()
   const [effortOverride, setEffort] = useState<Effort>()
 
-  const list = sessions.data?.sessions ?? []
+  const all = sessions.data?.sessions ?? []
+  // This checkout's own sessions (and visitors) are the conversation; the ones that ran in another
+  // checkout of the project are listed for reading and continuing, and are never picked for you.
+  const list = useMemo(() => all.filter((s) => !s.origin), [all])
+  const elsewhere = useMemo(() => all.filter((s) => s.origin), [all])
   const pinned = sessions.data?.pinned
   const selected = useMemo(() => {
     if (fresh) return undefined
     const preferred = chosen ?? pinned
-    return list.find((s) => sameRef(s, preferred)) ?? list[0]
-  }, [chosen, fresh, pinned, list])
+    return all.find((s) => sameRef(s, preferred)) ?? list[0]
+  }, [chosen, fresh, pinned, all, list])
 
   useEffect(() => {
-    if (chosen && !list.some((s) => sameRef(s, chosen))) setChosen(undefined)
-  }, [chosen, list])
+    if (chosen && !all.some((s) => sameRef(s, chosen))) setChosen(undefined)
+  }, [chosen, all])
 
   const select = (ref: SessionRef): void => {
     setFresh(undefined)
@@ -53,11 +57,14 @@ export function useWorktreeAgent(worktree: Worktree) {
 
   const ref = selected ? { provider: selected.provider, sessionId: selected.sessionId } : undefined
   // A session working here from another checkout is filed under that checkout: its transcript
-  // is read there, and a message sent to it resumes it there.
-  const cwd = selected?.visiting && selected.cwd ? selected.cwd : worktree.path
+  // is read there, and a message sent to it resumes it there. One from another checkout of the
+  // project runs where the daemon says — the main checkout, when its own worktree is gone — while
+  // its transcript is still read from where it was filed.
+  const cwd = selected?.origin ? selected.origin.runIn : selected?.visiting && selected.cwd ? selected.cwd : worktree.path
+  const transcriptCwd = selected?.origin ? (selected.cwd ?? selected.origin.path) : cwd
   // The turn hook needs history (detected model); the poll needs the turn's busy flag. A ref breaks the cycle.
   const busyRef = useRef(false)
-  const history = useTranscript(ref, cwd, () => busyRef.current)
+  const history = useTranscript(ref, transcriptCwd, () => busyRef.current)
   const detected = { model: modelAlias(history.data?.model), effort: history.data?.effort }
   const model = modelOverride ?? detected.model
   const effort = effortOverride ?? detected.effort
@@ -86,6 +93,8 @@ export function useWorktreeAgent(worktree: Worktree) {
 
   return {
     sessions: list,
+    /** Sessions of the project's other checkouts: every one in the main checkout, main's in a worktree. */
+    elsewhere,
     selected,
     select,
     fresh,
