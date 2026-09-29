@@ -6,6 +6,7 @@ import type { SessionLister } from '../agents/sessions'
 import type { DaemonConfig } from '../config'
 import type { EnvironmentService } from '../env/service'
 import type { EventBus, LogStore } from '../env/types'
+import type { GitHubService } from '../github/service'
 import type { ProjectsService } from '../projects/service'
 import type { ReviewService } from '../review/service'
 import type { HistoryService } from '../worktrees/history'
@@ -24,6 +25,7 @@ export interface Services {
   watch: WatchService
   commits: CommitService
   merges: MergeService
+  github: GitHubService
   trash: TrashService
   review: ReviewService
   agents: AgentRegistry
