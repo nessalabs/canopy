@@ -1,4 +1,6 @@
-import type { AgentSessionSummary, SessionRef } from '@canopy/shared'
+import { Fragment } from 'react'
+
+import type { AgentSessionSummary, SessionOrigin, SessionRef } from '@canopy/shared'
 
 import { RandomAvatar } from '@/components/ui/random-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -14,64 +16,145 @@ const STATUS_LABEL = { busy: 'Working now', idle: 'Open in a terminal, waiting' 
 /** The last segment of a checkout's path: what a person calls the worktree. */
 const checkoutName = (cwd: string): string => cwd.replace(/\/+$/, '').split('/').pop() || cwd
 
+/** The sessions of one other checkout, under a heading that says where they ran. */
+interface Group {
+  key: string
+  origin: SessionOrigin
+  sessions: AgentSessionSummary[]
+}
+
+/**
+ * Other checkouts' sessions, one group per checkout, the most recently active first. In a worktree
+ * the one group is the main checkout, and its sessions on this worktree's branch lead: they are the
+ * conversations that were about this branch before (or instead of) any that ran here.
+ */
+function groupsOf(elsewhere: AgentSessionSummary[], branch: string | null): Group[] {
+  const groups = new Map<string, Group>()
+  for (const session of elsewhere) {
+    if (!session.origin) continue
+    const key = session.origin.kind === 'main' ? 'main' : session.origin.path
+    const group = groups.get(key) ?? { key, origin: session.origin, sessions: [] }
+    group.sessions.push(session)
+    groups.set(key, group)
+  }
+  const onBranch = (session: AgentSessionSummary): number => (branch !== null && session.gitBranch === branch ? 1 : 0)
+  for (const group of groups.values()) group.sessions.sort((a, b) => onBranch(b) - onBranch(a) || b.updatedAt - a.updatedAt)
+  return [...groups.values()].sort((a, b) => (b.sessions[0]?.updatedAt ?? 0) - (a.sessions[0]?.updatedAt ?? 0))
+}
+
+function GroupHeading({ origin }: { origin: SessionOrigin }): React.JSX.Element {
+  const name = origin.kind === 'main' ? 'Main checkout' : origin.name
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <li role="presentation" className="mt-3 flex min-w-0 items-center gap-1.5 px-3 pb-1 text-[11px] font-medium text-muted-foreground">
+          <span className="truncate">{name}</span>
+          {origin.branch && origin.kind !== 'main' && origin.branch !== origin.name ? <span className="truncate font-mono text-[10px] font-normal">{origin.branch}</span> : null}
+          {origin.kind === 'removed' ? <span className="shrink-0 rounded-sm bg-muted px-1 py-px font-mono text-[10px] font-normal">removed</span> : null}
+        </li>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-xs">
+        {origin.kind === 'removed'
+          ? `Ran in ${origin.path}, which is gone. The transcripts are kept; a message continues the session in ${origin.runIn}.`
+          : `Ran in ${origin.path}. A message continues the session there.`}
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+function SessionRow({ session, active, onSelect, branch }: { session: AgentSessionSummary; active: boolean; onSelect: (ref: SessionRef) => void; branch: string | null }): React.JSX.Element {
+  const title = session.title || session.sessionId.slice(0, 8)
+  return (
+    <li>
+      <button
+        type="button"
+        role="option"
+        aria-selected={active}
+        className={cn('flex w-full min-w-0 items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50', active && 'bg-accent')}
+        onClick={() => onSelect({ provider: session.provider, sessionId: session.sessionId })}
+      >
+        <RandomAvatar seed={session.sessionId} name={title} className="mt-0.5 size-6 shrink-0 rounded-full" />
+        <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="block truncate pr-1 text-sm">{title}</span>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs">
+              {title}
+            </TooltipContent>
+          </Tooltip>
+          <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
+            <ProviderIcon provider={session.provider} className="size-3" />
+            {relativeTime(session.updatedAt)}
+            {session.status ? (
+              <StatusDot status={session.status === 'busy' ? 'running' : 'idle'} aria-label={STATUS_LABEL[session.status]} title={STATUS_LABEL[session.status]} />
+            ) : session.active ? (
+              <StatusDot status="idle" aria-label="Open in a terminal" title="Open in a terminal" />
+            ) : null}
+            {session.visiting && session.cwd ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="truncate rounded-sm bg-muted px-1 py-px">from {checkoutName(session.cwd)}</span>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-xs">
+                  Started in {session.cwd}; its tool calls work in this worktree.
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+            {session.origin?.kind === 'main' && branch !== null && session.gitBranch === branch ? (
+              <span className="truncate rounded-sm bg-muted px-1 py-px" title={`This session was on ${branch} when it last ran`}>
+                this branch
+              </span>
+            ) : null}
+          </span>
+        </span>
+      </button>
+    </li>
+  )
+}
+
 /**
  * Every agent session that worked in this worktree — the ones that ran in its checkout and the
  * ones that came here from another (a session started in the main checkout and told to work
- * in this one). The avatar is seeded by session id so each reads distinct.
+ * in this one) — then, under a heading each, the project's other checkouts' sessions: all of
+ * them in the main checkout, removed worktrees included, and the main checkout's in a worktree.
+ * The avatar is seeded by session id so each reads distinct.
  */
-export function SessionRail({ sessions, selected, onSelect, className }: { sessions: AgentSessionSummary[]; selected?: AgentSessionSummary; onSelect: (ref: SessionRef) => void; className?: string }): React.JSX.Element {
+export function SessionRail({
+  sessions,
+  elsewhere = [],
+  branch = null,
+  selected,
+  onSelect,
+  className
+}: {
+  sessions: AgentSessionSummary[]
+  elsewhere?: AgentSessionSummary[]
+  /** This checkout's branch: main-checkout sessions on it are marked and listed first. */
+  branch?: string | null
+  selected?: AgentSessionSummary
+  onSelect: (ref: SessionRef) => void
+  className?: string
+}): React.JSX.Element {
+  const isSelected = (session: AgentSessionSummary): boolean => session.sessionId === selected?.sessionId && session.provider === selected?.provider
+  const groups = groupsOf(elsewhere, branch)
   return (
     // Radix's viewport lays content out as a table that grows to its widest child, which
     // defeats `truncate`; forcing block layout keeps rows inside the rail's width.
     <ScrollArea className={cn('h-full [&_[data-radix-scroll-area-viewport]>div]:!block', className)}>
       <ul className="flex flex-col gap-0.5 p-2" role="listbox" aria-label="Agent sessions">
-        {sessions.map((session) => {
-          const active = session.sessionId === selected?.sessionId && session.provider === selected?.provider
-          const title = session.title || session.sessionId.slice(0, 8)
-          return (
-            <li key={`${session.provider}:${session.sessionId}`}>
-              <button
-                type="button"
-                role="option"
-                aria-selected={active}
-                className={cn('flex w-full min-w-0 items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50', active && 'bg-accent')}
-                onClick={() => onSelect({ provider: session.provider, sessionId: session.sessionId })}
-              >
-                <RandomAvatar seed={session.sessionId} name={title} className="mt-0.5 size-6 shrink-0 rounded-full" />
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="block truncate pr-1 text-sm">{title}</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-xs">
-                      {title}
-                    </TooltipContent>
-                  </Tooltip>
-                  <span className="flex min-w-0 items-center gap-1.5 whitespace-nowrap font-mono text-[10px] text-muted-foreground">
-                    <ProviderIcon provider={session.provider} className="size-3" />
-                    {relativeTime(session.updatedAt)}
-                    {session.status ? (
-                      <StatusDot status={session.status === 'busy' ? 'running' : 'idle'} aria-label={STATUS_LABEL[session.status]} title={STATUS_LABEL[session.status]} />
-                    ) : session.active ? (
-                      <StatusDot status="idle" aria-label="Open in a terminal" title="Open in a terminal" />
-                    ) : null}
-                    {session.visiting && session.cwd ? (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="truncate rounded-sm bg-muted px-1 py-px">from {checkoutName(session.cwd)}</span>
-                        </TooltipTrigger>
-                        <TooltipContent side="right" className="max-w-xs">
-                          Started in {session.cwd}; its tool calls work in this worktree.
-                        </TooltipContent>
-                      </Tooltip>
-                    ) : null}
-                  </span>
-                </span>
-              </button>
-            </li>
-          )
-        })}
-        {sessions.length === 0 ? <li className="p-3 text-xs text-muted-foreground">No sessions yet.</li> : null}
+        {sessions.map((session) => (
+          <SessionRow key={`${session.provider}:${session.sessionId}`} session={session} active={isSelected(session)} onSelect={onSelect} branch={branch} />
+        ))}
+        {sessions.length === 0 ? <li className="p-3 text-xs text-muted-foreground">No sessions here yet.</li> : null}
+        {groups.map((group) => (
+          <Fragment key={group.key}>
+            <GroupHeading origin={group.origin} />
+            {group.sessions.map((session) => (
+              <SessionRow key={`${session.provider}:${session.sessionId}`} session={session} active={isSelected(session)} onSelect={onSelect} branch={branch} />
+            ))}
+          </Fragment>
+        ))}
       </ul>
     </ScrollArea>
   )

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { FileDiff, MessageSquare, Users } from 'lucide-react'
 
-import type { RewindResult, SessionRef, Worktree } from '@canopy/shared'
+import type { RewindResult, SessionOrigin, SessionRef, Worktree } from '@canopy/shared'
 import type { Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
@@ -25,6 +25,8 @@ import { TurnChanges, type TurnReview } from './turn-changes'
 
 const LAYOUT_KEY = 'canopy-agent-layout-v3'
 
+const REMOVED_CHECKOUT = 'This session ran in a worktree that has been removed'
+
 type PanelId = 'sessions' | 'conversation' | 'changes'
 
 /** Sessions | conversation, 1 : 3. The changes panel opens on demand to the right of the conversation. */
@@ -37,9 +39,35 @@ function buildAgentLayout(): AppShellLayout {
 function emptyMessage(agent: WorktreeAgent, worktree: Worktree): string {
   if (agent.fresh) return `New ${agent.fresh === 'claude' ? 'Claude Code' : 'Codex'} session in ${worktree.path}. Your first message starts it.`
   if (agent.loading) return 'Looking for agent sessions that ran in this worktree…'
-  if (agent.sessions.length === 0) return `No Claude Code or Codex session has run in ${worktree.path} yet. Start one there and it shows up here.`
+  if (agent.sessions.length === 0) {
+    const none = `No Claude Code or Codex session has run in ${worktree.path} yet. Start one there and it shows up here.`
+    if (agent.elsewhere.length === 0) return none
+    // The usual case for a fresh worktree: the conversation about its branch happened in the main checkout.
+    const onBranch = worktree.branch ? agent.elsewhere.filter((s) => s.gitBranch === worktree.branch).length : 0
+    if (onBranch > 0) return `${none} ${onBranch === 1 ? 'One session' : `${onBranch} sessions`} in the main checkout worked on ${worktree.branch}; pick one under Sessions to read or continue it.`
+    return worktree.isMain ? `${none} Sessions from this project's other checkouts are listed under Sessions.` : `${none} The main checkout's sessions are listed under Sessions.`
+  }
   if (agent.history.isPending) return 'Loading transcript…'
   return 'No conversation yet. Comment on the Git Diff and send it for review, or ask the agent something about this worktree.'
+}
+
+/** Where a session from another checkout ran, and where a message to it will run. */
+function OriginNote({ origin }: { origin: SessionOrigin }): React.JSX.Element {
+  const where = origin.kind === 'main' ? 'the main checkout' : origin.name
+  return (
+    <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+      {origin.kind === 'removed' ? (
+        <>
+          This session ran in <span className="font-mono">{origin.path}</span>, which has been removed. Its transcript is kept; a message continues it in{' '}
+          <span className="font-mono">{origin.runIn}</span>.
+        </>
+      ) : (
+        <>
+          This session ran in {where} (<span className="font-mono">{origin.path}</span>). A message continues it there.
+        </>
+      )}
+    </p>
+  )
 }
 
 const promptOf = (turn: Turn | undefined): string =>
@@ -104,9 +132,12 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
 
   // Rewinding the picked turn: addressed by the provider's id for its prompt, and restored from the
   // hook snapshot when one was recorded. Null means this turn cannot be rewound at all.
+  // A removed worktree's files are gone with it: there is nothing to put back, and restoring its
+  // checkpoints against the checkout on screen would write into the wrong tree.
+  const removed = agent.selected?.origin?.kind === 'removed'
   const rewindInput = useMemo(
-    () => rewindInputFor(pickedTurn, model.extras, pickedEntry?.snapshot, target.path),
-    [pickedTurn, model.extras, pickedEntry, target.path]
+    () => (removed ? null : rewindInputFor(pickedTurn, model.extras, pickedEntry?.snapshot, target.path)),
+    [removed, pickedTurn, model.extras, pickedEntry, target.path]
   )
   const [rewindOpen, setRewindOpen] = useState(false)
   // Kept with the turn it ran on, so picking another turn does not inherit its confirmation line.
@@ -147,7 +178,14 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
           <div className="flex justify-end border-b border-border px-2 py-1">
             <NewSessionButton providers={providers.data ?? []} active={agent.fresh} onStart={agent.startSession} disabled={agent.turn.busy} />
           </div>
-          <SessionRail sessions={agent.sessions} selected={agent.selected} onSelect={agent.select} className="min-h-0 flex-1" />
+          <SessionRail
+            sessions={agent.sessions}
+            elsewhere={agent.elsewhere}
+            branch={worktree.branch}
+            selected={agent.selected}
+            onSelect={agent.select}
+            className="min-h-0 flex-1"
+          />
         </div>
       )
     },
@@ -158,6 +196,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
       render: () => (
         <div className="flex h-full min-h-0 flex-col gap-2 p-2">
           <ErrorNote error={agent.error ?? agent.history.error ?? agent.turn.error} />
+          {agent.selected?.origin ? <OriginNote origin={agent.selected.origin} /> : null}
           <TranscriptView
             transcript={model.transcript}
             previews={model.previews}
@@ -175,7 +214,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             writesByTurn={writesByTurn}
             openInTerminal={agent.history.data?.openInTerminal}
             onReviewTurn={show}
-            onRewindTurn={sessionRef ? askRewind : undefined}
+            onRewindTurn={sessionRef && !removed ? askRewind : undefined}
             onAnswerPermission={agent.turn.answerPermission}
             onPickModel={agent.setModel}
             onQuote={(text) => setQuote({ id: Date.now(), text })}
@@ -204,7 +243,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             review={review}
             rewind={{
               onRewind: () => setRewindOpen(true),
-              ...(rewindInput ? {} : { disabledReason: NO_MESSAGE_ID }),
+              ...(rewindInput ? {} : { disabledReason: removed ? REMOVED_CHECKOUT : NO_MESSAGE_ID }),
               ...(rewound && rewound.turnKey === turnKey ? { done: rewound.result } : {})
             }}
             className="h-full"
