@@ -157,6 +157,13 @@ describe('GitHubService', () => {
     expect(gh.calls.filter((args) => args[0] === 'auth')).toHaveLength(1)
   })
 
+  it('suggests nothing on the base branch itself', async () => {
+    await repo.git('checkout', '-q', 'main')
+    const { ready, github } = service(fakeGh((args) => (args[0] === 'pr' ? ok('[]') : ok())))
+    await ready
+    expect(await github.read('w')).toMatchObject({ branch: 'main', baseBranch: 'main', pr: null, draft: null })
+  })
+
   it('does not treat a tracked base branch as the upstream', async () => {
     await repo.git('branch', '--set-upstream-to=origin/main')
     const { ready, github } = service(fakeGh((args) => (args[0] === 'pr' ? ok('[]') : ok())))

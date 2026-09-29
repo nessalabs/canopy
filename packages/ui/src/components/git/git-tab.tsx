@@ -18,9 +18,10 @@ import { CommentsPanel } from './comments-panel'
 import type { ExplorerFocus } from './diff-explorer'
 import { HistoryView } from './history-view'
 import { MergeDialog } from './merge-dialog'
+import { PullRequestView } from './pull-request-view'
 import { ReviewTargetDialog } from './review-target-dialog'
 
-type Pane = 'changes' | 'history' | 'comments'
+type Pane = 'changes' | 'history' | 'pr' | 'comments'
 
 /** A jump from the Comments pane: which view, which commit (History only), which file and comment. */
 interface Jump {
@@ -35,8 +36,11 @@ const jumpFor = (comment: ReviewComment): Jump => ({
   focus: { path: comment.file, commentId: comment.id }
 })
 
-/** Git Diff = Changes (working tree) | History (log + per-commit diff) | Comments (everything left on either). */
-export function GitDiffTab({ worktree, agent, onSendForReview }: { worktree: Worktree; agent: WorktreeAgent; onSendForReview: (target: ReviewTarget, note: string | undefined) => void }): React.JSX.Element {
+/**
+ * Git = Changes (working tree) | History (log + per-commit diff) | Pull request (the branch's PR
+ * on GitHub) | Comments (everything left on Changes or History).
+ */
+export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktree; agent: WorktreeAgent; onSendForReview: (target: ReviewTarget, note: string | undefined) => void }): React.JSX.Element {
   const comments = useComments(worktree.id).data ?? []
   const providers = useProviders().data ?? []
   const [mode, setMode] = useState<DiffMode>('unified')
@@ -62,6 +66,7 @@ export function GitDiffTab({ worktree, agent, onSendForReview }: { worktree: Wor
           <TabsList>
             <TabsTrigger value="changes">Changes{worktree.status?.dirtyTotal ? ` · ${worktree.status.dirtyTotal}` : ''}</TabsTrigger>
             <TabsTrigger value="history">History</TabsTrigger>
+            <TabsTrigger value="pr">Pull request</TabsTrigger>
             <TabsTrigger value="comments">Comments{comments.length ? ` · ${comments.length}` : ''}</TabsTrigger>
           </TabsList>
           {merge.shown ? (
@@ -83,6 +88,9 @@ export function GitDiffTab({ worktree, agent, onSendForReview }: { worktree: Wor
         </TabsContent>
         <TabsContent value="history" className="mt-3 flex min-h-0 flex-1 flex-col">
           <HistoryView worktreeId={worktree.id} focusCommit={jump?.commitSha} focus={focusFor('history')} {...shared} />
+        </TabsContent>
+        <TabsContent value="pr" className="mt-3 flex min-h-0 flex-1 flex-col">
+          <PullRequestView worktree={worktree} />
         </TabsContent>
         <TabsContent value="comments" className="mt-3 overflow-y-auto">
           <CommentsPanel worktreeId={worktree.id} comments={comments} onJump={onJump} />

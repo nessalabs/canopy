@@ -16,6 +16,8 @@ export const keys = {
   /** Which hunks of one file are in the index; only read while that file's hunk view is open. */
   hunkStates: (worktreeId: string, path: string) => ['hunk-states', worktreeId, path] as const,
   hidden: (worktreeId: string) => ['hidden', worktreeId] as const,
+  /** The branch's GitHub PR (or why there is none to show), read through the daemon's `gh`. */
+  pullRequest: (worktreeId: string) => ['pull-request', worktreeId] as const,
   sessions: (worktreeId: string) => ['agent-sessions', worktreeId] as const,
   transcript: (ref: SessionRef) => ['transcript', ref.provider, ref.sessionId] as const,
   edits: (ref: SessionRef) => ['agent-edits', ref.provider, ref.sessionId] as const,

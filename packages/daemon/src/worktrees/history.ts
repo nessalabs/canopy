@@ -1,5 +1,5 @@
 /**
- * Diffs and log for a worktree — the read side of the Git Diff tab. Resolves a
+ * Diffs and log for a worktree — the read side of the Git tab. Resolves a
  * client DiffSpec (`against: head|base`) to a revision, then defers to git/diff.ts.
  */
 import { readFile } from 'node:fs/promises'

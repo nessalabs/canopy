@@ -39,7 +39,7 @@ function emptyMessage(agent: WorktreeAgent, worktree: Worktree): string {
   if (agent.loading) return 'Looking for agent sessions that ran in this worktree…'
   if (agent.sessions.length === 0) return `No Claude Code or Codex session has run in ${worktree.path} yet. Start one there and it shows up here.`
   if (agent.history.isPending) return 'Loading transcript…'
-  return 'No conversation yet. Comment on the Git Diff and send it for review, or ask the agent something about this worktree.'
+  return 'No conversation yet. Comment on the changes in the Git tab and send them for review, or ask the agent something about this worktree.'
 }
 
 const promptOf = (turn: Turn | undefined): string =>

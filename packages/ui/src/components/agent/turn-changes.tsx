@@ -36,7 +36,7 @@ export interface RewindAction {
 }
 
 /**
- * The files one agent turn wrote, through the same explorer (and comments) as the Git Diff
+ * The files one agent turn wrote, through the same explorer (and comments) as the Git
  * tab. With a hook snapshot the diff is exactly that turn's; without one it is the current
  * uncommitted diff of the files the turn named, and files clean again are only counted.
  * `worktree` is the checkout the files are in, which is not always the one the session is

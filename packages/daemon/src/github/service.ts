@@ -281,7 +281,9 @@ export class GitHubService {
     const upstream = await this.upstream(path, branch)
     if (gh.state !== 'ready') return { ...empty, upstream }
     const pr = await this.findPr(path, branch)
-    return { ...empty, upstream, pr, draft: pr ? null : await this.suggest(path, branch, baseBranch, remote) }
+    // The base branch itself has nothing to propose; a PR is opened from the branches cut from it.
+    const draft = pr || branch === baseBranch ? null : await this.suggest(path, branch, baseBranch, remote)
+    return { ...empty, upstream, pr, draft }
   }
 
   async push(worktreeId: string): Promise<PushResult> {

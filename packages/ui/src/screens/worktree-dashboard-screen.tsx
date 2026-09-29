@@ -8,7 +8,7 @@ import { AgentTab } from '@/components/agent/agent-tab'
 import { DestroyWorktreeDialog } from '@/components/environment/destroy-worktree-dialog'
 import { EnvironmentTab } from '@/components/environment/environment-tab'
 import { WorktreeActions } from '@/components/environment/worktree-actions'
-import { GitDiffTab } from '@/components/git/git-diff-tab'
+import { GitTab } from '@/components/git/git-tab'
 import { HeaderSlot } from '@/components/header-slot'
 import { ResourcesTab } from '@/components/resources/resources-tab'
 import { Button } from '@/components/ui/button'
@@ -96,14 +96,14 @@ function Identity({ worktree, projectName }: { worktree: Worktree; projectName: 
 
 const TABS = [
   { value: 'environment', label: 'Environment', icon: Boxes },
-  { value: 'gitdiff', label: 'Git Diff', icon: FileDiff },
+  { value: 'git', label: 'Git', icon: FileDiff },
   { value: 'agent', label: 'Agent', icon: Sparkles },
   { value: 'resources', label: 'Resources', icon: Activity }
 ] as const satisfies readonly { value: DashboardTab; label: string; icon: React.ComponentType }[]
 
 function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectName: string }): React.JSX.Element {
   const [, navigate] = useLocation()
-  const [tab, setTab] = useState<DashboardTab>(() => parseTab(window.location.hash) ?? (worktree.environment.configured ? 'environment' : 'gitdiff'))
+  const [tab, setTab] = useState<DashboardTab>(() => parseTab(window.location.hash) ?? (worktree.environment.configured ? 'environment' : 'git'))
   const [destroyOpen, setDestroyOpen] = useState(false)
   const env = worktree.environment
   const agent = useWorktreeAgent(worktree)
@@ -168,7 +168,7 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
                   key={value}
                   value={value}
                   icon={<Icon />}
-                  badge={value === 'gitdiff' && worktree.status?.dirtyTotal ? worktree.status.dirtyTotal : undefined}
+                  badge={value === 'git' && worktree.status?.dirtyTotal ? worktree.status.dirtyTotal : undefined}
                 >
                   {/* Below @3xl the row can only afford the icons. */}
                   <span className="hidden @3xl:inline">{label}</span>
@@ -183,8 +183,8 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
         <TabsContent value="environment">
           <EnvironmentTab worktree={worktree} />
         </TabsContent>
-        <TabsContent value="gitdiff" className="flex min-h-0 flex-1 flex-col">
-          <GitDiffTab worktree={worktree} agent={agent} onSendForReview={sendForReview} />
+        <TabsContent value="git" className="flex min-h-0 flex-1 flex-col">
+          <GitTab worktree={worktree} agent={agent} onSendForReview={sendForReview} />
         </TabsContent>
         <TabsContent value="agent" className="flex min-h-0 flex-1 flex-col">
           <AgentTab worktree={worktree} agent={agent} />

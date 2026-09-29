@@ -218,7 +218,7 @@ export function DiffsSection({ draft }: { draft: Draft<AppSettings> }): React.JS
   const app = draft.settings
   return (
     <div className="flex max-w-2xl flex-col gap-6">
-      <TabHeader title="Diffs" description="How Git Diff tabs open; each view still has its own toggles." status={draft.status} />
+      <TabHeader title="Diffs" description="How the Git tab's diffs open; each view still has its own toggles." status={draft.status} />
       <Row label="Default layout">
         <SegmentedControl
           value={app?.diff.layout ?? 'split'}

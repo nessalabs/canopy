@@ -14,6 +14,9 @@ describe('tab deep links', () => {
     expect(parseTab('#/worktrees/abc?foo=1&tab=agent')).toBe('agent')
     expect(parseTab('tab=environment')).toBe(undefined)
     expect(parseTab('?tab=environment')).toBe('environment')
+    expect(parseTab('#/worktrees/abc?tab=git')).toBe('git')
+    // The tab was called Git Diff once; old links still land on it.
+    expect(parseTab('#/worktrees/abc?tab=gitdiff')).toBe('git')
   })
 
   it('ignores a missing or unknown tab', () => {
