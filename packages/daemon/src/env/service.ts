@@ -5,7 +5,7 @@
  * need about "the environment" goes through here; runners, adapters and stores stay behind
  * their interfaces.
  */
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import { spawn } from 'node:child_process'
@@ -465,7 +465,6 @@ export class EnvironmentService {
     const parsed = parseCanopyYaml(raw)
     if (!parsed.config) throw badRequest('invalid_canopy_yaml', 'canopy.yaml has errors', { errors: parsed.errors, warnings: parsed.warnings })
     const target = loadCanopyConfig(project.path, undefined, this.home(project)).path ?? join(project.path, 'canopy.yaml')
-    const { writeFileSync } = require('node:fs') as typeof import('node:fs')
     writeFileSync(target, raw.endsWith('\n') ? raw : raw + '\n')
     this.deps.projects.rememberConfig(project.id, raw)
     this.deps.events.emit({ type: 'project-changed', projectId: project.id })

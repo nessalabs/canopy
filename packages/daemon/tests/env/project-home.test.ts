@@ -3,7 +3,7 @@
  * the guarantee that `configured` follows the file on disk rather than what was persisted the
  * first time the worktree was seen.
  */
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -57,6 +57,18 @@ describe('canopy.yaml in the project home', () => {
     expect((await server.call('GET', routes.projectEnvironment(projectId))).body.services[0]).toMatchObject({ name: 'web' })
     // …and the worktree can be started, without the daemon having been restarted.
     expect((await worktrees())[0]?.environment.configured).toBe(true)
+  })
+
+  it('saves a scaffolded file for a project that has none', async () => {
+    const scaffold = await server.call('POST', routes.projectConfigScaffold(projectId))
+    expect(scaffold.status).toBe(200)
+    expect(scaffold.body.report.valid).toBe(true)
+
+    const saved = await server.call('PUT', routes.projectConfig(projectId), { raw: yaml('web') })
+    expect(saved.status).toBe(200)
+    expect(saved.body.project.hasCanopyYaml).toBe(true)
+    expect(readFileSync(join(repo.path, 'canopy.yaml'), 'utf8')).toBe(yaml('web'))
+    expect((await server.call('GET', routes.projectConfig(projectId))).body.raw).toBe(yaml('web'))
   })
 
   it('lets the checkout win when both locations have a file', async () => {
