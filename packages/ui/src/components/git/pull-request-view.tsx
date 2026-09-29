@@ -27,7 +27,7 @@ export function PullRequestView({ worktree }: { worktree: Worktree }): React.JSX
   const query = usePullRequest(worktree.id)
   const data = query.data
 
-  if (query.isPending) return <p className="py-6 text-center font-mono text-xs text-muted-foreground">Asking GitHub…</p>
+  if (query.isPending) return <Loading />
   if (query.error || !data) {
     return (
       <div className="flex flex-col items-center gap-3 rounded-xl border border-border py-10">
@@ -50,6 +50,22 @@ export function PullRequestView({ worktree }: { worktree: Worktree }): React.JSX
     )
   }
   return <CreatePullRequest worktree={worktree} data={data} />
+}
+
+/** The PR page's outline while GitHub answers, so the pane lands at once and fills in. */
+function Loading(): React.JSX.Element {
+  const bar = 'animate-pulse rounded bg-muted'
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5" aria-busy="true" aria-label="Reading the pull request from GitHub">
+      <div className="flex flex-col gap-2">
+        <div className={cn(bar, 'h-5 w-2/3')} />
+        <div className={cn(bar, 'h-3 w-1/2')} />
+        <div className={cn(bar, 'h-3 w-1/3')} />
+      </div>
+      <div className={cn(bar, 'h-24 w-full rounded-lg')} />
+      <div className={cn(bar, 'h-32 w-full rounded-lg')} />
+    </div>
+  )
 }
 
 function Empty({ children }: { children: React.ReactNode }): React.JSX.Element {

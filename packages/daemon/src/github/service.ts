@@ -278,12 +278,16 @@ export class GitHubService {
     const { remote, ...gh } = await this.status(path, branch)
     const empty = { gh, branch, baseBranch, upstream: null, pr: null, draft: null }
     if (!branch) return empty
-    const upstream = await this.upstream(path, branch)
-    if (gh.state !== 'ready') return { ...empty, upstream }
-    const pr = await this.findPr(path, branch)
-    // The base branch itself has nothing to propose; a PR is opened from the branches cut from it.
-    const draft = pr || branch === baseBranch ? null : await this.suggest(path, branch, baseBranch, remote)
-    return { ...empty, upstream, pr, draft }
+    if (gh.state !== 'ready') return { ...empty, upstream: await this.upstream(path, branch) }
+    // GitHub is the slow part, so the local reads run alongside it rather than after. The
+    // suggestion is a `git log` that is thrown away when a PR turns up — cheaper than waiting
+    // for GitHub to say whether it is needed. The base branch itself has nothing to propose.
+    const [upstream, pr, suggested] = await Promise.all([
+      this.upstream(path, branch),
+      this.findPr(path, branch),
+      branch === baseBranch ? null : this.suggest(path, branch, baseBranch, remote)
+    ])
+    return { ...empty, upstream, pr, draft: pr ? null : suggested }
   }
 
   async push(worktreeId: string): Promise<PushResult> {
