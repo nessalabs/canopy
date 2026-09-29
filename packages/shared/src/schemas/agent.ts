@@ -27,6 +27,19 @@ export const TurnOptions = z.object({
 })
 export type TurnOptions = z.infer<typeof TurnOptions>
 
+/** The checkout a session listed under another one actually ran in. */
+export const SessionOrigin = z.object({
+  /** `removed`: the worktree is gone; the transcript is still there and the session can continue. */
+  kind: z.enum(['main', 'worktree', 'removed']),
+  name: z.string(),
+  path: z.string(),
+  branch: z.string().nullable(),
+  worktreeId: z.string().optional(),
+  /** Where a message sent to it runs: its own checkout, or the main one when that is gone. */
+  runIn: z.string()
+})
+export type SessionOrigin = z.infer<typeof SessionOrigin>
+
 export const AgentSessionSummary = z.object({
   provider: AgentProvider,
   /** Provider-native id accepted by that provider's resume call. */
@@ -51,7 +64,13 @@ export const AgentSessionSummary = z.object({
    * The worktree this listing is for is not the session's own cwd: the session works here from
    * another checkout, and its hooks said so.
    */
-  visiting: z.boolean().optional()
+  visiting: z.boolean().optional(),
+  /**
+   * Set when the session ran in another checkout of the same project and is listed here for
+   * reference: every other checkout's sessions in the main checkout's tab (removed worktrees
+   * included, so their conversations outlive them), and the main checkout's in a worktree's.
+   */
+  origin: SessionOrigin.optional()
 })
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummary>
 

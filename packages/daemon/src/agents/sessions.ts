@@ -3,22 +3,30 @@
  * that worked here from another — a session started in the main checkout and told to work in
  * this worktree is this worktree's session too, whatever `~/.claude/projects` files it under.
  * Each carries what is known about whether it is still going.
+ *
+ * After those come the project's other checkouts, marked with an `origin`: the main checkout
+ * lists every worktree's sessions, removed worktrees included — deleting a worktree is routine,
+ * and the conversation that built the branch should not go with it — and a worktree lists the
+ * main checkout's, where a session about this branch was often started.
  */
-import type { AgentProvider, AgentSessionSummary } from '@canopy/shared'
+import type { AgentProvider, AgentSessionSummary, Project } from '@canopy/shared'
 
 import { now } from '../lib/ids'
+import type { ProjectCheckouts } from './checkouts'
 import { liveSessions, type LiveSession } from './claude-terminal'
 import type { PresenceService } from './presence'
 import type { AgentRegistry } from './registry'
 
 export interface SessionLister {
-  list(worktree: { id: string; path: string }, limit?: number): Promise<AgentSessionSummary[]>
+  list(worktree: { id: string; path: string; isMain?: boolean; projectId?: string }, limit?: number): Promise<AgentSessionSummary[]>
 }
 
 /** A hook this recent means a tool call is running or just finished: the turn is not over. */
 export const RECENT_HOOK_MS = 60_000
 /** What a provider said about a session is reread this often; titles and first prompts rarely move. */
 export const DESCRIBE_TTL_MS = 30_000
+/** Sessions listed per other checkout: enough to find a conversation, not a full history. */
+export const OTHER_CHECKOUT_LIMIT = 15
 
 /**
  * What a session is doing, from the two things that can know: its terminal's registry entry,
@@ -44,9 +52,12 @@ interface Deps {
   agents: AgentRegistry
   presence: PresenceService
   live?: () => Promise<LiveSession[]>
+  /** Without these only the worktree's own sessions are listed. */
+  checkouts?: ProjectCheckouts
+  projects?: { get(id: string): Project }
 }
 
-export function createSessionLister({ agents, presence, live = liveSessions }: Deps): SessionLister {
+export function createSessionLister({ agents, presence, live = liveSessions, checkouts, projects }: Deps): SessionLister {
   // The listing is polled; what a provider knows about a session by id is not worth a transcript
   // scan every few seconds, so it is kept per (session, cwd) for a while.
   const described = new Map<string, { at: number; value: Promise<AgentSessionSummary | undefined> }>()
@@ -56,6 +67,45 @@ export function createSessionLister({ agents, presence, live = liveSessions }: D
     if (hit && at - hit.at < DESCRIBE_TTL_MS) return hit.value
     const value = (agents.adapterFor(entry.provider).describeSession?.(entry.sessionId, entry.cwd) ?? Promise.resolve(undefined)).catch(() => undefined)
     described.set(id, { at, value })
+    return value
+  }
+
+  // Other checkouts' sessions are reread on the describe cadence rather than on every poll: each
+  // checkout is a provider listing, and the main checkout of a busy project has many.
+  const elsewhere = new Map<string, { at: number; value: Promise<AgentSessionSummary[]> }>()
+  const fromOtherCheckouts = (worktree: { id: string; path: string; isMain?: boolean; projectId?: string }, at: number): Promise<AgentSessionSummary[]> => {
+    if (!checkouts || !projects || !worktree.projectId) return Promise.resolve([])
+    const hit = elsewhere.get(worktree.id)
+    if (hit && at - hit.at < DESCRIBE_TTL_MS) return hit.value
+    const projectId = worktree.projectId
+    const value = (async () => {
+      const project = projects.get(projectId)
+      const all = await checkouts.list(project)
+      const targets = all.filter((c) => c.path !== worktree.path && (worktree.isMain ? true : c.kind === 'main'))
+      const lists = await Promise.all(
+        targets.map(async (checkout) =>
+          (await agents.listWorktreeSessions(checkout.path, OTHER_CHECKOUT_LIMIT)).map((session): AgentSessionSummary => {
+            // A subdirectory of this very checkout is not another checkout; its sessions are ours.
+            if (checkout.worktreeId === worktree.id) return session
+            return {
+              ...session,
+              origin: {
+                kind: checkout.kind,
+                name: checkout.name,
+                path: checkout.path,
+                branch: checkout.branch ?? session.gitBranch ?? null,
+                ...(checkout.worktreeId ? { worktreeId: checkout.worktreeId } : {}),
+                // A removed worktree's session carries on in the main checkout: the provider finds
+                // it by id wherever it is resumed (it keeps writing to its own transcript).
+                runIn: checkout.kind === 'removed' ? project.path : (session.cwd ?? checkout.path)
+              }
+            }
+          })
+        )
+      )
+      return lists.flat()
+    })().catch(() => [])
+    elsewhere.set(worktree.id, { at, value })
     return value
   }
 
@@ -88,13 +138,24 @@ export function createSessionLister({ agents, presence, live = liveSessions }: D
         })
       )
 
-      const all = [...own, ...fromHooks]
-        .map((session) => {
-          const status = statusOf(session, registry.get(session.sessionId), presence.lastSeen(session.provider, session.sessionId), at)
-          return status ? { ...session, status } : session
+      const withStatus = (session: AgentSessionSummary): AgentSessionSummary => {
+        const status = statusOf(session, registry.get(session.sessionId), presence.lastSeen(session.provider, session.sessionId), at)
+        return status ? { ...session, status } : session
+      }
+      const all = [...own, ...fromHooks].map(withStatus).sort((a, b) => b.updatedAt - a.updatedAt)
+      const mine = limit === undefined ? all : all.slice(0, limit)
+
+      // Listed once: a session already here (its own, or visiting) keeps that place.
+      const seen = new Set(all.map(key))
+      const others = (await fromOtherCheckouts(worktree, at))
+        .filter((session) => {
+          if (seen.has(key(session))) return false
+          seen.add(key(session))
+          return true
         })
+        .map(withStatus)
         .sort((a, b) => b.updatedAt - a.updatedAt)
-      return limit === undefined ? all : all.slice(0, limit)
+      return [...mine, ...others]
     }
   }
 }
