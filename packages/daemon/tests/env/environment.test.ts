@@ -104,8 +104,11 @@ describe('environment end to end (host runtime, git fallback)', () => {
     expect(port).toBeGreaterThan(0)
     expect(env.services[0]).toMatchObject({ name: 'web', status: 'healthy', runtime: 'host', ports: [{ name: 'web', port }] })
     expect(env.services[0]?.pid).toBeGreaterThan(0)
-    expect(env.copiedFiles).toEqual(['.env'])
-    expect(existsSync(join(worktree.path, '.env'))).toBe(true)
+    // Copying is canopyd's, and this server has none: the step says so rather than failing,
+    // and ports and setup still come from the daemon itself. `cutover.test.ts` copies for real.
+    expect(env.provisioning?.steps.find((s) => s.name === 'copy-files')?.detail).toBe('skipped — needs canopyd')
+    expect(env.copiedFiles).toEqual([])
+    expect(existsSync(join(worktree.path, '.env'))).toBe(false)
     expect(readFileSync(join(worktree.path, 'setup.txt'), 'utf8').trim()).toBe('setup-ran')
     const dotenv = readFileSync(join(worktree.path, '.env.canopy'), 'utf8')
     expect(dotenv).toContain(`CANOPY_PORT_WEB=${port}`)
