@@ -48,7 +48,7 @@ function emptyMessage(agent: WorktreeAgent, worktree: Worktree): string {
     return worktree.isMain ? `${none} Sessions from this project's other checkouts are listed under Sessions.` : `${none} The main checkout's sessions are listed under Sessions.`
   }
   if (agent.history.isPending) return 'Loading transcript…'
-  return 'No conversation yet. Comment on the Git Diff and send it for review, or ask the agent something about this worktree.'
+  return 'No conversation yet. Comment on the changes in the Git tab and send them for review, or ask the agent something about this worktree.'
 }
 
 /** Where a session from another checkout ran, and where a message to it will run. */

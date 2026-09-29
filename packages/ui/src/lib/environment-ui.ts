@@ -5,9 +5,12 @@
  */
 import type { DbInstanceInfo, EnvSource, EnvVar, HostSample } from '@canopy/shared'
 
-export type DashboardTab = 'environment' | 'gitdiff' | 'agent' | 'resources'
+export type DashboardTab = 'environment' | 'git' | 'agent' | 'resources'
 
-export const DASHBOARD_TABS: readonly DashboardTab[] = ['environment', 'gitdiff', 'agent', 'resources']
+export const DASHBOARD_TABS: readonly DashboardTab[] = ['environment', 'git', 'agent', 'resources']
+
+/** Old tab names still found in bookmarks and open windows. */
+const TAB_ALIASES: Record<string, DashboardTab> = { gitdiff: 'git' }
 
 /**
  * Reads `?tab=` out of a hash-router location (`#/worktrees/x?tab=resources`). Accepts the
@@ -17,7 +20,8 @@ export const DASHBOARD_TABS: readonly DashboardTab[] = ['environment', 'gitdiff'
 export function parseTab(hash: string): DashboardTab | undefined {
   const query = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : ''
   if (!query) return undefined
-  const requested = new URLSearchParams(query).get('tab')
+  const raw = new URLSearchParams(query).get('tab')
+  const requested = raw !== null ? (TAB_ALIASES[raw] ?? raw) : raw
   return DASHBOARD_TABS.includes(requested as DashboardTab) ? (requested as DashboardTab) : undefined
 }
 

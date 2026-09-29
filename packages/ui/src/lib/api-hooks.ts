@@ -9,6 +9,7 @@ import type {
   AppSettingsPatch,
   ChangesResponse,
   CommitInput,
+  CreatePullRequestInput,
   MergeInput,
   CreateWorktreeInput,
   ExcludeInput,
@@ -554,7 +555,7 @@ export const useMergeWorktree = (worktreeId: string) => {
 /**
  * Puts the files a turn changed back to how they were before it ran. A dry run only reports, so it
  * invalidates nothing; a real one rewrites the checkout, which every diff read of that worktree —
- * the Git Diff tab's and the turn panel's tree diff alike — has to be told about. The transcript
+ * the Git tab's and the turn panel's tree diff alike — has to be told about. The transcript
  * is deliberately left alone: the conversation still happened.
  */
 export const useRewindFiles = (worktreeId: string, ref: SessionRef | undefined) => {
@@ -563,6 +564,35 @@ export const useRewindFiles = (worktreeId: string, ref: SessionRef | undefined) 
     (input: RewindInput) => (ref ? api.rewindFiles(ref, input) : Promise.reject(new Error('No agent session to rewind.'))),
     (input) => (input.dryRun ? [] : [['diff-files', worktreeId], keys.worktree(worktreeId), keys.worktrees])
   )
+}
+
+/** A PR's checks move while it is on screen, so the pane asks again now and then; GitHub is slow, so not often. */
+const PR_POLL_MS = 60_000
+
+/**
+ * The Pull request pane's read. Only mounted while the pane is open (Radix unmounts hidden
+ * tabs), so nothing talks to GitHub for a worktree nobody is looking at.
+ */
+export const usePullRequest = (worktreeId: string) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.pullRequest(worktreeId),
+    queryFn: () => api.pullRequest(worktreeId),
+    staleTime: 30_000,
+    refetchInterval: PR_POLL_MS,
+    refetchIntervalInBackground: false
+  })
+}
+
+/** Opening a PR pushes the branch too, so the worktree's own status is read again with it. */
+export const useCreatePullRequest = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating((input: CreatePullRequestInput) => api.createPullRequest(worktreeId, input), () => [keys.pullRequest(worktreeId), keys.worktree(worktreeId)])
+}
+
+export const usePushBranch = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating(() => api.pushBranch(worktreeId), () => [keys.pullRequest(worktreeId), keys.worktree(worktreeId)])
 }
 
 /** Locally hidden paths — its own read, so the changes poll never pays for it. */
