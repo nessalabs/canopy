@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { CircleCheck, CircleDashed, CircleMinus, CircleX, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MessageSquare } from 'lucide-react'
 
 import type { PullRequest, PullRequestCheck, PullRequestReviewer, ReviewComment } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
+import { RandomAvatar } from '@/components/ui/random-avatar'
 import { plural } from '@/lib/format'
 import { usePlatform } from '@/providers/platform'
 
@@ -73,6 +75,18 @@ export function checksSummary(checks: PullRequestCheck[]): string {
   if (failed) return `${plural(failed, 'check')} failing`
   if (pending) return `${plural(pending, 'check')} running`
   return `${plural(checks.length, 'check')} passed`
+}
+
+/**
+ * GitHub's picture of a login, from the address GitHub serves every avatar at; on Enterprise the
+ * host serves `<login>.png`. No API call: the image is fetched by the browser. When it does not
+ * load — offline, a team, an account with none — the generated avatar stands in.
+ */
+export function GitHubAvatar({ login, name, host, className }: { login: string; name?: string | null; host: string | null; className?: string }): React.JSX.Element {
+  const [failed, setFailed] = useState(false)
+  const src = !host || host === 'github.com' ? `https://avatars.githubusercontent.com/${encodeURIComponent(login)}?s=64` : `https://${host}/${encodeURIComponent(login)}.png?size=64`
+  if (failed) return <RandomAvatar seed={login} name={name ?? login} className={className} />
+  return <img src={src} alt="" title={name ?? login} className={className} loading="lazy" onError={() => setFailed(true)} />
 }
 
 export function Empty({ children }: { children: React.ReactNode }): React.JSX.Element {

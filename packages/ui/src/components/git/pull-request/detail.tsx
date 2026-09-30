@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { RandomAvatar } from '@/components/ui/random-avatar'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -23,7 +22,7 @@ import { DiffExplorer } from '../diff-explorer'
 import { ReviewToolbar } from '../review-toolbar'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
 import { SidePicker } from './pickers'
-import { CHECK_ICON, Empty, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
+import { CHECK_ICON, Empty, GitHubAvatar, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
 
 type View = 'overview' | 'commits' | 'files'
 
@@ -65,7 +64,7 @@ export function PullRequestDetail({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <Header pr={pr} refreshing={refreshing} onRefresh={onRefresh} />
+      <Header pr={pr} host={data.gh.host} refreshing={refreshing} onRefresh={onRefresh} />
 
       <div className="flex flex-wrap items-center gap-2">
         <SegmentedControl value={view} onValueChange={(value) => setView(value as View)} aria-label="Pull request view">
@@ -136,7 +135,7 @@ export function PullRequestDetail({
 
       {open ? <LocalWork worktree={worktree} pr={pr} data={data} onOpenChanges={onOpenChanges} /> : null}
 
-      {view === 'overview' ? <Overview worktreeId={worktree.id} pr={pr} onRun={run} running={action.isPending} /> : null}
+      {view === 'overview' ? <Overview worktreeId={worktree.id} pr={pr} host={data.gh.host} onRun={run} running={action.isPending} /> : null}
       {view === 'commits' ? <CommitsView worktreeId={worktree.id} pr={pr} review={review} /> : null}
       {view === 'files' ? <FilesView worktreeId={worktree.id} pr={pr} review={review} /> : null}
 
@@ -146,7 +145,7 @@ export function PullRequestDetail({
   )
 }
 
-function Header({ pr, refreshing, onRefresh }: { pr: PullRequest; refreshing: boolean; onRefresh: () => void }): React.JSX.Element {
+function Header({ pr, host, refreshing, onRefresh }: { pr: PullRequest; host: string | null; refreshing: boolean; onRefresh: () => void }): React.JSX.Element {
   const open = useExternalLink()
   const look = stateLook(pr)
   const facts = [
@@ -181,7 +180,8 @@ function Header({ pr, refreshing, onRefresh }: { pr: PullRequest; refreshing: bo
           <look.Icon />
           {look.label}
         </Badge>
-        <span>
+        <span className="inline-flex items-center gap-1.5">
+          <GitHubAvatar login={pr.author} host={host} className="size-4 rounded-full" />
           <span className="text-foreground">{pr.author}</span> {pr.state === 'MERGED' ? 'merged' : 'wants to merge'} {plural(pr.commits, 'commit')} into{' '}
           <span className="font-mono">{pr.baseBranch}</span> from <span className="font-mono">{pr.headBranch}</span>
         </span>
@@ -289,7 +289,7 @@ function LocalWork({ worktree, pr, data, onOpenChanges }: { worktree: Worktree; 
   )
 }
 
-function Overview({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: PullRequest; onRun: (action: PullRequestAction) => void; running: boolean }): React.JSX.Element {
+function Overview({ worktreeId, pr, host, onRun, running }: { worktreeId: string; pr: PullRequest; host: string | null; onRun: (action: PullRequestAction) => void; running: boolean }): React.JSX.Element {
   const open = useExternalLink()
   const state = MERGE_STATE[pr.mergeState] ?? MERGE_STATE.UNKNOWN!
   const failing = pr.checks.some((check) => check.outcome === 'fail')
@@ -299,7 +299,7 @@ function Overview({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: 
         <div className="flex min-w-0 flex-col gap-5">
           <section className="rounded-lg border border-border p-4">{pr.body.trim() ? <Markdown>{pr.body}</Markdown> : <p className="text-sm text-muted-foreground italic">No description.</p>}</section>
 
-          <Conversation pr={pr} />
+          <Conversation pr={pr} host={host} />
           <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
             <div className="flex items-center gap-2">
               <h4 className="flex-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
@@ -339,20 +339,20 @@ function Overview({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: 
 
           {pr.state !== 'MERGED' ? <CommentBox key={pr.number} onComment={(body) => onRun({ kind: 'comment', body })} running={running} /> : null}
         </div>
-        <People worktreeId={worktreeId} pr={pr} onRun={onRun} running={running} />
+        <People worktreeId={worktreeId} pr={pr} host={host} onRun={onRun} running={running} />
       </div>
     </div>
   )
 }
 
-function Conversation({ pr }: { pr: PullRequest }): React.JSX.Element | null {
+function Conversation({ pr, host }: { pr: PullRequest; host: string | null }): React.JSX.Element | null {
   if (pr.events.length === 0) return null
   return (
     <section className="flex flex-col gap-3">
       <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Conversation</h4>
       {pr.events.map((event, index) => (
         <article key={`${event.at}:${index}`} className="flex gap-3">
-          <RandomAvatar seed={event.author} name={event.author} className="mt-0.5 size-6 shrink-0 rounded-full" />
+          <GitHubAvatar login={event.author} host={host} className="mt-0.5 size-6 shrink-0 rounded-full" />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">{event.author}</span>
@@ -411,7 +411,7 @@ function Side({ title, picker, children }: { title: string; picker?: React.React
 const None = ({ children }: { children: React.ReactNode }): React.JSX.Element => <p className="text-xs text-muted-foreground">{children}</p>
 
 /** GitHub's sidebar: who reviews, who owns it, how it is filed — each editable in place. */
-function People({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: PullRequest; onRun: (action: PullRequestAction) => void; running: boolean }): React.JSX.Element {
+function People({ worktreeId, pr, host, onRun, running }: { worktreeId: string; pr: PullRequest; host: string | null; onRun: (action: PullRequestAction) => void; running: boolean }): React.JSX.Element {
   const editable = pr.state === 'OPEN' && !running
   const people = (options: { users: { login: string; name: string | null }[] }) => options.users.map((user) => ({ id: user.login, label: user.login, detail: user.name }))
   const requested = pr.reviewers.filter((reviewer) => reviewer.state === 'requested').map((reviewer) => reviewer.name)
@@ -440,7 +440,7 @@ function People({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: Pu
                   {reviewer.team ? (
                     <Users className="size-5 shrink-0 rounded-full bg-muted p-0.5 text-muted-foreground" />
                   ) : (
-                    <RandomAvatar seed={reviewer.name} name={reviewer.name} className="size-5 shrink-0 rounded-full" />
+                    <GitHubAvatar login={reviewer.name} host={host} className="size-5 shrink-0 rounded-full" />
                   )}
                   <span className="min-w-0 flex-1 truncate">{reviewer.name}</span>
                   <Tooltip>
@@ -465,7 +465,7 @@ function People({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: Pu
           <ul className="flex flex-col gap-2">
             {pr.assignees.map((person) => (
               <li key={person.login} className="flex items-center gap-2">
-                <RandomAvatar seed={person.login} name={person.name ?? person.login} className="size-5 shrink-0 rounded-full" />
+                <GitHubAvatar login={person.login} name={person.name} host={host} className="size-5 shrink-0 rounded-full" />
                 <span className="min-w-0 truncate">{person.login}</span>
                 {person.name ? <span className="min-w-0 truncate text-xs text-muted-foreground">{person.name}</span> : null}
               </li>
