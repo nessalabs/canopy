@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DestroyJob } from '@canopy/shared'
 
 import { BackgroundJobs } from '../src/components/background-jobs'
-import { destroyJobTitle, heldWorktrees, shownDestroyJobs, upsertDestroyJob } from '../src/lib/destroy-jobs'
+import { destroyJobTitle, heldWorktrees, mergeDestroyJobs, shownDestroyJobs, upsertDestroyJob } from '../src/lib/destroy-jobs'
 import { keys } from '../src/lib/query-keys'
 import { ApiProvider } from '../src/providers/api'
 
@@ -43,6 +43,17 @@ describe('destroy job model', () => {
     expect(upsertDestroyJob(undefined, job())).toEqual([job()])
     const moved = job({ finished: 1, done: ['a'] })
     expect(upsertDestroyJob([other, job()], moved)).toEqual([other, moved])
+  })
+
+  it('never lets an older copy of a job undo newer progress', () => {
+    const ahead = job({ finished: 2, done: ['a', 'b'], currentId: 'c', currentName: 'gamma' })
+    const behind = job({ finished: 1, done: ['a'] })
+    expect(upsertDestroyJob([ahead], behind)).toEqual([ahead])
+    // The first list read can answer after an event already moved the job on.
+    expect(mergeDestroyJobs([ahead], [behind])).toEqual([ahead])
+    const ended = job({ finished: 3, done: ['a', 'b', 'c'], finishedAt: 9 })
+    expect(mergeDestroyJobs([ahead], [ended])).toEqual([ended])
+    expect(mergeDestroyJobs(undefined, [behind])).toEqual([behind])
   })
 
   it('holds the worktrees a running job has not finished with', () => {

@@ -6,10 +6,27 @@ import type { DestroyJob } from '@canopy/shared'
 
 import { plural } from './format'
 
-/** Puts a job's latest state into the cached list, replacing the one with its id or adding it. */
+/** How far a job has got: a job only moves forward, so of two copies the further one is current. */
+const progress = (job: DestroyJob): number => (job.finishedAt !== null ? Number.POSITIVE_INFINITY : job.finished * 2 + (job.currentId === null ? 0 : 1))
+
+const newer = (a: DestroyJob, b: DestroyJob): DestroyJob => (progress(b) >= progress(a) ? b : a)
+
+/**
+ * Puts a job's state into the cached list, replacing the one with its id or adding it. An older
+ * copy never wins: an event can land before the list read that was already on its way.
+ */
 export function upsertDestroyJob(jobs: DestroyJob[] | undefined, job: DestroyJob): DestroyJob[] {
   const list = jobs ?? []
-  return list.some((existing) => existing.id === job.id) ? list.map((existing) => (existing.id === job.id ? job : existing)) : [...list, job]
+  return list.some((existing) => existing.id === job.id) ? list.map((existing) => (existing.id === job.id ? newer(existing, job) : existing)) : [...list, job]
+}
+
+/** A fresh read of the list, keeping any job the event stream has already moved further along. */
+export function mergeDestroyJobs(cached: DestroyJob[] | undefined, fetched: DestroyJob[]): DestroyJob[] {
+  const known = new Map((cached ?? []).map((job) => [job.id, job]))
+  return fetched.map((job) => {
+    const seen = known.get(job.id)
+    return seen ? newer(job, seen) : job
+  })
 }
 
 export function destroyJobTitle(job: DestroyJob): string {
