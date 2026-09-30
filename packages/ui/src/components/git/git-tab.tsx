@@ -12,7 +12,7 @@ import { plural } from '@/lib/format'
 import { mergeAffordance } from '@/lib/status'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
-import { parseGitPane, type GitPane } from '@/lib/environment-ui'
+import { parseGitLink, type GitPane } from '@/lib/environment-ui'
 
 import { ChangesView } from './changes-view'
 import { CommentsPanel } from './comments-panel'
@@ -46,8 +46,10 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
   const comments = useComments(worktree.id).data ?? []
   const providers = useProviders().data ?? []
   const [mode, setMode] = useState<DiffMode>('unified')
-  // A link can open a pane directly: the Command Center's PR chip lands on `?tab=git&pane=pr`.
-  const [pane, setPane] = useState<Pane>(() => parseGitPane(window.location.hash) ?? 'changes')
+  // A link can open a pane directly, with what Changes compares against or the commit History
+  // selects: the Command Center links its PR, drift, uncommitted and last-commit cells here.
+  const [link] = useState(() => parseGitLink(window.location.hash))
+  const [pane, setPane] = useState<Pane>(link.pane ?? 'changes')
   const [jump, setJump] = useState<Jump>()
   const [picking, setPicking] = useState(false)
   const [merging, setMerging] = useState(false)
@@ -111,10 +113,10 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
           ) : null}
         </div>
         <TabsContent value="changes" className="mt-3 flex min-h-0 flex-1 flex-col">
-          <ChangesView worktree={worktree} focus={focusFor('changes')} {...shared} />
+          <ChangesView worktree={worktree} focus={focusFor('changes')} initialAgainst={link.against} {...shared} />
         </TabsContent>
         <TabsContent value="history" className="mt-3 flex min-h-0 flex-1 flex-col">
-          <HistoryView worktreeId={worktree.id} focusCommit={jump?.commitSha} focus={focusFor('history')} {...shared} />
+          <HistoryView worktreeId={worktree.id} focusCommit={jump?.commitSha ?? link.commit} focus={focusFor('history')} {...shared} />
         </TabsContent>
         <TabsContent value="pr" className="mt-3 flex min-h-0 flex-1 flex-col">
           <PullRequestView worktree={worktree} review={shared} githubComments={githubComments} focus={prFocus} onOpenChanges={() => setPane('changes')} />

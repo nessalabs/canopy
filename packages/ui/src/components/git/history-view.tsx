@@ -37,8 +37,9 @@ export function HistoryView({
   const current = selected ?? commits[0]?.sha
 
   useEffect(() => {
-    if (selected && !commits.some((c) => c.sha === selected)) setSelected(undefined)
-  }, [commits, selected])
+    // Only once the log is in: an empty list while it loads would drop a commit a link asked for.
+    if (log.data && selected && !commits.some((c) => c.sha === selected)) setSelected(undefined)
+  }, [log.data, commits, selected])
   useEffect(() => setSelected(focusCommit), [focusCommit])
 
   if (log.isPending) return <p className="py-6 text-center font-mono text-xs text-muted-foreground">Reading history…</p>

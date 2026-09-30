@@ -3,7 +3,7 @@
  * timestamps, dotenv rendering, meter scales and the memory-bar math. No DOM, no hooks —
  * the components stay thin and this file is unit-tested.
  */
-import type { DbInstanceInfo, EnvSource, EnvVar, HostSample } from '@canopy/shared'
+import type { Against, DbInstanceInfo, EnvSource, EnvVar, HostSample } from '@canopy/shared'
 
 export type DashboardTab = 'environment' | 'git' | 'agent' | 'resources'
 
@@ -33,10 +33,34 @@ export type GitPane = 'changes' | 'history' | 'pr' | 'comments'
 
 export const GIT_PANES: readonly GitPane[] = ['changes', 'history', 'pr', 'comments']
 
-/** Reads `?pane=` for the Git tab (`#/worktrees/x?tab=git&pane=pr`); unknown panes return undefined. */
-export function parseGitPane(hash: string): GitPane | undefined {
-  const raw = hashParam(hash, 'pane')
-  return GIT_PANES.includes(raw as GitPane) ? (raw as GitPane) : undefined
+/**
+ * Where a link into the Git tab lands: the pane, what Changes compares against, and the commit
+ * History selects — `#/worktrees/x?tab=git&pane=history&commit=<sha>`. Unknown values are dropped.
+ */
+export interface GitLink {
+  pane?: GitPane
+  against?: Against
+  commit?: string
+}
+
+export function parseGitLink(hash: string): GitLink {
+  const pane = hashParam(hash, 'pane')
+  const against = hashParam(hash, 'against')
+  const commit = hashParam(hash, 'commit')
+  return {
+    pane: GIT_PANES.includes(pane as GitPane) ? (pane as GitPane) : undefined,
+    against: against === 'head' || against === 'base' ? against : undefined,
+    commit: commit && /^[0-9a-f]{4,40}$/i.test(commit) ? commit : undefined
+  }
+}
+
+/** The route for a worktree's Git tab opened at `link`. */
+export function gitHref(worktreeId: string, link: GitLink): string {
+  const params = new URLSearchParams({ tab: 'git' })
+  if (link.pane) params.set('pane', link.pane)
+  if (link.against) params.set('against', link.against)
+  if (link.commit) params.set('commit', link.commit)
+  return `/worktrees/${worktreeId}?${params.toString()}`
 }
 
 /** "42s" / "9m" / "3h 04m" / "2d 6h" since `startedAt`; null when nothing is running. */

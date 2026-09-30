@@ -32,7 +32,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { prKey, useHost, useProjectPullRequests, useProjects, useWorktreeLifecycle, useWorktrees } from '@/lib/api-hooks'
 import { PaneSplitDirection, createAppShellLayout, setSplitWeights, splitPane, type AppShellLayout } from '@/lib/app-shell-layout'
-import { cpuScale, memScale } from '@/lib/environment-ui'
+import { cpuScale, gitHref, memScale, type GitLink } from '@/lib/environment-ui'
 import { useHostSamples } from '@/lib/events-provider'
 import { plural, relativeTime } from '@/lib/format'
 import { ENV_STATE_BADGE, SERVICE_DOT, SERVICE_LABEL, WORKTREE_BADGE, WORKTREE_DOT } from '@/lib/status'
@@ -177,7 +177,7 @@ function PullRequestChip({ pr, worktreeId }: { pr: PullRequestSummary; worktreeI
           aria-label={`${look.label} pull request #${pr.number}`}
           onClick={(event) => {
             event.stopPropagation()
-            navigate(`/worktrees/${worktreeId}?tab=git&pane=pr`)
+            navigate(gitHref(worktreeId, { pane: 'pr' }))
           }}
           onKeyDown={(event) => event.stopPropagation()}
         >
@@ -219,6 +219,29 @@ function PullRequestCell({ row }: { row: Row }): React.JSX.Element {
   return <Dash />
 }
 
+/**
+ * A cell's value that opens the worktree's Git tab where that value comes from. A button, not a
+ * nested link: the row itself already opens the worktree, so this stops the row's click.
+ */
+function GitCellLink({ worktreeId, link, label, className, children, ...props }: { worktreeId: string; link: GitLink; label: string; className?: string; children: React.ReactNode } & Omit<React.ComponentProps<'button'>, 'onClick'>): React.JSX.Element {
+  const [, navigate] = useLocation()
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      className={cn('-mx-1 inline-flex max-w-full items-center rounded px-1 py-0.5 outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:[outline-style:solid] focus-visible:outline-2 focus-visible:outline-ring', className)}
+      onClick={(event) => {
+        event.stopPropagation()
+        navigate(gitHref(worktreeId, link))
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      {...props}
+    >
+      {children}
+    </button>
+  )
+}
+
 /** Where the branch stands against its base: landed, how far it has drifted, and what is not committed. */
 function BranchCell({ row }: { row: Row }): React.JSX.Element {
   const { worktree, pr } = row
@@ -230,15 +253,16 @@ function BranchCell({ row }: { row: Row }): React.JSX.Element {
   const mergedLocally = status.merged === true && pr?.state !== 'MERGED'
   const dirty = status.dirtyTotal
   if (!mergedLocally && ahead === 0 && behind === 0 && dirty === 0) return <span className="text-[11px] text-muted-foreground/70">even</span>
+  const vsBase: GitLink = { pane: 'changes', against: 'base' }
   return (
-    <span className="flex items-center gap-2 font-mono text-[11px] tabular-nums text-muted-foreground">
+    <span className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-muted-foreground">
       {mergedLocally ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex items-center gap-1 font-sans font-medium text-violet-600 dark:text-violet-400">
+            <GitCellLink worktreeId={worktree.id} link={vsBase} label={`Merged into ${worktree.baseBranch}: show the changes`} className="gap-1 font-sans font-medium text-violet-600 dark:text-violet-400">
               <GitMerge className="size-3" />
               merged
-            </span>
+            </GitCellLink>
           </TooltipTrigger>
           <TooltipContent side="bottom">Every commit on this branch is already in {worktree.baseBranch}</TooltipContent>
         </Tooltip>
@@ -246,7 +270,7 @@ function BranchCell({ row }: { row: Row }): React.JSX.Element {
       {ahead > 0 || behind > 0 ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex items-center gap-1.5">
+            <GitCellLink worktreeId={worktree.id} link={vsBase} label={`${ahead} ahead, ${behind} behind ${worktree.baseBranch}: show the changes`} className="gap-1.5">
               <span className={cn('inline-flex items-center', ahead === 0 && 'opacity-40')}>
                 <ArrowUp className="size-3" />
                 {ahead}
@@ -255,23 +279,23 @@ function BranchCell({ row }: { row: Row }): React.JSX.Element {
                 <ArrowDown className="size-3" />
                 {behind}
               </span>
-            </span>
+            </GitCellLink>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            {plural(ahead, 'commit')} ahead of {worktree.baseBranch}, {behind} behind
+            {plural(ahead, 'commit')} ahead of {worktree.baseBranch}, {behind} behind — click for the diff vs {worktree.baseBranch}
           </TooltipContent>
         </Tooltip>
       ) : null}
       {dirty > 0 ? (
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-500">
+            <GitCellLink worktreeId={worktree.id} link={{ pane: 'changes', against: 'head' }} label={`${plural(dirty, 'uncommitted change')}: show them`} className="gap-1 text-amber-600 dark:text-amber-500">
               <span className="size-1.5 rounded-full bg-current" />
               {dirty}
-            </span>
+            </GitCellLink>
           </TooltipTrigger>
           <TooltipContent side="bottom">
-            {status.staged} staged · {status.unstaged} unstaged · {status.untracked} untracked
+            {status.staged} staged · {status.unstaged} unstaged · {status.untracked} untracked — click to review
           </TooltipContent>
         </Tooltip>
       ) : null}
@@ -354,14 +378,28 @@ function WorktreeRow({ row }: { row: Row }): React.JSX.Element {
       </TableCell>
       <TableCell className="w-full max-w-0">
         {status?.lastCommit ? (
-          <span className="block truncate text-[12px] text-muted-foreground" title={`${status.lastCommit.subject} — ${status.lastCommit.author}`}>
-            {status.lastCommit.subject}
-          </span>
+          <GitCellLink
+            worktreeId={worktree.id}
+            link={{ pane: 'history', commit: status.lastCommit.sha }}
+            label={`Show commit ${status.lastCommit.shortSha} in History`}
+            title={`${status.lastCommit.shortSha} ${status.lastCommit.subject} — ${status.lastCommit.author}`}
+            className="text-[12px] text-muted-foreground"
+          >
+            <span className="min-w-0 truncate">{status.lastCommit.subject}</span>
+          </GitCellLink>
         ) : (
           <Dash />
         )}
       </TableCell>
-      <TableCell className="text-right text-[11px] tabular-nums text-muted-foreground">{status?.lastCommit ? relativeTime(status.lastCommit.at) : <Dash />}</TableCell>
+      <TableCell className="text-right text-[11px] tabular-nums text-muted-foreground">
+        {status?.lastCommit ? (
+          <GitCellLink worktreeId={worktree.id} link={{ pane: 'history', commit: status.lastCommit.sha }} label={`Show commit ${status.lastCommit.shortSha} in History`} title={new Date(status.lastCommit.at).toLocaleString()}>
+            {relativeTime(status.lastCommit.at)}
+          </GitCellLink>
+        ) : (
+          <Dash />
+        )}
+      </TableCell>
       <TableCell className="w-10 pl-0 text-right">
         {env.state === 'stopped' || env.state === 'error' ? (
           <LifecycleButton worktree={worktree} action="start">
