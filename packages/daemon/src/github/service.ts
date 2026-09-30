@@ -41,7 +41,12 @@ const PR_FIELDS = [
   'mergeable',
   'statusCheckRollup',
   'reviews',
-  'comments'
+  'comments',
+  'assignees',
+  'reviewRequests',
+  'latestReviews',
+  'labels',
+  'milestone'
 ].join(',')
 
 /**
@@ -129,12 +134,37 @@ type RawPr = {
   additions?: number
   deletions?: number
   changedFiles?: number
-  commits?: unknown[]
+  commits?: Array<{ oid: string; messageHeadline?: string; authoredDate?: string; committedDate?: string; authors?: Array<{ name?: string; login?: string; email?: string }> }>
   reviewDecision?: string
   mergeable?: string
   statusCheckRollup?: RawCheck[]
   reviews?: Array<{ author?: { login?: string }; body?: string; state?: string; submittedAt?: string }>
   comments?: Array<{ author?: { login?: string }; body?: string; createdAt?: string; isMinimized?: boolean }>
+  assignees?: Array<{ login: string; name?: string }>
+  reviewRequests?: Array<{ __typename?: string; login?: string; slug?: string; name?: string }>
+  latestReviews?: Array<{ author?: { login?: string }; state?: string }>
+  labels?: Array<{ name: string; color?: string }>
+  milestone?: { title?: string } | null
+}
+
+const REVIEW_STATES = new Set(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED', 'PENDING'])
+
+/**
+ * One row per reviewer, the way GitHub's sidebar lists them: whoever has reviewed, with their
+ * latest verdict, then whoever is still asked. A re-requested reviewer shows as requested —
+ * their old verdict is about code that has since changed.
+ */
+function reviewersOf(raw: RawPr): PullRequest['reviewers'] {
+  const requested = (raw.reviewRequests ?? []).map((request) => ({
+    name: request.login ?? request.slug ?? request.name ?? 'unknown',
+    team: request.__typename === 'Team',
+    state: 'requested' as const
+  }))
+  const asked = new Set(requested.map((reviewer) => reviewer.name))
+  const reviewed = (raw.latestReviews ?? [])
+    .filter((review) => review.author?.login && !asked.has(review.author.login) && REVIEW_STATES.has(review.state ?? ''))
+    .map((review) => ({ name: review.author!.login!, team: false, state: review.state as PullRequest['reviewers'][number]['state'] }))
+  return [...reviewed, ...requested]
 }
 
 /** GitHub's zero timestamp, which `gh` prints for "never". */
@@ -167,6 +197,23 @@ export function toPullRequest(raw: RawPr): PullRequest {
     deletions: raw.deletions ?? 0,
     changedFiles: raw.changedFiles ?? 0,
     commits: raw.commits?.length ?? 0,
+    commitLog: (raw.commits ?? []).map((commit) => {
+      const author = commit.authors?.[0]
+      return {
+        sha: commit.oid,
+        shortSha: commit.oid.slice(0, 7),
+        author: author?.name || author?.login || 'unknown',
+        email: author?.email ?? '',
+        at: Date.parse(commit.authoredDate ?? commit.committedDate ?? raw.createdAt),
+        subject: commit.messageHeadline ?? '',
+        parents: []
+      }
+    }),
+    missingCommits: [],
+    assignees: (raw.assignees ?? []).map((person) => ({ login: person.login, name: person.name || null })),
+    reviewers: reviewersOf(raw),
+    labels: (raw.labels ?? []).map((label) => ({ name: label.name, color: label.color ?? '888888' })),
+    milestone: raw.milestone?.title ?? null,
     reviewDecision: raw.reviewDecision || null,
     mergeable: raw.mergeable ?? 'UNKNOWN',
     checks: (raw.statusCheckRollup ?? []).map((check) => ({
@@ -251,7 +298,35 @@ export class GitHubService {
     if (!run.found) throw conflict('gh_missing', 'the GitHub CLI (gh) is not installed on the daemon host')
     if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', firstLine(run.stderr) ?? `gh pr list exited with ${run.exitCode}`)
     const list = JSON.parse(run.stdout || '[]') as RawPr[]
-    return list[0] ? toPullRequest(list[0]) : null
+    if (!list[0]) return null
+    const pr = toPullRequest(list[0])
+    return { ...pr, missingCommits: await this.missing(cwd, pr.commitLog.map((commit) => commit.sha)) }
+  }
+
+  /** Which of `shas` this repository has no commit for; one `cat-file` for the lot. */
+  private async missing(cwd: string, shas: string[]): Promise<string[]> {
+    if (shas.length === 0) return []
+    const out = await this.deps.git(cwd, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], { input: `${shas.join('\n')}\n` })
+    const lines = out.split('\n')
+    return shas.filter((_sha, index) => !(lines[index] ?? '').endsWith(' commit'))
+  }
+
+  /**
+   * Brings the PR's commits into this repository without touching any branch: GitHub keeps every
+   * PR's head at `refs/pull/N/head`, which covers commits pushed from another machine and PRs
+   * from forks. Only the objects are wanted, so nothing is written to a local ref.
+   */
+  async fetchPr(worktreeId: string): Promise<{ fetched: number }> {
+    const { path } = this.deps.worktrees.location(worktreeId)
+    const branch = await this.branchOf(path)
+    if (!branch) throw badRequest('detached', 'a detached worktree has no pull request')
+    const pr = await this.findPr(path, branch)
+    if (!pr) throw conflict('no_pull_request', `no pull request for ${branch}`)
+    if (pr.missingCommits.length === 0) return { fetched: 0 }
+    const remote = await this.remote(path, branch)
+    if (!remote) throw conflict('no_remote', 'this repository has no remote to fetch from')
+    await this.deps.git(path, ['fetch', '--no-tags', '--no-write-fetch-head', remote, `refs/pull/${pr.number}/head`], { env: NO_PROMPT, timeout: PUSH_TIMEOUT_MS })
+    return { fetched: pr.missingCommits.length }
   }
 
   /** A title and body for a new PR, from what the branch adds over its base. */
@@ -272,22 +347,48 @@ export class GitHubService {
     return { title: titleFromBranch(branch), body: commits.map((commit) => `- ${commit.subject}`).join('\n') }
   }
 
+  /**
+   * What a new PR can target, from the remote-tracking refs: no network, as fresh as the last
+   * fetch. The suggestion is the worktree's own base when GitHub has it — a base recorded at
+   * creation can name a branch that was never pushed or was since deleted — else the branch
+   * the remote calls its default.
+   */
+  private async bases(cwd: string, remote: string | null, branch: string, baseBranch: string): Promise<{ bases: string[]; suggestedBase: string | null }> {
+    if (!remote) return { bases: [], suggestedBase: null }
+    const prefix = `refs/remotes/${remote}/`
+    const [refs, head] = await Promise.all([
+      this.deps.git(cwd, ['for-each-ref', '--format=%(refname)', prefix]),
+      this.deps.git(cwd, ['symbolic-ref', '-q', `${prefix}HEAD`], { okCodes: [0, 1, 128] })
+    ])
+    const names = refs
+      .split('\n')
+      .map((ref) => ref.trim().slice(prefix.length))
+      .filter((name) => name.length > 0 && name !== 'HEAD' && name !== branch)
+      .sort((a, b) => a.localeCompare(b))
+    const remoteDefault = head.trim().startsWith(prefix) ? head.trim().slice(prefix.length) : null
+    const suggestedBase = [baseBranch, remoteDefault, 'main', 'master'].find((name): name is string => !!name && names.includes(name)) ?? names[0] ?? null
+    return { bases: names, suggestedBase }
+  }
+
   async read(worktreeId: string): Promise<PullRequestResponse> {
     const { path, baseBranch } = this.deps.worktrees.location(worktreeId)
     const branch = await this.branchOf(path)
     const { remote, ...gh } = await this.status(path, branch)
-    const empty = { gh, branch, baseBranch, upstream: null, pr: null, draft: null }
+    const empty = { gh, branch, baseBranch, upstream: null, pr: null, draft: null, bases: [] as string[], suggestedBase: null }
     if (!branch) return empty
     if (gh.state !== 'ready') return { ...empty, upstream: await this.upstream(path, branch) }
     // GitHub is the slow part, so the local reads run alongside it rather than after. The
     // suggestion is a `git log` that is thrown away when a PR turns up — cheaper than waiting
     // for GitHub to say whether it is needed. The base branch itself has nothing to propose.
-    const [upstream, pr, suggested] = await Promise.all([
+    const onBase = branch === baseBranch
+    const [upstream, pr, suggested, targets] = await Promise.all([
       this.upstream(path, branch),
       this.findPr(path, branch),
-      branch === baseBranch ? null : this.suggest(path, branch, baseBranch, remote)
+      onBase ? null : this.suggest(path, branch, baseBranch, remote),
+      onBase ? null : this.bases(path, remote, branch, baseBranch)
     ])
-    return { ...empty, upstream, pr, draft: pr ? null : suggested }
+    if (pr) return { ...empty, upstream, pr }
+    return { ...empty, upstream, draft: suggested, ...(targets ?? {}) }
   }
 
   async push(worktreeId: string): Promise<PushResult> {

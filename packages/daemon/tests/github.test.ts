@@ -40,7 +40,18 @@ const RAW_PR = {
   additions: 10,
   deletions: 2,
   changedFiles: 3,
-  commits: [{}, {}],
+  commits: [
+    { oid: 'a'.repeat(40), messageHeadline: 'First', authoredDate: '2026-09-01T00:00:00Z', authors: [{ name: 'Octo Cat', login: 'octo', email: 'o@x' }] },
+    { oid: 'b'.repeat(40), messageHeadline: 'Second', committedDate: '2026-09-01T01:00:00Z', authors: [{ login: 'pal' }] }
+  ],
+  assignees: [{ login: 'octo', name: 'Octo Cat' }, { login: 'pal', name: '' }],
+  reviewRequests: [{ __typename: 'User', login: 'rev' }, { __typename: 'Team', slug: 'core' }],
+  latestReviews: [
+    { author: { login: 'rev' }, state: 'CHANGES_REQUESTED' },
+    { author: { login: 'boss' }, state: 'APPROVED' }
+  ],
+  labels: [{ name: 'bug', color: 'd73a4a' }],
+  milestone: { title: 'v1' },
   reviewDecision: '',
   mergeable: 'MERGEABLE',
   statusCheckRollup: [
@@ -83,6 +94,21 @@ describe('github helpers', () => {
       ['e2e', 'fail', null],
       ['deploy', 'fail', null]
     ])
+    expect(pr.commitLog.map((commit) => [commit.shortSha, commit.subject, commit.author])).toEqual([
+      ['aaaaaaa', 'First', 'Octo Cat'],
+      ['bbbbbbb', 'Second', 'pal']
+    ])
+    expect(pr.assignees).toEqual([
+      { login: 'octo', name: 'Octo Cat' },
+      { login: 'pal', name: null }
+    ])
+    // Re-requested reviewers show as requested; their old verdict is about older code.
+    expect(pr.reviewers).toEqual([
+      { name: 'boss', team: false, state: 'APPROVED' },
+      { name: 'rev', team: false, state: 'requested' },
+      { name: 'core', team: true, state: 'requested' }
+    ])
+    expect([pr.labels, pr.milestone]).toEqual([[{ name: 'bug', color: 'd73a4a' }], 'v1'])
     expect(pr.events.map((event) => [event.kind, event.author, event.verdict])).toEqual([
       ['comment', 'pal', null],
       ['review', 'rev', 'APPROVED']
@@ -162,6 +188,45 @@ describe('GitHubService', () => {
     const { ready, github } = service(fakeGh((args) => (args[0] === 'pr' ? ok('[]') : ok())))
     await ready
     expect(await github.read('w')).toMatchObject({ branch: 'main', baseBranch: 'main', pr: null, draft: null })
+  })
+
+  it('offers the remote branches as targets and starts on the worktree base when GitHub has it', async () => {
+    await repo.git('push', '-q', 'origin', 'main:refs/heads/develop', 'main:refs/heads/release')
+    await repo.git('fetch', '-q', bare, '+refs/heads/*:refs/remotes/origin/*')
+    await repo.git('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/develop')
+    const gh = fakeGh((args) => (args[0] === 'pr' ? ok('[]') : ok()))
+    const read = async (baseBranch: string) => {
+      await repo.git('remote', 'set-url', 'origin', 'git@github.com:acme/app.git')
+      await repo.git('remote', 'set-url', '--push', 'origin', bare)
+      const github = new GitHubService({ git: runGit, gh, worktrees: { location: () => ({ path: repo.path, baseBranch, projectId: 'p' }) } })
+      return github.read('w')
+    }
+    expect(await read('release')).toMatchObject({ bases: ['develop', 'main', 'release'], suggestedBase: 'release' })
+    // A base recorded at creation that GitHub never had falls back to the remote's default.
+    expect((await read('develop-dev')).suggestedBase).toBe('develop')
+  })
+
+  it('reports PR commits this checkout lacks, and fetches them from refs/pull/N/head', async () => {
+    // Someone else pushed a commit to the PR; it exists only on the remote.
+    const other = realpathSync(mkdtempSync(join(tmpdir(), 'canopy-other-')))
+    await execa('git', ['clone', '-q', bare, other])
+    await execa('git', ['-C', other, '-c', 'user.name=O', '-c', 'user.email=o@x', 'commit', '-q', '--allow-empty', '-m', 'from elsewhere'])
+    const theirs = (await execa('git', ['-C', other, 'rev-parse', 'HEAD'])).stdout
+    await execa('git', ['-C', other, 'push', '-q', 'origin', 'HEAD:refs/pull/7/head'])
+    rmSync(other, { recursive: true, force: true })
+    const ours = await repo.git('rev-parse', 'HEAD')
+    const raw = { ...RAW_PR, commits: [{ oid: ours }, { oid: theirs }] }
+    const { ready, github } = service(fakeGh((args) => (args[0] === 'pr' ? ok(JSON.stringify([raw])) : ok())))
+    await ready
+
+    expect((await github.read('w')).pr?.missingCommits).toEqual([theirs])
+    // The pane's URL is GitHub's; the fetch itself goes to the fixture's bare remote.
+    await repo.git('remote', 'set-url', 'origin', bare)
+    expect(await github.fetchPr('w')).toEqual({ fetched: 1 })
+    expect(await repo.git('cat-file', '-t', theirs)).toBe('commit')
+    expect(await repo.git('for-each-ref', 'refs/pull')).toBe('')
+    await repo.git('remote', 'set-url', 'origin', 'git@github.com:acme/app.git')
+    expect((await github.read('w')).pr?.missingCommits).toEqual([])
   })
 
   it('does not treat a tracked base branch as the upstream', async () => {

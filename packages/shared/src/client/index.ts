@@ -198,6 +198,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     pullRequest: (worktreeId: string) => get<PullRequestResponse>(routes.pullRequest(worktreeId)),
     createPullRequest: (worktreeId: string, input: CreatePullRequestInput) =>
       post<{ pr: PullRequest }>(routes.pullRequest(worktreeId), input).then((r) => r.pr),
+    fetchPullRequest: (worktreeId: string) => post<{ fetched: number }>(routes.pullRequestFetch(worktreeId), {}),
     pushBranch: (worktreeId: string) => post<PushResult>(routes.push(worktreeId), {}),
     excludePaths: (worktreeId: string, input: ExcludeInput) => post<ChangesResponse>(routes.exclude(worktreeId), input),
     hiddenPaths: (worktreeId: string) => get<HiddenResponse>(routes.hidden(worktreeId)).then((r) => r.hidden),
