@@ -14,5 +14,7 @@ export function registerGitHubRoutes(app: FastifyInstance, { github }: Services)
     return reply.code(201).send({ pr })
   })
 
+  app.post(routes.pullRequestFetch(':id'), async (request) => github.fetchPr(IdParams.parse(request.params).id))
+
   app.post(routes.push(':id'), async (request) => github.push(IdParams.parse(request.params).id))
 }

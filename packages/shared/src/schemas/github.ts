@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { Commit } from './git'
+
 /**
  * Whether the daemon can talk to GitHub for this worktree. Everything goes through the GitHub
  * CLI (`gh`) on the daemon's machine, with its login, so each state that is not `ready` is
@@ -45,6 +47,16 @@ export const PullRequestEvent = z.object({
 })
 export type PullRequestEvent = z.infer<typeof PullRequestEvent>
 
+/** Someone asked to review, and where their review stands. */
+export const PullRequestReviewer = z.object({
+  /** A user's login, or a team's slug. */
+  name: z.string(),
+  team: z.boolean(),
+  /** `requested` while their review is pending; otherwise their latest verdict. */
+  state: z.enum(['requested', 'APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMISSED', 'PENDING'])
+})
+export type PullRequestReviewer = z.infer<typeof PullRequestReviewer>
+
 export const PullRequest = z.object({
   number: z.number().int(),
   title: z.string(),
@@ -63,6 +75,17 @@ export const PullRequest = z.object({
   deletions: z.number().int(),
   changedFiles: z.number().int(),
   commits: z.number().int(),
+  /**
+   * The PR's commits as GitHub has them, oldest first. `parents` is empty (gh does not report
+   * them); a commit this checkout has not fetched has no diff to show until it is pulled.
+   */
+  commitLog: z.array(Commit),
+  /** Shas in `commitLog` this checkout does not have; their diffs need a fetch first. */
+  missingCommits: z.array(z.string()),
+  assignees: z.array(z.object({ login: z.string(), name: z.string().nullable() })),
+  reviewers: z.array(PullRequestReviewer),
+  labels: z.array(z.object({ name: z.string(), color: z.string() })),
+  milestone: z.string().nullable(),
   /** APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null when the repo requires no review. */
   reviewDecision: z.string().nullable(),
   /** MERGEABLE, CONFLICTING or UNKNOWN (GitHub computes it lazily). */
@@ -91,7 +114,17 @@ export const PullRequestResponse = z.object({
   /** The newest PR whose head is this branch, open or not; null when there is none. */
   pr: PullRequest.nullable(),
   /** Title and body suggested for a new PR, from the branch's commits. */
-  draft: z.object({ title: z.string(), body: z.string() }).nullable()
+  draft: z.object({ title: z.string(), body: z.string() }).nullable(),
+  /**
+   * Branches a new PR can target: the remote's, as of the last fetch, without this branch.
+   * Empty when a PR already exists — only the create form asks.
+   */
+  bases: z.array(z.string()),
+  /**
+   * The target the form starts on: the branch this worktree was cut from when the remote has
+   * it, else the remote's default branch.
+   */
+  suggestedBase: z.string().nullable()
 })
 export type PullRequestResponse = z.infer<typeof PullRequestResponse>
 

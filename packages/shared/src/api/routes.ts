@@ -39,6 +39,8 @@ export const routes = {
   /** The branch's GitHub pull request through `gh`: GET reads it (or why it cannot), POST opens one. */
   pullRequest: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request`,
   /** `git push` of the worktree's branch to its upstream, setting one on the first push. */
+  /** Fetches the PR's head (`refs/pull/N/head`) so commits pushed from elsewhere have diffs here. */
+  pullRequestFetch: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/fetch`,
   push: (id: string) => `${API_PREFIX}/worktrees/${id}/push`,
   /** Locally hidden paths; read on its own because the changes poll must not pay for it. */
   hidden: (id: string) => `${API_PREFIX}/worktrees/${id}/hidden`,
