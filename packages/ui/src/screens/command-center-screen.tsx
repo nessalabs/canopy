@@ -37,7 +37,6 @@ import { useHostSamples } from '@/lib/events-provider'
 import { plural, relativeTime } from '@/lib/format'
 import { ENV_STATE_BADGE, SERVICE_DOT, SERVICE_LABEL, WORKTREE_BADGE, WORKTREE_DOT } from '@/lib/status'
 import { cn } from '@/lib/utils'
-import { usePlatform } from '@/providers/platform'
 
 /** What the table knows about one worktree beyond the worktree itself. */
 interface Row {
@@ -163,9 +162,9 @@ function LifecycleButton({ worktree, action, children }: { worktree: Worktree; a
   )
 }
 
-/** The branch's PR as a chip: state colour, number, and CI. Clicking it opens the PR on GitHub. */
-function PullRequestChip({ pr }: { pr: PullRequestSummary }): React.JSX.Element {
-  const { openExternal } = usePlatform()
+/** The branch's PR as a chip: state colour, number, and CI. Clicking it opens the worktree's Pull request pane. */
+function PullRequestChip({ pr, worktreeId }: { pr: PullRequestSummary; worktreeId: string }): React.JSX.Element {
+  const [, navigate] = useLocation()
   const look = STATE_LOOK[pr.state === 'OPEN' && pr.draft ? 'DRAFT' : pr.state]
   const check = pr.state === 'OPEN' && pr.checks ? CHECK_ICON[pr.checks] : null
   const review = pr.state === 'OPEN' && pr.reviewDecision ? REVIEW_LABEL[pr.reviewDecision] : null
@@ -178,7 +177,7 @@ function PullRequestChip({ pr }: { pr: PullRequestSummary }): React.JSX.Element 
           aria-label={`${look.label} pull request #${pr.number}`}
           onClick={(event) => {
             event.stopPropagation()
-            openExternal(pr.url)
+            navigate(`/worktrees/${worktreeId}?tab=git&pane=pr`)
           }}
           onKeyDown={(event) => event.stopPropagation()}
         >
@@ -215,7 +214,7 @@ function StatusBadge({ worktree }: { worktree: Worktree }): React.JSX.Element {
 /** The PR column: the chip, "none" when GitHub says there is none, a dash when it could not say. */
 function PullRequestCell({ row }: { row: Row }): React.JSX.Element {
   if (row.worktree.isMain) return <span className="text-[11px] text-muted-foreground">main checkout</span>
-  if (row.pr) return <PullRequestChip pr={row.pr} />
+  if (row.pr) return <PullRequestChip pr={row.pr} worktreeId={row.worktree.id} />
   if (row.prKnown && row.worktree.branch) return <span className="text-[11px] text-muted-foreground/70">none</span>
   return <Dash />
 }

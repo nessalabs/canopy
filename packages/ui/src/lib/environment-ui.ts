@@ -12,17 +12,31 @@ export const DASHBOARD_TABS: readonly DashboardTab[] = ['environment', 'git', 'a
 /** Old tab names still found in bookmarks and open windows. */
 const TAB_ALIASES: Record<string, DashboardTab> = { gitdiff: 'git' }
 
+/** One query parameter out of a hash-router location, or a bare query string. */
+function hashParam(hash: string, name: string): string | null {
+  const query = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : ''
+  return query ? new URLSearchParams(query).get(name) : null
+}
+
 /**
  * Reads `?tab=` out of a hash-router location (`#/worktrees/x?tab=resources`). Accepts the
  * raw `location.hash` or a bare query string; unknown tabs return undefined so the caller
  * keeps its own default.
  */
 export function parseTab(hash: string): DashboardTab | undefined {
-  const query = hash.includes('?') ? hash.slice(hash.indexOf('?') + 1) : ''
-  if (!query) return undefined
-  const raw = new URLSearchParams(query).get('tab')
+  const raw = hashParam(hash, 'tab')
   const requested = raw !== null ? (TAB_ALIASES[raw] ?? raw) : raw
   return DASHBOARD_TABS.includes(requested as DashboardTab) ? (requested as DashboardTab) : undefined
+}
+
+export type GitPane = 'changes' | 'history' | 'pr' | 'comments'
+
+export const GIT_PANES: readonly GitPane[] = ['changes', 'history', 'pr', 'comments']
+
+/** Reads `?pane=` for the Git tab (`#/worktrees/x?tab=git&pane=pr`); unknown panes return undefined. */
+export function parseGitPane(hash: string): GitPane | undefined {
+  const raw = hashParam(hash, 'pane')
+  return GIT_PANES.includes(raw as GitPane) ? (raw as GitPane) : undefined
 }
 
 /** "42s" / "9m" / "3h 04m" / "2d 6h" since `startedAt`; null when nothing is running. */
