@@ -461,7 +461,7 @@ export class GitHubService {
     const [owner, name] = gh.repo.split('/') as [string, string]
     const query =
       'query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ pullRequest(number:$n){ reviewThreads(first:100){ nodes{ id isResolved isOutdated path line originalLine diffSide comments(first:50){ nodes{ databaseId author{login} body createdAt url } } } } } } }'
-    const run = await this.deps.gh(path, ['api', 'graphql', '-f', `query=${query}`, '-F', `o=${owner}`, '-F', `r=${name}`, '-F', `n=${pr.number}`])
+    const run = await this.deps.gh(path, ['api', 'graphql', '-f', `query=${query}`, '-f', `o=${owner}`, '-f', `r=${name}`, '-F', `n=${pr.number}`])
     if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', githubMessage(run.stderr) ?? `gh api graphql exited with ${run.exitCode}`)
     const raw = JSON.parse(run.stdout || '{}') as {
       data?: {
@@ -749,7 +749,7 @@ export class GitHubService {
     const [owner, name] = gh.repo.split('/') as [string, string]
     const query =
       'query($o:String!,$r:String!){ repository(owner:$o,name:$r){ assignableUsers(first:100){ nodes{ login name } } labels(first:100){ nodes{ name color } } milestones(first:50,states:OPEN){ nodes{ title } } } }'
-    const run = await this.deps.gh(path, ['api', 'graphql', '-f', `query=${query}`, '-F', `o=${owner}`, '-F', `r=${name}`])
+    const run = await this.deps.gh(path, ['api', 'graphql', '-f', `query=${query}`, '-f', `o=${owner}`, '-f', `r=${name}`])
     if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', githubMessage(run.stderr) ?? `gh api graphql exited with ${run.exitCode}`)
     const raw = JSON.parse(run.stdout || '{}') as {
       data?: { repository?: { assignableUsers?: { nodes?: Array<{ login: string; name?: string | null }> }; labels?: { nodes?: Array<{ name: string; color?: string }> }; milestones?: { nodes?: Array<{ title: string }> } } }

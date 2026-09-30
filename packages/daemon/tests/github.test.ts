@@ -461,7 +461,11 @@ describe('GitHubService', () => {
     ])
     await github.threads('w')
     expect(gh.calls.filter((args) => args[1] === 'graphql')).toHaveLength(1)
-    expect(gh.calls.find((args) => args[1] === 'graphql')).toContain('n=7')
+    const call = gh.calls.find((args) => args[1] === 'graphql') ?? []
+    expect(call).toContain('n=7')
+    // Owner and repo go as raw strings: `-F` would turn a repo named "2048" into an Int.
+    expect(call.filter((value) => value.startsWith('o=') || value.startsWith('r='))).toHaveLength(2)
+    for (const arg of call.filter((value) => value.startsWith('o=') || value.startsWith('r='))) expect(call[call.indexOf(arg) - 1]).toBe('-f')
     // An action changes GitHub's side; the threads are asked for again after it.
     await github.act('w', { kind: 'comment', body: 'x' })
     await github.threads('w')
