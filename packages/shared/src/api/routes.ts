@@ -17,6 +17,8 @@ export const routes = {
   trashRestore: (id: string, entry: string) => `${API_PREFIX}/projects/${id}/trash/${entry}/restore`,
   worktrees: () => `${API_PREFIX}/worktrees`,
   worktree: (id: string) => `${API_PREFIX}/worktrees/${id}`,
+  /** Destroy several worktrees in the background (POST), or read the running and recent jobs (GET). */
+  destroyJobs: () => `${API_PREFIX}/worktrees/destroy-jobs`,
   changes: (id: string) => `${API_PREFIX}/worktrees/${id}/changes`,
   changesFile: (id: string) => `${API_PREFIX}/worktrees/${id}/changes/file`,
   tree: (id: string) => `${API_PREFIX}/worktrees/${id}/tree`,

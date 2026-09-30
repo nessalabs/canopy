@@ -522,6 +522,39 @@ export const HostInfo = z.object({
 })
 export type HostInfo = z.infer<typeof HostInfo>
 
+// =====================================================================================
+// Destroy jobs — several worktrees destroyed in the background, one at a time
+// =====================================================================================
+
+/**
+ * A run of destroys the daemon works through on its own, so the client that asked can close
+ * its dialog, change screens or reload and still see how far it got. `done` and `failed`
+ * together are the `finished` items; a failed item never stops the ones after it.
+ */
+export const DestroyJob = z.object({
+  id: Id,
+  total: z.number().int(),
+  finished: z.number().int(),
+  /** The worktree being destroyed right now; null before the first starts and once the job ends. */
+  currentId: Id.nullable(),
+  currentName: z.string().nullable(),
+  /** Every worktree in the job, in the order they are destroyed. */
+  items: z.array(z.object({ id: Id, name: z.string() })),
+  done: z.array(Id),
+  failed: z.array(z.object({ id: Id, name: z.string(), message: z.string() })),
+  startedAt: Millis,
+  finishedAt: Millis.nullable()
+})
+export type DestroyJob = z.infer<typeof DestroyJob>
+
+export const StartDestroyJobInput = z.object({
+  items: z
+    .array(z.object({ id: Id, force: z.boolean(), deleteBranch: z.boolean() }))
+    .min(1)
+    .refine((items) => new Set(items.map((item) => item.id)).size === items.length, 'each worktree may appear once')
+})
+export type StartDestroyJobInput = z.infer<typeof StartDestroyJobInput>
+
 export const CanopyEvent = z.discriminatedUnion('type', [
   /** `watch`: this daemon pushes `files-changed` events; without it clients keep polling. */
   z.object({ type: z.literal('hello'), seq: z.number().int(), watch: z.boolean().optional() }),
@@ -541,7 +574,9 @@ export const CanopyEvent = z.discriminatedUnion('type', [
    */
   z.object({ type: z.literal('files-changed'), seq: z.number().int(), worktreeId: Id, paths: z.array(z.string()), git: z.boolean(), truncated: z.boolean() }),
   /** An agent session worked in this worktree for the first time (from its own cwd or another). */
-  z.object({ type: z.literal('agent-sessions-changed'), seq: z.number().int(), worktreeId: Id })
+  z.object({ type: z.literal('agent-sessions-changed'), seq: z.number().int(), worktreeId: Id }),
+  /** A destroy job started, moved on to its next worktree, finished one, or ended: the whole job, as it now stands. */
+  z.object({ type: z.literal('destroy-job'), seq: z.number().int(), job: DestroyJob })
 ])
 export type CanopyEvent = z.infer<typeof CanopyEvent>
 

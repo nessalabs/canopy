@@ -9,6 +9,7 @@ import type { EventBus, LogStore } from '../env/types'
 import type { GitHubService } from '../github/service'
 import type { ProjectsService } from '../projects/service'
 import type { ReviewService } from '../review/service'
+import type { DestroyJobsService } from '../worktrees/destroy-jobs'
 import type { HistoryService } from '../worktrees/history'
 import type { MergeService } from '../worktrees/merge'
 import type { TrashService } from '../worktrees/trash'
@@ -25,6 +26,7 @@ export interface Services {
   watch: WatchService
   commits: CommitService
   merges: MergeService
+  destroyJobs: DestroyJobsService
   github: GitHubService
   trash: TrashService
   review: ReviewService
