@@ -10,6 +10,8 @@ import type {
   ChangesResponse,
   CommitInput,
   CreatePullRequestInput,
+  PullRequestAction,
+  PullRequestResponse,
   MergeInput,
   CreateWorktreeInput,
   ExcludeInput,
@@ -568,6 +570,10 @@ export const useRewindFiles = (worktreeId: string, ref: SessionRef | undefined) 
 
 /** A PR's checks move while it is on screen, so the pane asks again now and then; GitHub is slow, so not often. */
 const PR_POLL_MS = 60_000
+/** While CI is running the pane is watched for the result, so it asks more often. */
+const PR_RUNNING_POLL_MS = 15_000
+
+const checksRunning = (data: PullRequestResponse | undefined): boolean => Boolean(data?.pr?.checks.some((check) => check.outcome === 'pending'))
 
 /**
  * The Pull request pane's read. Only mounted while the pane is open (Radix unmounts hidden
@@ -579,9 +585,42 @@ export const usePullRequest = (worktreeId: string) => {
     queryKey: keys.pullRequest(worktreeId),
     queryFn: () => api.pullRequest(worktreeId),
     staleTime: 30_000,
-    refetchInterval: PR_POLL_MS,
+    refetchInterval: (query) => (checksRunning(query.state.data) ? PR_RUNNING_POLL_MS : PR_POLL_MS),
     refetchIntervalInBackground: false
   })
+}
+
+/**
+ * Merge, review, comment, ready, close, reopen, rerun. A merge moves the target and a review can
+ * mark local comments as sent, so besides the PR itself the worktree, its diffs and its comments
+ * are read again.
+ */
+export const usePullRequestAction = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating((action: PullRequestAction) => api.pullRequestAction(worktreeId, action), () => [
+    keys.pullRequest(worktreeId),
+    keys.comments(worktreeId),
+    keys.worktree(worktreeId),
+    keys.worktrees,
+    ['diff-files', worktreeId]
+  ])
+}
+
+/**
+ * The PR tab's quick path for local work: stage every changed file, commit, push. Choosing
+ * files or hunks stays in the Changes view; this is for "all of it goes in the PR".
+ */
+export const useCommitAllAndPush = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating(
+    async (input: { paths: string[]; summary: string; description?: string }) => {
+      await api.stage(worktreeId, { stage: input.paths, unstage: [] })
+      const commit = await api.commitChanges(worktreeId, { summary: input.summary, description: input.description, noVerify: false })
+      await api.pushBranch(worktreeId)
+      return commit
+    },
+    () => [keys.pullRequest(worktreeId), ['diff-files', worktreeId], keys.log(worktreeId), keys.worktree(worktreeId), keys.worktrees]
+  )
 }
 
 /**

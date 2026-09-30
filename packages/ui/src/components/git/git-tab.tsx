@@ -93,7 +93,7 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
           <HistoryView worktreeId={worktree.id} focusCommit={jump?.commitSha} focus={focusFor('history')} {...shared} />
         </TabsContent>
         <TabsContent value="pr" className="mt-3 flex min-h-0 flex-1 flex-col">
-          <PullRequestView worktree={worktree} review={shared} />
+          <PullRequestView worktree={worktree} review={shared} onOpenChanges={() => setPane('changes')} />
         </TabsContent>
         <TabsContent value="comments" className="mt-3 overflow-y-auto">
           <CommentsPanel worktreeId={worktree.id} comments={comments} onJump={onJump} />
