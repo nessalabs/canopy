@@ -49,6 +49,7 @@ import { registerProjectRoutes } from './routes/projects'
 import { registerReviewRoutes } from './routes/review'
 import { registerStatic } from './routes/static'
 import { registerWorktreeRoutes } from './routes/worktrees'
+import { DestroyJobsService } from './worktrees/destroy-jobs'
 import { HistoryService } from './worktrees/history'
 import { MergeService } from './worktrees/merge'
 import { TrashService } from './worktrees/trash'
@@ -144,6 +145,7 @@ export function buildServices(deps: ServerDeps): Services {
     history,
     commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
     merges: new MergeService({ repo, git, worktrees, projects, events }),
+    destroyJobs: new DestroyJobsService({ worktrees, events }),
     github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees, review }),
     review,
     agents,

@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify'
 
-import { MergeInput, routes } from '@canopy/shared'
+import { MergeInput, routes, StartDestroyJobInput } from '@canopy/shared'
 
 import type { Services } from './context'
 import { AgainstQuery, CommitParams, DestroyQuery, DirQuery, IdParams, PageQuery, PathQuery, RevQuery, TreesParams } from './params'
 
-export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, history, watch, merges }: Services): void {
+export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, history, watch, merges, destroyJobs }: Services): void {
   // Reading the list is what arms the per-project watch on git's worktree administration:
   // from here on a worktree added or removed outside this daemon is pushed, not waited for.
   app.get(routes.worktrees(), async () => {
@@ -21,6 +21,15 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
     const { force, deleteBranch } = DestroyQuery.parse(request.query)
     return worktrees.destroy(IdParams.parse(request.params).id, force === 'true', deleteBranch === undefined ? undefined : deleteBranch === 'true' ? 'always' : 'never')
   })
+
+  // A static path, so Fastify matches it ahead of `/worktrees/:id` whatever the order here.
+  // 202: the job is queued, not done; its progress arrives as `destroy-job` events.
+  app.post(routes.destroyJobs(), async (request, reply) => {
+    const job = destroyJobs.start(StartDestroyJobInput.parse(request.body))
+    return reply.code(202).send({ job })
+  })
+
+  app.get(routes.destroyJobs(), async () => ({ jobs: destroyJobs.list() }))
 
   app.post(routes.merge(':id'), async (request) => merges.merge(IdParams.parse(request.params).id, MergeInput.parse(request.body ?? {})))
 

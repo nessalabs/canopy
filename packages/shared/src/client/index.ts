@@ -10,7 +10,9 @@ import type {
   CanopyYamlReport,
   DbResetInput,
   DestroyAllInput,
+  DestroyJob,
   DestroyResult,
+  StartDestroyJobInput,
   TrashEntry,
   DirListing,
   HostInfo,
@@ -175,6 +177,9 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     listWorktrees: () => get<{ worktrees: Worktree[] }>(routes.worktrees()).then((r) => r.worktrees),
     getWorktree: (id: string) => get<{ worktree: Worktree }>(routes.worktree(id)).then((r) => r.worktree),
     destroyWorktree: (id: string, force = false) => del<DestroyResult>(routes.worktree(id), { force: force ? 'true' : undefined }),
+    /** Answers as soon as the job is queued; its progress arrives as `destroy-job` events. */
+    startDestroyJob: (input: StartDestroyJobInput) => post<{ job: DestroyJob }>(routes.destroyJobs(), input).then((r) => r.job),
+    destroyJobs: () => get<{ jobs: DestroyJob[] }>(routes.destroyJobs()).then((r) => r.jobs),
 
     /** Files changed for a DiffSpec — working tree vs HEAD/base, or one commit. */
     diffFiles: (worktreeId: string, spec: DiffSpec) => {
