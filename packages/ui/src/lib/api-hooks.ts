@@ -579,11 +579,12 @@ const checksRunning = (data: PullRequestResponse | undefined): boolean => Boolea
  * The Pull request pane's read. Only mounted while the pane is open (Radix unmounts hidden
  * tabs), so nothing talks to GitHub for a worktree nobody is looking at.
  */
-export const usePullRequest = (worktreeId: string) => {
+export const usePullRequest = (worktreeId: string, enabled = true) => {
   const api = useApi()
   return useQuery({
     queryKey: keys.pullRequest(worktreeId),
     queryFn: () => api.pullRequest(worktreeId),
+    enabled,
     staleTime: 30_000,
     refetchInterval: (query) => (checksRunning(query.state.data) ? PR_RUNNING_POLL_MS : PR_POLL_MS),
     refetchIntervalInBackground: false,
@@ -652,6 +653,25 @@ export const usePrefetchPullRequest = (worktreeId: string) => {
 export const useCreatePullRequest = (worktreeId: string) => {
   const api = useApi()
   return useInvalidating((input: CreatePullRequestInput) => api.createPullRequest(worktreeId, input), () => [keys.pullRequest(worktreeId), keys.worktree(worktreeId)])
+}
+
+/**
+ * The PR's inline review threads, for the Comments pane and the Files changed overlay. Read
+ * only while a pane that shows them is open; the daemon holds them with the PR answer.
+ */
+export const usePullRequestThreads = (worktreeId: string, enabled: boolean) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.pullRequestThreads(worktreeId),
+    queryFn: () => api.pullRequestThreads(worktreeId),
+    enabled,
+    staleTime: 30_000,
+    refetchInterval: PR_POLL_MS,
+    refetchIntervalInBackground: false,
+    gcTime: 30 * 60_000,
+    // No PR, or no GitHub: the pane simply has nothing from GitHub to show.
+    retry: false
+  })
 }
 
 /** Read the first time a sidebar picker opens; the daemon keeps it for ten minutes, this keeps it for the session. */

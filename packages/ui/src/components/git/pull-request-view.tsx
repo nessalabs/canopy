@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { ChevronsUpDown, ExternalLink, GitPullRequest, RotateCw, Upload } from 'lucide-react'
 import { Popover } from 'radix-ui'
 
-import type { GhStatus, PullRequestResponse, Worktree } from '@canopy/shared'
+import type { GhStatus, PullRequestResponse, ReviewComment, Worktree } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ import { useCreatePullRequest, usePullRequest, useRefreshPullRequest } from '@/l
 import { plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
+import type { ExplorerFocus } from './diff-explorer'
 import { PullRequestDetail } from './pull-request/detail'
 import { Empty, useExternalLink, type ReviewProps } from './pull-request/parts'
 
@@ -24,7 +25,21 @@ import { Empty, useExternalLink, type ReviewProps } from './pull-request/parts'
  * reached through the GitHub CLI on the daemon's machine, so when that is not set up the pane
  * says what to run there instead.
  */
-export function PullRequestView({ worktree, review, onOpenChanges }: { worktree: Worktree; review: ReviewProps; onOpenChanges: () => void }): React.JSX.Element {
+export function PullRequestView({
+  worktree,
+  review,
+  githubComments = [],
+  focus,
+  onOpenChanges
+}: {
+  worktree: Worktree
+  review: ReviewProps
+  /** GitHub's review threads as comments, shown on their lines in Files changed. */
+  githubComments?: ReviewComment[]
+  /** A file (and comment) to open in Files changed — a jump from the Comments pane. */
+  focus?: ExplorerFocus
+  onOpenChanges: () => void
+}): React.JSX.Element {
   const query = usePullRequest(worktree.id)
   const refresh = useRefreshPullRequest(worktree.id)
   const data = query.data
@@ -44,7 +59,19 @@ export function PullRequestView({ worktree, review, onOpenChanges }: { worktree:
   if (data.gh.state !== 'ready') return <GhSetup status={data.gh} checking={query.isFetching || refresh.isPending} onCheck={() => refresh.mutate()} />
   if (!data.branch) return <Empty>This worktree is on a detached HEAD. Check out a branch to open a pull request from it.</Empty>
   if (data.pr) {
-    return <PullRequestDetail worktree={worktree} data={data} pr={data.pr} review={review} refreshing={query.isFetching || refresh.isPending} onRefresh={() => refresh.mutate()} onOpenChanges={onOpenChanges} />
+    return (
+      <PullRequestDetail
+        worktree={worktree}
+        data={data}
+        pr={data.pr}
+        review={review}
+        githubComments={githubComments}
+        focus={focus}
+        refreshing={query.isFetching || refresh.isPending}
+        onRefresh={() => refresh.mutate()}
+        onOpenChanges={onOpenChanges}
+      />
+    )
   }
   if (data.branch === data.baseBranch) {
     return (
