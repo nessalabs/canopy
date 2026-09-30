@@ -198,7 +198,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     commitChanges: (worktreeId: string, input: CommitInput) =>
       post<{ commit: Commit }>(routes.commitChanges(worktreeId), input).then((r) => r.commit),
     mergeWorktree: (worktreeId: string, input: MergeInput) => post<MergeResult>(routes.merge(worktreeId), input),
-    pullRequest: (worktreeId: string) => get<PullRequestResponse>(routes.pullRequest(worktreeId)),
+    pullRequest: (worktreeId: string, fresh = false) => get<PullRequestResponse>(routes.pullRequest(worktreeId), fresh ? { fresh: '1' } : {}),
     createPullRequest: (worktreeId: string, input: CreatePullRequestInput) =>
       post<{ pr: PullRequest }>(routes.pullRequest(worktreeId), input).then((r) => r.pr),
     pullRequestAction: (worktreeId: string, action: PullRequestAction) => post<PullRequestActionResult>(routes.pullRequestAction(worktreeId), action),

@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input'
 import { PopoverSurface } from '@/components/ui/popover-surface'
 import { SearchableListbox } from '@/components/ui/searchable-listbox'
 import { Textarea } from '@/components/ui/textarea'
-import { useCreatePullRequest, usePullRequest } from '@/lib/api-hooks'
+import { useCreatePullRequest, usePullRequest, useRefreshPullRequest } from '@/lib/api-hooks'
 import { plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -26,6 +26,7 @@ import { Empty, useExternalLink, type ReviewProps } from './pull-request/parts'
  */
 export function PullRequestView({ worktree, review, onOpenChanges }: { worktree: Worktree; review: ReviewProps; onOpenChanges: () => void }): React.JSX.Element {
   const query = usePullRequest(worktree.id)
+  const refresh = useRefreshPullRequest(worktree.id)
   const data = query.data
 
   if (query.isPending) return <Loading />
@@ -40,10 +41,10 @@ export function PullRequestView({ worktree, review, onOpenChanges }: { worktree:
       </div>
     )
   }
-  if (data.gh.state !== 'ready') return <GhSetup status={data.gh} checking={query.isFetching} onCheck={() => void query.refetch()} />
+  if (data.gh.state !== 'ready') return <GhSetup status={data.gh} checking={query.isFetching || refresh.isPending} onCheck={() => refresh.mutate()} />
   if (!data.branch) return <Empty>This worktree is on a detached HEAD. Check out a branch to open a pull request from it.</Empty>
   if (data.pr) {
-    return <PullRequestDetail worktree={worktree} data={data} pr={data.pr} review={review} refreshing={query.isFetching} onRefresh={() => void query.refetch()} onOpenChanges={onOpenChanges} />
+    return <PullRequestDetail worktree={worktree} data={data} pr={data.pr} review={review} refreshing={query.isFetching || refresh.isPending} onRefresh={() => refresh.mutate()} onOpenChanges={onOpenChanges} />
   }
   if (data.branch === data.baseBranch) {
     return (

@@ -435,6 +435,61 @@ describe('GitHubService', () => {
     })
   })
 
+  describe('cache', () => {
+    const listCalls = (gh: { calls: string[][] }) => gh.calls.filter((args) => args[0] === 'pr' && args[1] === 'list').length
+    const build = (gh: GhRunner, clock: { now: number }) => {
+      const ready = repo.git('remote', 'set-url', 'origin', 'git@github.com:acme/app.git').then(() => repo.git('remote', 'set-url', '--push', 'origin', bare))
+      const github = new GitHubService({ review: fakeReview(), git: runGit, gh, now: () => clock.now, worktrees: { location: () => ({ path: repo.path, baseBranch: 'main', projectId: 'p' }) } })
+      return { ready, github }
+    }
+    const prGh = () => fakeGh((args) => (args[0] === 'pr' && args[1] === 'list' ? ok(JSON.stringify([RAW_PR])) : ok()))
+
+    it('asks GitHub once within the window, then answers stale at once and refreshes behind', async () => {
+      const clock = { now: 1_000_000 }
+      const gh = prGh()
+      const { ready, github } = build(gh, clock)
+      await ready
+      expect((await github.read('w')).pr?.number).toBe(7)
+      await github.read('w')
+      expect(listCalls(gh)).toBe(1)
+
+      clock.now += 25_000
+      expect((await github.read('w')).pr?.number).toBe(7)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(listCalls(gh)).toBe(2)
+      // The refresh landed: the next read is served from it without asking again.
+      await github.read('w')
+      expect(listCalls(gh)).toBe(2)
+    })
+
+    it('waits for GitHub when asked for a fresh answer, and after an action', async () => {
+      const clock = { now: 1_000_000 }
+      const gh = prGh()
+      const { ready, github } = build(gh, clock)
+      await ready
+      await github.read('w')
+      await github.read('w', { fresh: true })
+      expect(listCalls(gh)).toBe(2)
+
+      await github.act('w', { kind: 'comment', body: 'hi' })
+      const afterAct = listCalls(gh)
+      await github.read('w')
+      expect(listCalls(gh)).toBe(afterAct + 1)
+    })
+
+    it('recomputes the local side on every read, cached or not', async () => {
+      const clock = { now: 1_000_000 }
+      const gh = prGh()
+      const { ready, github } = build(gh, clock)
+      await ready
+      await repo.git('push', '-q', '-u', 'origin', 'feat/thing')
+      expect((await github.read('w')).upstream?.ahead).toBe(0)
+      await repo.commit({ 'z.txt': 'z\n' }, 'Add z')
+      expect((await github.read('w')).upstream?.ahead).toBe(1)
+      expect(listCalls(gh)).toBe(1)
+    })
+  })
+
   it('passes gh failures through with what gh said', async () => {
     const gh = fakeGh((args) => (args[0] === 'pr' ? { found: true, exitCode: 1, stdout: '', stderr: 'HTTP 502: Bad Gateway\n' } : ok()))
     const { ready, github } = service(gh)
