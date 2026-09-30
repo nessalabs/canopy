@@ -3,11 +3,16 @@ import type { FastifyInstance } from 'fastify'
 import { CreatePullRequestInput, PullRequestAction, routes } from '@canopy/shared'
 
 import type { Services } from './context'
+import { z } from 'zod'
+
 import { IdParams } from './params'
+
+/** `?fresh=1` waits for GitHub instead of answering from what the daemon holds. */
+const FreshQuery = z.object({ fresh: z.enum(['1', 'true']).optional() })
 
 /** The Git tab's Pull request pane: GitHub through the daemon host's `gh`, and the push it needs. */
 export function registerGitHubRoutes(app: FastifyInstance, { github }: Services): void {
-  app.get(routes.pullRequest(':id'), async (request) => github.read(IdParams.parse(request.params).id))
+  app.get(routes.pullRequest(':id'), async (request) => github.read(IdParams.parse(request.params).id, { fresh: FreshQuery.parse(request.query).fresh !== undefined }))
 
   app.post(routes.pullRequest(':id'), async (request, reply) => {
     const pr = await github.create(IdParams.parse(request.params).id, CreatePullRequestInput.parse(request.body ?? {}))

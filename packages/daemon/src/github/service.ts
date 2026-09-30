@@ -20,6 +20,13 @@ const AUTH_TTL_MS = 5 * 60_000
 const PUSH_TIMEOUT_MS = 120_000
 /** Repository settings (merge methods, the viewer's permission) change rarely; asked again after this. */
 const REPO_TTL_MS = 10 * 60_000
+/**
+ * How long GitHub's answer about the PR is handed back as is. Older than this it is still handed
+ * back at once, with a refresh started behind it, so a pane never waits on GitHub twice: the
+ * first read fills the cache and every later one is a local git call or two. Anything this
+ * daemon does to the PR drops it.
+ */
+const PR_TTL_MS = 20_000
 
 /** Every field the pane shows, in one `gh pr list` call. */
 const PR_FIELDS = [
@@ -284,6 +291,10 @@ export class GitHubService {
   private readonly viewers = new Map<string, string>()
   /** Per checkout: the sidebar's choices, read when a picker opens and kept a while. */
   private readonly choices = new Map<string, { at: number; options: PullRequestOptions }>()
+  /** Per checkout and branch: what GitHub last said about the PR (before the local git bits). */
+  private readonly prs = new Map<string, { at: number; pr: PullRequest | null }>()
+  /** Refreshes under way, so two stale reads start one `gh` call, not two. */
+  private readonly refreshing = new Map<string, Promise<PullRequest | null>>()
 
   constructor(private readonly deps: Deps) {}
 
@@ -342,13 +353,52 @@ export class GitHubService {
     return { name, behind: Number(counts[0] ?? 0), ahead: Number(counts[1] ?? 0) }
   }
 
-  private async findPr(cwd: string, branch: string, remote: string | null = null): Promise<PullRequest | null> {
+  /** GitHub's side of the PR, straight from `gh`. */
+  private async askGitHub(cwd: string, branch: string): Promise<PullRequest | null> {
     const run = await this.deps.gh(cwd, ['pr', 'list', '--head', branch, '--state', 'all', '--limit', '1', '--json', PR_FIELDS])
     if (!run.found) throw conflict('gh_missing', 'the GitHub CLI (gh) is not installed on the daemon host')
     if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', firstLine(run.stderr) ?? `gh pr list exited with ${run.exitCode}`)
     const list = JSON.parse(run.stdout || '[]') as RawPr[]
-    if (!list[0]) return null
-    const pr = toPullRequest(list[0])
+    return list[0] ? toPullRequest(list[0]) : null
+  }
+
+  /**
+   * GitHub's side of the PR through the cache: fresh enough is returned as is; stale is returned
+   * now and refreshed behind; `fresh` waits for GitHub (the Refresh button, and every action,
+   * which must act on what GitHub has now).
+   */
+  private async cachedPr(cwd: string, branch: string, fresh: boolean): Promise<PullRequest | null> {
+    const key = `${cwd}\0${branch}`
+    const held = this.prs.get(key)
+    if (!fresh && held && this.now() - held.at < PR_TTL_MS) return held.pr
+    const refresh = (): Promise<PullRequest | null> => {
+      const pending = this.refreshing.get(key)
+      if (pending) return pending
+      const started = this.askGitHub(cwd, branch)
+        .then((pr) => {
+          this.prs.set(key, { at: this.now(), pr })
+          return pr
+        })
+        .finally(() => this.refreshing.delete(key))
+      this.refreshing.set(key, started)
+      return started
+    }
+    if (!fresh && held) {
+      // Stale: answer with what is held, and let the refresh land for the next read.
+      refresh().catch(() => undefined)
+      return held.pr
+    }
+    return refresh()
+  }
+
+  /** Anything this daemon changed on GitHub makes the held answer wrong. */
+  private forget(cwd: string, branch: string): void {
+    this.prs.delete(`${cwd}\0${branch}`)
+  }
+
+  private async findPr(cwd: string, branch: string, remote: string | null = null, fresh = false): Promise<PullRequest | null> {
+    const pr = await this.cachedPr(cwd, branch, fresh)
+    if (!pr) return null
     const missingCommits = await this.missing(cwd, pr.commitLog.map((commit) => commit.sha))
     const headHere = pr.headSha !== '' && !missingCommits.includes(pr.headSha) && (await this.missing(cwd, [pr.headSha])).length === 0
     return { ...pr, missingCommits, filesRange: headHere ? await this.range(cwd, remote, pr.baseBranch, pr.headSha) : null }
@@ -458,7 +508,7 @@ export class GitHubService {
     return { bases: names, suggestedBase }
   }
 
-  async read(worktreeId: string): Promise<PullRequestResponse> {
+  async read(worktreeId: string, { fresh = false } = {}): Promise<PullRequestResponse> {
     const { path, baseBranch } = this.deps.worktrees.location(worktreeId)
     const branch = await this.branchOf(path)
     const { remote, ...gh } = await this.status(path, branch)
@@ -483,7 +533,7 @@ export class GitHubService {
     const onBase = branch === baseBranch
     const [upstream, pr, suggested, targets, repo, viewer] = await Promise.all([
       this.upstream(path, branch),
-      this.findPr(path, branch, remote),
+      this.findPr(path, branch, remote, fresh),
       onBase ? null : this.suggest(path, branch, baseBranch, remote),
       onBase ? null : this.bases(path, remote, branch, baseBranch),
       this.repo(path),
@@ -498,6 +548,7 @@ export class GitHubService {
     const branch = await this.branchOf(path)
     if (!branch) throw badRequest('detached', 'a detached worktree has no branch to push')
     await this.pushBranch(path, branch)
+    this.forget(path, branch)
     return { upstream: await this.upstream(path, branch) }
   }
 
@@ -529,7 +580,8 @@ export class GitHubService {
     if (input.draft) args.push('--draft')
     const run = await this.deps.gh(path, args, { timeout: 60_000 })
     if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', firstLine(run.stderr) ?? `gh pr create exited with ${run.exitCode}`)
-    const pr = await this.findPr(path, branch)
+    this.forget(path, branch)
+    const pr = await this.findPr(path, branch, null, true)
     if (!pr) throw new ApiError(502, 'gh_failed', `gh opened ${firstLine(run.stdout) ?? 'a pull request'} but could not read it back`)
     return pr
   }
@@ -569,9 +621,11 @@ export class GitHubService {
     if (!branch) throw badRequest('detached', 'a detached worktree has no pull request')
     const gh = await this.status(path, branch)
     if (gh.state !== 'ready') throw conflict(`gh_${gh.state.replace('-', '_')}`, 'GitHub is not reachable through gh for this worktree')
-    const pr = await this.findPr(path, branch, gh.remote)
+    const pr = await this.findPr(path, branch, gh.remote, true)
     if (!pr) throw conflict('no_pull_request', `no pull request for ${branch}`)
     const n = String(pr.number)
+    // Whatever happens next changes GitHub's side; the next read must ask again.
+    this.forget(path, branch)
     const run = async (args: string[], input?: string): Promise<string> => {
       const result = await this.deps.gh(path, args, { timeout: 60_000, input })
       if (result.exitCode !== 0) throw new ApiError(502, 'gh_failed', githubMessage(result.stderr) ?? `gh ${args.slice(0, 2).join(' ')} exited with ${result.exitCode}`)

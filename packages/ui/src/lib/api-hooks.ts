@@ -586,7 +586,20 @@ export const usePullRequest = (worktreeId: string) => {
     queryFn: () => api.pullRequest(worktreeId),
     staleTime: 30_000,
     refetchInterval: (query) => (checksRunning(query.state.data) ? PR_RUNNING_POLL_MS : PR_POLL_MS),
-    refetchIntervalInBackground: false
+    refetchIntervalInBackground: false,
+    // Kept long after the pane closes, so coming back shows the last answer at once while a
+    // refresh runs; the daemon holds its own copy too, so that refresh is mostly local.
+    gcTime: 30 * 60_000
+  })
+}
+
+/** The Refresh button: waits for GitHub rather than taking what the daemon holds. */
+export const useRefreshPullRequest = (worktreeId: string) => {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.pullRequest(worktreeId, true),
+    onSuccess: (data) => queryClient.setQueryData(keys.pullRequest(worktreeId), data)
   })
 }
 

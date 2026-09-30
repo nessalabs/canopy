@@ -11,12 +11,16 @@ import { PopoverSurface } from '@/components/ui/popover-surface'
 import { usePullRequestOptions } from '@/lib/api-hooks'
 import { cn } from '@/lib/utils'
 
+import { GitHubAvatar } from './parts'
+
 export interface Choice {
   id: string
   label: string
   detail?: string | null
   /** A swatch beside the label (labels have colours). */
   color?: string
+  /** A GitHub login whose picture goes beside the label. */
+  avatar?: string
 }
 
 /**
@@ -26,6 +30,7 @@ export interface Choice {
  */
 export function SidePicker({
   worktreeId,
+  host,
   title,
   choices,
   selected,
@@ -35,6 +40,8 @@ export function SidePicker({
   disabled
 }: {
   worktreeId: string
+  /** The GitHub host, for avatars. */
+  host: string | null
   title: string
   choices: (options: PullRequestOptions) => Choice[]
   /** Ids currently on the PR. */
@@ -103,7 +110,7 @@ export function SidePicker({
                 <Row label="None" checked={picked.size === 0} onToggle={() => setPicked(new Set())} />
               ) : null}
               {rows.map((choice) => (
-                <Row key={choice.id} label={choice.label} detail={choice.detail} color={choice.color} checked={picked.has(choice.id)} onToggle={() => toggle(choice.id)} />
+                <Row key={choice.id} label={choice.label} detail={choice.detail} color={choice.color} avatar={choice.avatar} host={host} checked={picked.has(choice.id)} onToggle={() => toggle(choice.id)} />
               ))}
               {options.data && rows.length === 0 ? <p className="px-2 py-3 text-xs text-muted-foreground">Nothing matches.</p> : null}
             </div>
@@ -115,10 +122,27 @@ export function SidePicker({
   )
 }
 
-function Row({ label, detail, color, checked, onToggle }: { label: string; detail?: string | null; color?: string; checked: boolean; onToggle: () => void }): React.JSX.Element {
+function Row({
+  label,
+  detail,
+  color,
+  avatar,
+  host,
+  checked,
+  onToggle
+}: {
+  label: string
+  detail?: string | null
+  color?: string
+  avatar?: string
+  host?: string | null
+  checked: boolean
+  onToggle: () => void
+}): React.JSX.Element {
   return (
     <label className={cn('flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-sm hover:bg-accent/50', checked && 'bg-accent/30')}>
       <Checkbox checked={checked} onChange={onToggle} />
+      {avatar ? <GitHubAvatar login={avatar} name={detail} host={host ?? null} className="size-5 shrink-0 rounded-full" /> : null}
       {color ? <span className="size-3 shrink-0 rounded-full border" style={{ backgroundColor: `#${color}`, borderColor: `#${color}` }} /> : null}
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {detail ? <span className="min-w-0 truncate text-xs text-muted-foreground">{detail}</span> : null}

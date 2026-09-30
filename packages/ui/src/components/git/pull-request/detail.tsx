@@ -413,7 +413,7 @@ const None = ({ children }: { children: React.ReactNode }): React.JSX.Element =>
 /** GitHub's sidebar: who reviews, who owns it, how it is filed — each editable in place. */
 function People({ worktreeId, pr, host, onRun, running }: { worktreeId: string; pr: PullRequest; host: string | null; onRun: (action: PullRequestAction) => void; running: boolean }): React.JSX.Element {
   const editable = pr.state === 'OPEN' && !running
-  const people = (options: { users: { login: string; name: string | null }[] }) => options.users.map((user) => ({ id: user.login, label: user.login, detail: user.name }))
+  const people = (options: { users: { login: string; name: string | null }[] }) => options.users.map((user) => ({ id: user.login, label: user.login, detail: user.name, avatar: user.login }))
   const requested = pr.reviewers.filter((reviewer) => reviewer.state === 'requested').map((reviewer) => reviewer.name)
   return (
     <aside className="flex flex-col gap-4 text-sm">
@@ -422,6 +422,7 @@ function People({ worktreeId, pr, host, onRun, running }: { worktreeId: string; 
         picker={
           <SidePicker
             worktreeId={worktreeId}
+            host={host}
             title="Reviewers"
             choices={(options) => people(options).filter((choice) => choice.id !== pr.author)}
             selected={requested}
@@ -459,7 +460,7 @@ function People({ worktreeId, pr, host, onRun, running }: { worktreeId: string; 
       </Side>
       <Side
         title="Assignees"
-        picker={<SidePicker worktreeId={worktreeId} title="Assignees" choices={people} selected={pr.assignees.map((person) => person.login)} onCommit={(add, remove) => onRun({ kind: 'assignees', add, remove })} disabled={!editable} />}
+        picker={<SidePicker worktreeId={worktreeId} host={host} title="Assignees" choices={people} selected={pr.assignees.map((person) => person.login)} onCommit={(add, remove) => onRun({ kind: 'assignees', add, remove })} disabled={!editable} />}
       >
         {pr.assignees.length ? (
           <ul className="flex flex-col gap-2">
@@ -480,6 +481,7 @@ function People({ worktreeId, pr, host, onRun, running }: { worktreeId: string; 
         picker={
           <SidePicker
             worktreeId={worktreeId}
+            host={host}
             title="Labels"
             choices={(options) => options.labels.map((label) => ({ id: label.name, label: label.name, color: label.color }))}
             selected={pr.labels.map((label) => label.name)}
@@ -505,6 +507,7 @@ function People({ worktreeId, pr, host, onRun, running }: { worktreeId: string; 
         picker={
           <SidePicker
             worktreeId={worktreeId}
+            host={host}
             title="Milestone"
             single
             choices={(options) => options.milestones.map((title) => ({ id: title, label: title }))}
