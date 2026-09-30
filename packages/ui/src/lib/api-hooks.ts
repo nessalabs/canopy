@@ -12,6 +12,7 @@ import type {
   CreatePullRequestInput,
   PullRequestAction,
   PullRequestResponse,
+  ProjectPullRequests,
   PullRequestSummary,
   MergeInput,
   CreateWorktreeInput,
@@ -656,9 +657,13 @@ export const usePrefetchPullRequest = (worktreeId: string) => {
  * `gh` call per project instead of one per worktree. A project without a working `gh` simply
  * contributes nothing.
  */
-export const useProjectPullRequests = (projectIds: string[]): Map<string, PullRequestSummary> => {
+/**
+ * Every project's recent PRs keyed by project and branch, plus the projects whose answer came
+ * from a ready `gh`: only there does a missing PR mean the branch has none.
+ */
+export const useProjectPullRequests = (projectIds: string[]): { byBranch: Map<string, PullRequestSummary>; known: Set<string> } => {
   const api = useApi()
-  const results = useQueries({
+  return useQueries({
     queries: projectIds.map((id) => ({
       queryKey: keys.projectPullRequests(id),
       queryFn: () => api.projectPullRequests(id),
@@ -667,13 +672,21 @@ export const useProjectPullRequests = (projectIds: string[]): Map<string, PullRe
       refetchIntervalInBackground: false,
       retry: false
     })),
-    combine: (all) => all.map((result) => result.data)
+    // A stable combine is only re-run when an answer changes, so the Map and Set keep their identity between renders.
+    combine: useCallback(
+      (all: { data?: ProjectPullRequests }[]) => {
+        const byBranch = new Map<string, PullRequestSummary>()
+        const known = new Set<string>()
+        all.forEach(({ data }, index) => {
+          const id = projectIds[index]!
+          if (data?.gh.state === 'ready') known.add(id)
+          for (const pr of data?.prs ?? []) byBranch.set(prKey(id, pr.headBranch), pr)
+        })
+        return { byBranch, known }
+      },
+      [projectIds]
+    )
   })
-  const byBranch = new Map<string, PullRequestSummary>()
-  results.forEach((data, index) => {
-    for (const pr of data?.prs ?? []) byBranch.set(prKey(projectIds[index]!, pr.headBranch), pr)
-  })
-  return byBranch
 }
 
 export const prKey = (projectId: string, branch: string): string => `${projectId}\u0000${branch}`

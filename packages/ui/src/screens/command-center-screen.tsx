@@ -148,7 +148,7 @@ function PullRequestChip({ pr }: { pr: PullRequestSummary }): React.JSX.Element 
  * Where the branch stands at a glance: its PR (or that it has none), whether it has landed in
  * its base, and how far it has drifted from it. The main checkout is the base, so it has none.
  */
-function BranchGlance({ worktree, pr }: { worktree: Worktree; pr: PullRequestSummary | undefined }): React.JSX.Element | null {
+function BranchGlance({ worktree, pr, prKnown }: { worktree: Worktree; pr: PullRequestSummary | undefined; prKnown: boolean }): React.JSX.Element | null {
   if (worktree.isMain || !worktree.branch) return null
   const status = worktree.status
   const ahead = status?.ahead ?? 0
@@ -157,7 +157,7 @@ function BranchGlance({ worktree, pr }: { worktree: Worktree; pr: PullRequestSum
   const mergedLocally = status?.merged === true && pr?.state !== 'MERGED'
   return (
     <span className="hidden w-44 shrink-0 items-center gap-1.5 md:flex">
-      {pr ? <PullRequestChip pr={pr} /> : <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">no PR</span>}
+      {pr ? <PullRequestChip pr={pr} /> : prKnown ? <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">no PR</span> : null}
       {mergedLocally ? (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -196,7 +196,7 @@ function BranchGlance({ worktree, pr }: { worktree: Worktree; pr: PullRequestSum
   )
 }
 
-function WorktreeRow({ worktree, projectName, pr }: { worktree: Worktree; projectName: string; pr: PullRequestSummary | undefined }): React.JSX.Element {
+function WorktreeRow({ worktree, projectName, pr, prKnown }: { worktree: Worktree; projectName: string; pr: PullRequestSummary | undefined; prKnown: boolean }): React.JSX.Element {
   const [, navigate] = useLocation()
   const env = worktree.environment
   const gitBadge = WORKTREE_BADGE[worktree.state]
@@ -243,7 +243,7 @@ function WorktreeRow({ worktree, projectName, pr }: { worktree: Worktree; projec
           </Badge>
         </span>
       ) : (
-        <BranchGlance worktree={worktree} pr={pr} />
+        <BranchGlance worktree={worktree} pr={pr} prKnown={prKnown} />
       )}
       <span className="hidden flex-wrap gap-1 lg:flex">
         {ports.slice(0, 4).map((port) => (
@@ -286,7 +286,7 @@ function WorktreesPanel(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const projectName = (id: string): string => projects.find((p) => p.id === id)?.name ?? ''
   const pullRequests = useProjectPullRequests(useMemo(() => projects.map((p) => p.id), [projects]))
-  const prOf = (wt: Worktree): PullRequestSummary | undefined => (wt.branch && !wt.isMain ? pullRequests.get(prKey(wt.projectId, wt.branch)) : undefined)
+  const prOf = (wt: Worktree): PullRequestSummary | undefined => (wt.branch && !wt.isMain ? pullRequests.byBranch.get(prKey(wt.projectId, wt.branch)) : undefined)
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -314,7 +314,7 @@ function WorktreesPanel(): React.JSX.Element {
       {worktrees.data && visible.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">No worktrees match that filter.</p> : null}
       <div className="flex flex-col divide-y divide-border/60">
         {visible.map((wt) => (
-          <WorktreeRow key={wt.id} worktree={wt} projectName={projectName(wt.projectId)} pr={prOf(wt)} />
+          <WorktreeRow key={wt.id} worktree={wt} projectName={projectName(wt.projectId)} pr={prOf(wt)} prKnown={pullRequests.known.has(wt.projectId)} />
         ))}
       </div>
     </div>
