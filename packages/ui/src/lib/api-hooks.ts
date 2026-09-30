@@ -36,7 +36,7 @@ import type {
 
 import { useApi } from '../providers/api'
 import { useDaemonCapabilities } from './daemon-capabilities'
-import { upsertDestroyJob } from './destroy-jobs'
+import { mergeDestroyJobs, upsertDestroyJob } from './destroy-jobs'
 import { keys } from './query-keys'
 
 /** Status is derived from git on every read, so the list polls while the app is in front. */
@@ -394,13 +394,18 @@ export const useBulkWorktreeAction = () => {
 /** Running and recently finished destroy jobs. Read once; `destroy-job` events keep it current from then on. */
 export const useDestroyJobs = () => {
   const api = useApi()
-  return useQuery({ queryKey: keys.destroyJobs, queryFn: () => api.destroyJobs(), staleTime: Number.POSITIVE_INFINITY })
+  const queryClient = useQueryClient()
+  return useQuery({
+    queryKey: keys.destroyJobs,
+    queryFn: async () => mergeDestroyJobs(queryClient.getQueryData<DestroyJob[]>(keys.destroyJobs), await api.destroyJobs()),
+    staleTime: Number.POSITIVE_INFINITY
+  })
 }
 
 /**
  * Hands several destroys to the daemon, which answers as soon as the job is queued. The job
  * goes straight into the cache, so the progress card shows even before its first event — but
- * an event that beat the answer here is newer, and stays.
+ * an event that beat the answer here is further along, and `upsertDestroyJob` keeps it.
  */
 export const useStartDestroyJob = () => {
   const api = useApi()
@@ -408,7 +413,7 @@ export const useStartDestroyJob = () => {
   return useMutation({
     mutationFn: (input: StartDestroyJobInput) => api.startDestroyJob(input),
     onSuccess: (job) =>
-      queryClient.setQueryData<DestroyJob[]>(keys.destroyJobs, (current) => (current?.some((known) => known.id === job.id) ? current : upsertDestroyJob(current, job)))
+      queryClient.setQueryData<DestroyJob[]>(keys.destroyJobs, (current) => upsertDestroyJob(current, job))
   })
 }
 
