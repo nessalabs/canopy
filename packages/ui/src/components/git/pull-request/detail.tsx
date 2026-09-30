@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Download, ExternalLink, GitMerge, GitPullRequestDraft, MessageSquareText, MoreHorizontal, RotateCw, Send, Upload, Users } from 'lucide-react'
 
-import type { ChangedFile, DiffSpec, PullRequest, PullRequestAction, PullRequestResponse, Worktree } from '@canopy/shared'
+import type { ChangedFile, DiffSpec, PullRequest, PullRequestAction, PullRequestResponse, ReviewComment, Worktree } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils'
 
 import { CommitDetail } from '../commit-detail'
 import { CommitList } from '../commit-list'
-import { DiffExplorer } from '../diff-explorer'
+import { DiffExplorer, type ExplorerFocus } from '../diff-explorer'
 import { ReviewToolbar } from '../review-toolbar'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
 import { SidePicker } from './pickers'
@@ -38,6 +38,8 @@ export function PullRequestDetail({
   data,
   pr,
   review,
+  githubComments,
+  focus,
   refreshing,
   onRefresh,
   onOpenChanges
@@ -46,12 +48,18 @@ export function PullRequestDetail({
   data: PullRequestResponse
   pr: PullRequest
   review: ReviewProps
+  githubComments: ReviewComment[]
+  focus?: ExplorerFocus
   refreshing: boolean
   onRefresh: () => void
   /** Opens the Changes pane, where files and hunks are picked for a commit. */
   onOpenChanges: () => void
 }): React.JSX.Element {
   const [view, setView] = useState<View>('overview')
+  // A jump from the Comments pane lands on the file in Files changed.
+  useEffect(() => {
+    if (focus) setView('files')
+  }, [focus])
   const [merging, setMerging] = useState(false)
   const [reviewing, setReviewing] = useState(false)
   const [notice, setNotice] = useState<string>()
@@ -137,7 +145,7 @@ export function PullRequestDetail({
 
       {view === 'overview' ? <Overview worktreeId={worktree.id} pr={pr} host={data.gh.host} onRun={run} running={action.isPending} /> : null}
       {view === 'commits' ? <CommitsView worktreeId={worktree.id} pr={pr} review={review} /> : null}
-      {view === 'files' ? <FilesView worktreeId={worktree.id} pr={pr} review={review} /> : null}
+      {view === 'files' ? <FilesView worktreeId={worktree.id} pr={pr} review={review} githubComments={githubComments} focus={focus} /> : null}
 
       <MergePullRequestDialog worktreeId={worktree.id} pr={pr} methods={data.mergeMethods} open={merging} onOpenChange={setMerging} onDone={setNotice} />
       <ReviewDialog worktreeId={worktree.id} pr={pr} viewer={data.viewer} comments={review.comments} open={reviewing} onOpenChange={setReviewing} onDone={setNotice} />
@@ -558,7 +566,7 @@ function CommitsView({ worktreeId, pr, review }: { worktreeId: string; pr: PullR
  * GitHub's Files changed: the PR head against its merge base with the target. Line comments left
  * here are ordinary local comments — send them to an agent, or post them with a GitHub review.
  */
-function FilesView({ worktreeId, pr, review }: { worktreeId: string; pr: PullRequest; review: ReviewProps }): React.JSX.Element {
+function FilesView({ worktreeId, pr, review, githubComments, focus }: { worktreeId: string; pr: PullRequest; review: ReviewProps; githubComments: ReviewComment[]; focus?: ExplorerFocus }): React.JSX.Element {
   const range = pr.filesRange
   const spec: DiffSpec = range ? { kind: 'trees', before: range.before, after: range.after } : WORKING_TREE
   const diff = useDiffFiles(worktreeId, spec)
@@ -567,10 +575,13 @@ function FilesView({ worktreeId, pr, review }: { worktreeId: string; pr: PullReq
   if (diff.error) return <ErrorNote error={diff.error} />
   const files: ChangedFile[] = diff.data && 'files' in diff.data ? diff.data.files : []
   const comments = postableComments(review.comments, pr)
+  // GitHub's threads sit on their lines beside the local comments; they count as sent, so the
+  // toolbar's unsent tally and the review dialog leave them alone.
+  const shown = [...comments, ...githubComments]
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <ReviewToolbar files={files} comments={comments} mode={review.mode} onModeChange={review.onModeChange} onSendForReview={review.onSendForReview} sending={review.sending} />
-      <DiffExplorer worktreeId={worktreeId} spec={spec} files={files} comments={comments} mode={review.mode} className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border" />
+      <ReviewToolbar files={files} comments={shown} mode={review.mode} onModeChange={review.onModeChange} onSendForReview={review.onSendForReview} sending={review.sending} />
+      <DiffExplorer worktreeId={worktreeId} spec={spec} files={files} comments={shown} mode={review.mode} focus={focus} className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border" />
     </div>
   )
 }

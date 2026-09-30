@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Activity, Boxes, Check, ChevronDown, Copy, FileDiff, Sparkles } from 'lucide-react'
 import { useLocation } from 'wouter'
 
-import { environmentDot, type ReviewRequest, type Worktree } from '@canopy/shared'
+import { environmentDot, type GitHubNote, type ReviewRequest, type Worktree } from '@canopy/shared'
 
 import { AgentTab } from '@/components/agent/agent-tab'
 import { DestroyWorktreeDialog } from '@/components/environment/destroy-worktree-dialog'
@@ -118,12 +118,13 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
     void agent.turn.sendReview(pending.target, pending.request, pending.summary)
   }, [pending, ready])
 
-  const sendForReview = (target: ReviewTarget, note: string | undefined): void => {
+  const sendForReview = (target: ReviewTarget, note: string | undefined, github: GitHubNote[] = []): void => {
     const unsent = comments.filter((comment) => !comment.sent)
     if (target.sessionId) agent.select({ provider: target.provider, sessionId: target.sessionId })
     else agent.startSession(target.provider)
     setTab('agent')
-    setPending({ target, request: { commentIds: unsent.map((c) => c.id), note }, summary: `Review request: ${plural(unsent.length, 'comment')} on ${worktree.branch ?? worktree.name}` })
+    const what = [unsent.length ? plural(unsent.length, 'comment') : '', github.length ? `${plural(github.length, 'GitHub thread')}` : ''].filter(Boolean).join(' and ')
+    setPending({ target, request: { commentIds: unsent.map((c) => c.id), github: github.length ? github : undefined, note }, summary: `Review request: ${what} on ${worktree.branch ?? worktree.name}` })
   }
 
   return (

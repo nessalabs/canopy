@@ -20,6 +20,7 @@ export const keys = {
   pullRequest: (worktreeId: string) => ['pull-request', worktreeId] as const,
   /** The repository's assignable users, labels and milestones, read when a sidebar picker opens. */
   pullRequestOptions: (worktreeId: string) => ['pull-request-options', worktreeId] as const,
+  pullRequestThreads: (worktreeId: string) => ['pull-request-threads', worktreeId] as const,
   sessions: (worktreeId: string) => ['agent-sessions', worktreeId] as const,
   transcript: (ref: SessionRef) => ['transcript', ref.provider, ref.sessionId] as const,
   edits: (ref: SessionRef) => ['agent-edits', ref.provider, ref.sessionId] as const,
