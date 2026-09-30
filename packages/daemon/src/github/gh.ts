@@ -15,7 +15,7 @@ export interface GhRun {
   stderr: string
 }
 
-export type GhRunner = (cwd: string, args: string[], options?: { timeout?: number }) => Promise<GhRun>
+export type GhRunner = (cwd: string, args: string[], options?: { timeout?: number; input?: string }) => Promise<GhRun>
 
 /**
  * A daemon started by the desktop app inherits a launchd PATH without Homebrew on it, so a `gh`
@@ -31,8 +31,8 @@ const QUIET_ENV = { GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_SPIN
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
-async function spawnGh(bin: string, cwd: string, args: string[], timeout: number): Promise<GhRun | null> {
-  const result = await execa(bin, args, { cwd, env: QUIET_ENV, reject: false, timeout, stripFinalNewline: false, maxBuffer: 32 * 1024 * 1024 })
+async function spawnGh(bin: string, cwd: string, args: string[], timeout: number, input?: string): Promise<GhRun | null> {
+  const result = await execa(bin, args, { cwd, env: QUIET_ENV, input, reject: false, timeout, stripFinalNewline: false, maxBuffer: 32 * 1024 * 1024 })
   if ((result as { code?: string }).code === 'ENOENT') return null
   if (result.timedOut) return { found: true, exitCode: -1, stdout: '', stderr: `gh ${args[0]} timed out after ${timeout}ms` }
   return { found: true, exitCode: result.exitCode ?? -1, stdout: String(result.stdout ?? ''), stderr: String(result.stderr ?? '') }
@@ -41,14 +41,14 @@ async function spawnGh(bin: string, cwd: string, args: string[], timeout: number
 /** Which binary answered last; found once, then reused until it stops being there. */
 let resolved: string | undefined
 
-export const runGh: GhRunner = async (cwd, args, { timeout = DEFAULT_TIMEOUT_MS } = {}) => {
+export const runGh: GhRunner = async (cwd, args, { timeout = DEFAULT_TIMEOUT_MS, input } = {}) => {
   if (resolved && (resolved === 'gh' || existsSync(resolved))) {
-    const run = await spawnGh(resolved, cwd, args, timeout)
+    const run = await spawnGh(resolved, cwd, args, timeout, input)
     if (run) return run
   }
   resolved = undefined
   for (const bin of ['gh', ...FALLBACK_PATHS.filter((path) => existsSync(path))]) {
-    const run = await spawnGh(bin, cwd, args, timeout)
+    const run = await spawnGh(bin, cwd, args, timeout, input)
     if (run) {
       resolved = bin
       return run

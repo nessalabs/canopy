@@ -106,6 +106,16 @@ export class ReviewService {
       .run(worktreeId, ref.provider, ref.sessionId, at)
   }
 
+  /**
+   * Comments that went to GitHub with a review. They count as sent, so the next review — to an
+   * agent or to GitHub — does not pick them up again; `label` (e.g. `github#12`) says where.
+   */
+  markPosted(worktreeId: string, ids: string[], label: string): void {
+    const stmt = this.db.prepare("UPDATE review_comments SET sent_at = ?, sent_provider = 'github', sent_session_id = ? WHERE id = ? AND worktree_id = ?")
+    const at = now()
+    this.db.transaction(() => ids.forEach((id) => stmt.run(at, label, id, worktreeId)))()
+  }
+
   private markSent(ids: string[], ref: PendingSessionRef | null): void {
     const stmt = this.db.prepare('UPDATE review_comments SET sent_at = ?, sent_provider = ?, sent_session_id = ? WHERE id = ?')
     const at = ref ? now() : null

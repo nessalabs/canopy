@@ -5,12 +5,20 @@ import { join } from 'node:path'
 import { execa } from 'execa'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
+import type { ReviewComment } from '@canopy/shared'
+
 import { runGit } from '../src/git/exec'
 import type { GhRun, GhRunner } from '../src/github/gh'
 import { GitHubService, parseRemote, titleFromBranch, toPullRequest } from '../src/github/service'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 
 const ok = (stdout = ''): GhRun => ({ found: true, exitCode: 0, stdout, stderr: '' })
+
+/** Local comments for a review, and a record of which were marked as posted. */
+function fakeReview(comments: ReviewComment[] = []) {
+  const posted: Array<{ ids: string[]; label: string }> = []
+  return { posted, list: () => comments, markPosted: (_worktreeId: string, ids: string[], label: string) => void posted.push({ ids, label }) }
+}
 
 /** A `gh` that answers from a table and records what it was asked. */
 function fakeGh(answer: (args: string[]) => GhRun): GhRunner & { calls: string[][] } {
@@ -134,11 +142,11 @@ describe('GitHubService', () => {
     rmSync(bare, { recursive: true, force: true })
   })
 
-  const service = (gh: GhRunner, remoteUrl = 'git@github.com:acme/app.git') => {
+  const service = (gh: GhRunner, remoteUrl = 'git@github.com:acme/app.git', review = fakeReview()) => {
     // The fixture pushes to a local bare repo; the URL gh and the pane see is a GitHub one.
     return {
       ready: repo.git('remote', 'set-url', 'origin', remoteUrl).then(() => repo.git('remote', 'set-url', '--push', 'origin', bare)),
-      github: new GitHubService({ git: runGit, gh, worktrees: { location: () => ({ path: repo.path, baseBranch: 'main', projectId: 'p' }) } })
+      github: new GitHubService({ review, git: runGit, gh, worktrees: { location: () => ({ path: repo.path, baseBranch: 'main', projectId: 'p' }) } })
     }
   }
 
@@ -165,7 +173,7 @@ describe('GitHubService', () => {
 
   it('reports no remote', async () => {
     await repo.git('remote', 'remove', 'origin')
-    const github = new GitHubService({ git: runGit, gh: fakeGh(() => ok()), worktrees: { location: () => ({ path: repo.path, baseBranch: 'main', projectId: 'p' }) } })
+    const github = new GitHubService({ review: fakeReview(), git: runGit, gh: fakeGh(() => ok()), worktrees: { location: () => ({ path: repo.path, baseBranch: 'main', projectId: 'p' }) } })
     expect((await github.read('w')).gh.state).toBe('no-remote')
   })
 
@@ -198,7 +206,7 @@ describe('GitHubService', () => {
     const read = async (baseBranch: string) => {
       await repo.git('remote', 'set-url', 'origin', 'git@github.com:acme/app.git')
       await repo.git('remote', 'set-url', '--push', 'origin', bare)
-      const github = new GitHubService({ git: runGit, gh, worktrees: { location: () => ({ path: repo.path, baseBranch, projectId: 'p' }) } })
+      const github = new GitHubService({ review: fakeReview(), git: runGit, gh, worktrees: { location: () => ({ path: repo.path, baseBranch, projectId: 'p' }) } })
       return github.read('w')
     }
     expect(await read('release')).toMatchObject({ bases: ['develop', 'main', 'release'], suggestedBase: 'release' })
@@ -259,6 +267,140 @@ describe('GitHubService', () => {
     await repo.commit({ 'c.txt': 'three\n' }, 'Add c')
     expect((await github.upstream(repo.path, 'feat/thing')).ahead).toBe(1)
     expect((await github.push('w')).upstream).toEqual({ name: 'origin/feat/thing', ahead: 0, behind: 0 })
+  })
+
+  describe('actions', () => {
+    /** A gh that has the fixture PR open, answers `repo view` and `api user`, and records the rest. */
+    const ghWithPr = (raw: object = RAW_PR, failing?: (args: string[]) => GhRun | undefined) =>
+      fakeGh((args) => {
+        const failed = failing?.(args)
+        if (failed) return failed
+        if (args[0] === 'pr' && args[1] === 'list') return ok(JSON.stringify([raw]))
+        if (args[0] === 'repo') return ok(JSON.stringify({ mergeCommitAllowed: false, squashMergeAllowed: true, rebaseMergeAllowed: true, viewerPermission: 'WRITE' }))
+        if (args[0] === 'api' && args[1] === 'user') return ok('octo\n')
+        return ok()
+      })
+
+    it('reads merge methods, permission and the viewer with the PR', async () => {
+      const { ready, github } = service(ghWithPr())
+      await ready
+      expect(await github.read('w')).toMatchObject({ viewer: 'octo', mergeMethods: ['squash', 'rebase'], canMerge: true })
+    })
+
+    it('merges exactly the head it showed, deletes the branch on GitHub itself, never locally', async () => {
+      const gh = ghWithPr({ ...RAW_PR, headRefOid: 'c'.repeat(40) })
+      const { ready, github } = service(gh)
+      await ready
+      const result = await github.act('w', { kind: 'merge', method: 'squash', deleteBranch: true })
+      expect(result.message).toBe('Merged #7 into main and deleted feat/thing on GitHub.')
+      const merge = gh.calls.find((args) => args[1] === 'merge')
+      expect(merge).toEqual(['pr', 'merge', '7', '--squash', '--match-head-commit', 'c'.repeat(40)])
+      expect(gh.calls).toContainEqual(['api', '-X', 'DELETE', 'repos/{owner}/{repo}/git/refs/heads/feat%2Fthing'])
+      expect(gh.calls.flat()).not.toContain('--delete-branch')
+    })
+
+    it('turns on auto-merge instead, and deletes nothing', async () => {
+      const gh = ghWithPr()
+      const { ready, github } = service(gh)
+      await ready
+      expect((await github.act('w', { kind: 'merge', method: 'rebase', auto: true, deleteBranch: true })).message).toMatch(/Auto-merge is on/)
+      expect(gh.calls.some((args) => args.includes('DELETE'))).toBe(false)
+    })
+
+    it('posts a review with local comments inline, then marks them posted', async () => {
+      const comment = (id: string, side: 'old' | 'new'): ReviewComment => ({ id, worktreeId: 'w', file: 'a.txt', line: 3, side, text: `note ${id}`, createdAt: 0, sent: false })
+      const review = fakeReview([comment('c1', 'new'), comment('c2', 'old'), comment('c3', 'new')])
+      const inputs: string[] = []
+      const gh = ghWithPr({ ...RAW_PR, headRefOid: 'd'.repeat(40) })
+      const recording: GhRunner = async (cwd, args, options) => {
+        if (options?.input) inputs.push(options.input)
+        return gh(cwd, args, options)
+      }
+      const { ready, github } = service(recording, undefined, review)
+      await ready
+      const result = await github.act('w', { kind: 'review', event: 'request-changes', body: 'Please fix', commentIds: ['c1', 'c2'] })
+      expect(result.message).toBe('Requested changes on #7 with 2 inline comments.')
+      expect(gh.calls).toContainEqual(['api', '-X', 'POST', 'repos/{owner}/{repo}/pulls/7/reviews', '--input', '-'])
+      expect(JSON.parse(inputs[0]!)).toEqual({
+        commit_id: 'd'.repeat(40),
+        event: 'REQUEST_CHANGES',
+        body: 'Please fix',
+        comments: [
+          { path: 'a.txt', line: 3, side: 'RIGHT', body: 'note c1' },
+          { path: 'a.txt', line: 3, side: 'LEFT', body: 'note c2' }
+        ]
+      })
+      expect(review.posted).toEqual([{ ids: ['c1', 'c2'], label: 'github#7' }])
+    })
+
+    it('refuses an empty non-approval review, and approves without a body', async () => {
+      const { ready, github } = service(ghWithPr())
+      await ready
+      await expect(github.act('w', { kind: 'review', event: 'comment', body: ' ' })).rejects.toMatchObject({ code: 'empty_review' })
+      expect((await github.act('w', { kind: 'review', event: 'approve' })).message).toBe('Approved #7.')
+    })
+
+    it('says what GitHub said when it refuses', async () => {
+      const refusal = { found: true, exitCode: 1, stdout: '', stderr: 'gh: Unprocessable Entity (HTTP 422)\n{"message":"Unprocessable Entity","errors":["Can not approve your own pull request"]}' }
+      const { ready, github } = service(ghWithPr(RAW_PR, (args) => (args[0] === 'api' && args[3]?.endsWith('/reviews') ? refusal : undefined)))
+      await ready
+      await expect(github.act('w', { kind: 'review', event: 'approve' })).rejects.toMatchObject({ status: 502, message: 'Unprocessable Entity: Can not approve your own pull request' })
+    })
+
+    it('comments through stdin, flips draft state, closes and reopens', async () => {
+      const inputs: string[] = []
+      const gh = ghWithPr()
+      const recording: GhRunner = async (cwd, args, options) => {
+        if (options?.input) inputs.push(options.input)
+        return gh(cwd, args, options)
+      }
+      const { ready, github } = service(recording)
+      await ready
+      await github.act('w', { kind: 'comment', body: 'LGTM, `rm -rf` safe?' })
+      await github.act('w', { kind: 'ready', ready: false })
+      await github.act('w', { kind: 'close' })
+      await github.act('w', { kind: 'reopen' })
+      expect(inputs).toEqual(['LGTM, `rm -rf` safe?'])
+      expect(gh.calls.filter((args) => args[0] === 'pr' && args[1] !== 'list')).toEqual([
+        ['pr', 'comment', '7', '--body-file', '-'],
+        ['pr', 'ready', '7', '--undo'],
+        ['pr', 'close', '7'],
+        ['pr', 'reopen', '7']
+      ])
+    })
+
+    it('re-runs the failed jobs of each failing Actions run once', async () => {
+      const raw = {
+        ...RAW_PR,
+        statusCheckRollup: [
+          { __typename: 'CheckRun', name: 'a', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/app/actions/runs/11/job/1' },
+          { __typename: 'CheckRun', name: 'b', status: 'COMPLETED', conclusion: 'FAILURE', detailsUrl: 'https://github.com/acme/app/actions/runs/11/job/2' },
+          { __typename: 'CheckRun', name: 'c', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'https://github.com/acme/app/actions/runs/12/job/3' },
+          { __typename: 'StatusContext', context: 'ext', state: 'FAILURE', targetUrl: 'https://ci.example/9' }
+        ]
+      }
+      const gh = ghWithPr(raw)
+      const { ready, github } = service(gh)
+      await ready
+      expect((await github.act('w', { kind: 'rerun' })).message).toBe('Re-running the failed jobs of 1 workflow run.')
+      expect(gh.calls.filter((args) => args[0] === 'run')).toEqual([['run', 'rerun', '11', '--failed']])
+
+      const { github: clean } = service(ghWithPr())
+      await expect(clean.act('w', { kind: 'rerun' })).rejects.toMatchObject({ code: 'nothing_to_rerun' })
+    })
+
+    it('gives Files changed the merge base and head when the head is here', async () => {
+      await repo.commit({ 'b.txt': 'two\n' }, 'Add b')
+      await repo.git('fetch', '-q', bare, '+refs/heads/*:refs/remotes/origin/*')
+      const head = await repo.git('rev-parse', 'HEAD')
+      const base = await repo.git('rev-parse', 'main')
+      const { ready, github } = service(ghWithPr({ ...RAW_PR, headRefOid: head, commits: [{ oid: head }] }))
+      await ready
+      expect((await github.read('w')).pr?.filesRange).toEqual({ before: base, after: head })
+
+      const { github: absent } = service(ghWithPr({ ...RAW_PR, headRefOid: 'e'.repeat(40), commits: [{ oid: 'e'.repeat(40) }] }))
+      expect((await absent.read('w')).pr?.filesRange).toBeNull()
+    })
   })
 
   it('passes gh failures through with what gh said', async () => {
