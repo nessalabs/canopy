@@ -21,8 +21,8 @@ describe('useBulkWorktreeAction', () => {
         const url = new URL(String(input))
         calls.push(`${init?.method ?? 'GET'} ${url.pathname}${url.search}`)
         // The second worktree refuses; the run must carry on past it.
-        if (url.pathname.endsWith('/wt-2')) return new Response(JSON.stringify({ error: { code: 'busy', message: 'it is busy' } }), { status: 409 })
-        return new Response(JSON.stringify({ salvaged: null }), { status: 200, headers: { 'content-type': 'application/json' } })
+        if (url.pathname.endsWith('/wt-2/stop')) return new Response(JSON.stringify({ error: { code: 'busy', message: 'it is busy' } }), { status: 409 })
+        return new Response(JSON.stringify({ environment: null }), { status: 200, headers: { 'content-type': 'application/json' } })
       })
     )
     host = document.createElement('div')
@@ -49,20 +49,9 @@ describe('useBulkWorktreeAction', () => {
     vi.unstubAllGlobals()
   })
 
-  it('destroys one at a time with each worktree its own options, and reports what failed', async () => {
-    const result = await run!(['wt-1', 'wt-2', 'wt-3'], {
-      destroy: {
-        'wt-1': { force: true, deleteBranch: true },
-        'wt-2': { force: false, deleteBranch: false },
-        'wt-3': { force: false, deleteBranch: false }
-      }
-    })
-    const destroys = calls.filter((call) => call.startsWith('DELETE'))
-    expect(destroys).toEqual([
-      'DELETE /api/v1/worktrees/wt-1?force=true&deleteBranch=true',
-      'DELETE /api/v1/worktrees/wt-2?deleteBranch=false',
-      'DELETE /api/v1/worktrees/wt-3?deleteBranch=false'
-    ])
+  it('stops one at a time, and reports what failed without stopping the rest', async () => {
+    const result = await run!(['wt-1', 'wt-2', 'wt-3'], 'stop')
+    expect(calls.filter((call) => call.startsWith('POST'))).toEqual(['POST /api/v1/worktrees/wt-1/stop', 'POST /api/v1/worktrees/wt-2/stop', 'POST /api/v1/worktrees/wt-3/stop'])
     expect(result.done).toEqual(['wt-1', 'wt-3'])
     expect(result.failed.map((failure) => failure.id)).toEqual(['wt-2'])
   })

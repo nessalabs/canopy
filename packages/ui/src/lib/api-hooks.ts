@@ -22,6 +22,7 @@ import type {
   UnhideInput,
   DbSource,
   DestroyAllInput,
+  DestroyJob,
   DiffSpec,
   OpenInput,
   ProjectSettingsPatch,
@@ -29,11 +30,13 @@ import type {
   RewindInput,
   ServiceAction,
   SessionRef,
+  StartDestroyJobInput,
   UpdateProjectInput
 } from '@canopy/shared'
 
 import { useApi } from '../providers/api'
 import { useDaemonCapabilities } from './daemon-capabilities'
+import { upsertDestroyJob } from './destroy-jobs'
 import { keys } from './query-keys'
 
 /** Status is derived from git on every read, so the list polls while the app is in front. */
@@ -353,8 +356,8 @@ export const useWorktreeLifecycle = (worktreeId: string) => {
   return useInvalidating((action: 'start' | 'stop' | 'restart') => actions[action](worktreeId), () => [keys.worktree(worktreeId), keys.worktrees])
 }
 
-/** One action for many worktrees; a destroy carries each worktree's own force and branch choice. */
-export type BulkWorktreeAction = 'start' | 'stop' | { destroy: Record<string, { force: boolean; deleteBranch: boolean }> }
+/** Start or stop, for many worktrees; a destroy of many is a daemon job (`useStartDestroyJob`). */
+export type BulkWorktreeAction = 'start' | 'stop'
 
 export interface BulkWorktreeResult {
   done: string[]
@@ -375,8 +378,7 @@ export const useBulkWorktreeAction = () => {
       for (const [index, id] of ids.entries()) {
         try {
           if (action === 'start') await api.startWorktree(id)
-          else if (action === 'stop') await api.stopWorktree(id)
-          else await api.destroyWorktreeWith(id, action.destroy[id] ?? { force: false, deleteBranch: false })
+          else await api.stopWorktree(id)
           result.done.push(id)
         } catch (error) {
           result.failed.push({ id, message: error instanceof Error ? error.message : String(error) })
@@ -387,6 +389,27 @@ export const useBulkWorktreeAction = () => {
     },
     () => [keys.worktrees, keys.projects]
   )
+}
+
+/** Running and recently finished destroy jobs. Read once; `destroy-job` events keep it current from then on. */
+export const useDestroyJobs = () => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.destroyJobs, queryFn: () => api.destroyJobs(), staleTime: Number.POSITIVE_INFINITY })
+}
+
+/**
+ * Hands several destroys to the daemon, which answers as soon as the job is queued. The job
+ * goes straight into the cache, so the progress card shows even before its first event — but
+ * an event that beat the answer here is newer, and stays.
+ */
+export const useStartDestroyJob = () => {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (input: StartDestroyJobInput) => api.startDestroyJob(input),
+    onSuccess: (job) =>
+      queryClient.setQueryData<DestroyJob[]>(keys.destroyJobs, (current) => (current?.some((known) => known.id === job.id) ? current : upsertDestroyJob(current, job)))
+  })
 }
 
 export const useProvisionWorktree = (worktreeId: string) => {

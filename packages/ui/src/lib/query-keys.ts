@@ -6,6 +6,8 @@ export const keys = {
   branches: (projectId: string) => ['branches', projectId] as const,
   worktrees: ['worktrees'] as const,
   worktree: (id: string) => ['worktree', id] as const,
+  /** Destroy jobs running in the daemon and ones that finished recently; `destroy-job` events keep it current. */
+  destroyJobs: ['destroy-jobs'] as const,
   diffFiles: (worktreeId: string, spec: DiffSpec) => ['diff-files', worktreeId, spec] as const,
   filePatch: (worktreeId: string, spec: DiffSpec, path: string) => ['file-patch', worktreeId, spec, path] as const,
   tree: (worktreeId: string, dir: string) => ['tree', worktreeId, dir] as const,
