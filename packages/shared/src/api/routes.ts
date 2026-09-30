@@ -44,6 +44,8 @@ export const routes = {
   pullRequestAction: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/actions`,
   /** Assignable users, labels and open milestones of the repository, for the PR's sidebar pickers. */
   pullRequestOptions: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/options`,
+  /** The PR's inline review threads from GitHub. */
+  pullRequestThreads: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/threads`,
   pullRequestFetch: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/fetch`,
   push: (id: string) => `${API_PREFIX}/worktrees/${id}/push`,
   /** Locally hidden paths; read on its own because the changes poll must not pay for it. */

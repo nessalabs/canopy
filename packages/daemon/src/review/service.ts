@@ -131,7 +131,8 @@ export class ReviewService {
     const row = this.deps.worktrees.row(worktreeId)
     const wanted = request.commentIds ? new Set(request.commentIds) : null
     const comments = this.list(worktreeId).filter((c) => (wanted ? wanted.has(c.id) : !c.sent))
-    if (comments.length === 0) throw badRequest('no_comments', 'there are no unsent comments to review')
+    const github = request.github ?? []
+    if (comments.length === 0 && github.length === 0) throw badRequest('no_comments', 'there are no unsent comments to review')
 
     const ref: PendingSessionRef = { provider: request.provider, sessionId: request.sessionId }
     const ids = comments.map((c) => c.id)
@@ -142,7 +143,7 @@ export class ReviewService {
       ids,
       cwd: row.path,
       options: { autonomy: request.autonomy, model: request.model, effort: request.effort },
-      prompt: formatReviewPrompt({ comments, branch: row.branch ?? undefined, note: request.note })
+      prompt: formatReviewPrompt({ comments, github, branch: row.branch ?? undefined, note: request.note })
     }
   }
 

@@ -195,6 +195,34 @@ export type PullRequestAction = z.input<typeof PullRequestAction>
 export const PullRequestActionResult = z.object({ message: z.string() })
 export type PullRequestActionResult = z.infer<typeof PullRequestActionResult>
 
+/** One reply in a GitHub review thread. */
+export const GitHubThreadComment = z.object({
+  id: z.string(),
+  author: z.string(),
+  body: z.string(),
+  at: z.string(),
+  url: z.string()
+})
+export type GitHubThreadComment = z.infer<typeof GitHubThreadComment>
+
+/** An inline review thread on the PR's diff, as GitHub keeps it. */
+export const GitHubThread = z.object({
+  id: z.string(),
+  file: z.string(),
+  /** The line in the PR's current diff; null once the code moved on (outdated). */
+  line: z.number().int().nullable(),
+  /** Where it was left originally, for an outdated thread. */
+  originalLine: z.number().int().nullable(),
+  side: z.enum(['old', 'new']),
+  resolved: z.boolean(),
+  outdated: z.boolean(),
+  comments: z.array(GitHubThreadComment)
+})
+export type GitHubThread = z.infer<typeof GitHubThread>
+
+export const PullRequestThreadsResponse = z.object({ number: z.number().int(), threads: z.array(GitHubThread) })
+export type PullRequestThreadsResponse = z.infer<typeof PullRequestThreadsResponse>
+
 /** What the repository offers for the PR's sidebar: people to ask, labels, open milestones. */
 export const PullRequestOptions = z.object({
   users: z.array(z.object({ login: z.string(), name: z.string().nullable() })),

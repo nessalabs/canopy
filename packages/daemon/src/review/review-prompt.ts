@@ -10,13 +10,15 @@
  *    straight to the hunk instead of re-reading the whole file.
  */
 
-import type { AddCommentInput } from '@canopy/shared'
+import type { AddCommentInput, GitHubNote } from '@canopy/shared'
 
 /** A comment as the prompt needs it: anchor + text (+ the code it points at). */
 export type ReviewCommentInput = Pick<AddCommentInput, 'file' | 'line' | 'side' | 'text' | 'code'>
 
 export interface ReviewBundle {
   comments: ReviewCommentInput[]
+  /** Review threads from the PR on GitHub, each with who said it. */
+  github?: GitHubNote[]
   /** Branch under review, for the header line. */
   branch?: string
   /** Optional free-text the reviewer typed alongside the comments. */
@@ -32,7 +34,8 @@ const FOOTER =
 
 export function formatReviewPrompt(bundle: ReviewBundle): string {
   const { comments, branch, note } = bundle
-  if (comments.length === 0) throw new Error('review bundle has no comments')
+  const github = bundle.github ?? []
+  if (comments.length === 0 && github.length === 0) throw new Error('review bundle has no comments')
 
   const byFile = new Map<string, ReviewCommentInput[]>()
   for (const comment of comments) {
@@ -50,6 +53,22 @@ export function formatReviewPrompt(bundle: ReviewBundle): string {
         return `  - ${anchor}${quoted}\n    ${comment.text.trim()}`
       })
     sections.push(`${file}\n${lines.join('\n')}`)
+  }
+
+  if (github.length > 0) {
+    const byFile = new Map<string, GitHubNote[]>()
+    for (const item of github) byFile.set(item.file, [...(byFile.get(item.file) ?? []), item])
+    const parts: string[] = []
+    for (const [file, notes] of byFile) {
+      const lines = notes.map((item) => {
+        const anchor = item.line ? `${file}:${item.line}${item.side === 'old' ? ' (removed line)' : ''}` : `${file} (line no longer in the diff)`
+        const state = item.resolved ? ' [resolved on GitHub]' : ''
+        const body = item.body.trim().split('\n').join('\n    ')
+        return `  - ${anchor}${state} — ${item.url}\n    ${body}`
+      })
+      parts.push(`${file}\n${lines.join('\n')}`)
+    }
+    sections.push(`Review comments left on the pull request on GitHub (reviewer named on each):\n\n${parts.join('\n\n')}`)
   }
 
   return [
