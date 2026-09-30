@@ -654,7 +654,8 @@ export class GitHubService {
   /**
    * A repository's recent PRs in one `gh pr list`, for the Command Center to match against its
    * worktrees' branches — one call per project rather than one per worktree. Callers within the
-   * TTL share the answer (and an answer still in flight); a failure is not kept.
+   * TTL share the answer (and an answer still in flight); a failure is not kept, nor is an answer
+   * from a `gh` that is not ready, so signing in shows PRs on the next read.
    */
   list(cwd: string): Promise<ProjectPullRequests> {
     const cached = this.lists.get(cwd)
@@ -662,9 +663,12 @@ export class GitHubService {
     const value = this.readList(cwd)
     const entry = { at: this.now(), value }
     this.lists.set(cwd, entry)
-    value.catch(() => {
+    const forget = (): void => {
       if (this.lists.get(cwd) === entry) this.lists.delete(cwd)
-    })
+    }
+    value.then((answer) => {
+      if (answer.gh.state !== 'ready') forget()
+    }, forget)
     return value
   }
 
