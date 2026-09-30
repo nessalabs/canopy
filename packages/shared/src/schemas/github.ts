@@ -57,6 +57,9 @@ export const PullRequestReviewer = z.object({
 })
 export type PullRequestReviewer = z.infer<typeof PullRequestReviewer>
 
+export const MergeMethod = z.enum(['merge', 'squash', 'rebase'])
+export type MergeMethod = z.infer<typeof MergeMethod>
+
 export const PullRequest = z.object({
   number: z.number().int(),
   title: z.string(),
@@ -90,6 +93,19 @@ export const PullRequest = z.object({
   reviewDecision: z.string().nullable(),
   /** MERGEABLE, CONFLICTING or UNKNOWN (GitHub computes it lazily). */
   mergeable: z.string(),
+  /**
+   * GitHub's verdict on merging now: CLEAN, BLOCKED (reviews or required checks), BEHIND,
+   * DIRTY (conflicts), UNSTABLE (non-required checks failing), DRAFT, HAS_HOOKS or UNKNOWN.
+   */
+  mergeState: z.string(),
+  /** Auto-merge is on: GitHub merges once requirements pass. */
+  autoMerge: z.boolean(),
+  headSha: z.string(),
+  /**
+   * The PR's whole change as two commits to diff — the merge base with its target, and its
+   * head — or null when this checkout lacks the head or the target branch.
+   */
+  filesRange: z.object({ before: z.string(), after: z.string() }).nullable(),
   checks: z.array(PullRequestCheck),
   events: z.array(PullRequestEvent)
 })
@@ -113,6 +129,12 @@ export const PullRequestResponse = z.object({
   upstream: UpstreamStatus.nullable(),
   /** The newest PR whose head is this branch, open or not; null when there is none. */
   pr: PullRequest.nullable(),
+  /** Who `gh` is signed in as; GitHub will not let the author approve their own PR. */
+  viewer: z.string().nullable(),
+  /** Merge methods the repository allows, in GitHub's order of preference. */
+  mergeMethods: z.array(MergeMethod),
+  /** Whether the viewer may merge here at all (write access or more). */
+  canMerge: z.boolean(),
   /** Title and body suggested for a new PR, from the branch's commits. */
   draft: z.object({ title: z.string(), body: z.string() }).nullable(),
   /**
@@ -135,6 +157,37 @@ export const CreatePullRequestInput = z.object({
   draft: z.boolean().default(false)
 })
 export type CreatePullRequestInput = z.input<typeof CreatePullRequestInput>
+
+/** Everything the PR pane can do to the PR itself, as one request with a `kind`. */
+export const PullRequestAction = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('merge'),
+    method: MergeMethod,
+    /** Delete the branch on GitHub once merged. The local branch and worktree are left alone. */
+    deleteBranch: z.boolean().default(false),
+    /** Turn on auto-merge instead of merging now, for a PR still waiting on checks or reviews. */
+    auto: z.boolean().default(false),
+    subject: z.string().optional(),
+    body: z.string().optional()
+  }),
+  z.object({
+    kind: z.literal('review'),
+    event: z.enum(['approve', 'request-changes', 'comment']),
+    body: z.string().default(''),
+    /** Local line comments to post with the review as inline comments on the PR's diff. */
+    commentIds: z.array(z.string()).default([])
+  }),
+  z.object({ kind: z.literal('comment'), body: z.string().trim().min(1) }),
+  z.object({ kind: z.literal('ready'), ready: z.boolean() }),
+  z.object({ kind: z.literal('close') }),
+  z.object({ kind: z.literal('reopen') }),
+  /** Re-runs the failed jobs of every GitHub Actions run with a failing check. */
+  z.object({ kind: z.literal('rerun') })
+])
+export type PullRequestAction = z.input<typeof PullRequestAction>
+
+export const PullRequestActionResult = z.object({ message: z.string() })
+export type PullRequestActionResult = z.infer<typeof PullRequestActionResult>
 
 export const PushResult = z.object({ upstream: UpstreamStatus })
 export type PushResult = z.infer<typeof PushResult>

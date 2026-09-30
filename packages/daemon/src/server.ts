@@ -133,6 +133,7 @@ export function buildServices(deps: ServerDeps): Services {
   environmentRef.current = environment
   worktrees.attachEnvironment(environment)
   const history = new HistoryService({ repo, diffs, worktrees })
+  const review = new ReviewService({ db: deps.db, worktrees, agents })
   return {
     watch: new WatchService({ worktrees, projects, repo, events }),
     trash: new TrashService({ repo, projects }),
@@ -143,8 +144,8 @@ export function buildServices(deps: ServerDeps): Services {
     history,
     commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
     merges: new MergeService({ repo, git, worktrees, projects, events }),
-    github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees }),
-    review: new ReviewService({ db: deps.db, worktrees, agents }),
+    github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees, review }),
+    review,
     agents,
     editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots: createSnapshots(git) }),
     presence,

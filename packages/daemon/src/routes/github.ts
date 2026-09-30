@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
-import { CreatePullRequestInput, routes } from '@canopy/shared'
+import { CreatePullRequestInput, PullRequestAction, routes } from '@canopy/shared'
 
 import type { Services } from './context'
 import { IdParams } from './params'
@@ -13,6 +13,8 @@ export function registerGitHubRoutes(app: FastifyInstance, { github }: Services)
     const pr = await github.create(IdParams.parse(request.params).id, CreatePullRequestInput.parse(request.body ?? {}))
     return reply.code(201).send({ pr })
   })
+
+  app.post(routes.pullRequestAction(':id'), async (request) => github.act(IdParams.parse(request.params).id, PullRequestAction.parse(request.body ?? {})))
 
   app.post(routes.pullRequestFetch(':id'), async (request) => github.fetchPr(IdParams.parse(request.params).id))
 

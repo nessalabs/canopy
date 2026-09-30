@@ -41,6 +41,8 @@ import type {
   MergeResult,
   CreatePullRequestInput,
   PullRequest,
+  PullRequestAction,
+  PullRequestActionResult,
   PullRequestResponse,
   PushResult,
   CommitResponse,
@@ -198,6 +200,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     pullRequest: (worktreeId: string) => get<PullRequestResponse>(routes.pullRequest(worktreeId)),
     createPullRequest: (worktreeId: string, input: CreatePullRequestInput) =>
       post<{ pr: PullRequest }>(routes.pullRequest(worktreeId), input).then((r) => r.pr),
+    pullRequestAction: (worktreeId: string, action: PullRequestAction) => post<PullRequestActionResult>(routes.pullRequestAction(worktreeId), action),
     fetchPullRequest: (worktreeId: string) => post<{ fetched: number }>(routes.pullRequestFetch(worktreeId), {}),
     pushBranch: (worktreeId: string) => post<PushResult>(routes.push(worktreeId), {}),
     excludePaths: (worktreeId: string, input: ExcludeInput) => post<ChangesResponse>(routes.exclude(worktreeId), input),
