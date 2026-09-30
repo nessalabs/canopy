@@ -553,6 +553,22 @@ describe('GitHubService', () => {
     expect(gh.calls.filter((args) => args[0] === 'pr')).toHaveLength(2)
   })
 
+  it('does not keep a list read while gh is signed out, so signing in shows PRs at once', async () => {
+    let signedIn = false
+    const gh = fakeGh((args) => {
+      if (args[0] === 'auth' && !signedIn) return { found: true, exitCode: 1, stdout: '', stderr: 'You are not logged into any GitHub hosts.\n' }
+      return args[0] === 'pr' ? ok(JSON.stringify([{ ...RAW_PR, number: 3, headRefName: 'feat/thing' }])) : ok()
+    })
+    await repo.git('remote', 'set-url', 'origin', 'git@github.com:acme/app.git')
+    const github = new GitHubService({ review: fakeReview(), git: runGit, gh, now: () => 0, worktrees: { location: () => ({ path: repo.path, baseBranch: 'main', projectId: 'p' }) } })
+
+    expect(await github.list(repo.path)).toMatchObject({ gh: { state: 'unauthenticated' }, prs: [] })
+    signedIn = true
+    const after = await github.list(repo.path)
+    expect(after.gh.state).toBe('ready')
+    expect(after.prs.map((p) => p.number)).toEqual([3])
+  })
+
   it('passes gh failures through with what gh said', async () => {
     const gh = fakeGh((args) => (args[0] === 'pr' ? { found: true, exitCode: 1, stdout: '', stderr: 'HTTP 502: Bad Gateway\n' } : ok()))
     const { ready, github } = service(gh)
