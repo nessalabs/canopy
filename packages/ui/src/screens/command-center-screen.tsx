@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react'
-import { Activity, ArrowDown, ArrowUp, FolderGit2, GitBranch, GitMerge, ListTree, Play, Square, X } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, FolderGit2, GitBranch, GitMerge, ListTree, Play, RotateCw, Square, Trash2, X } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 
 import { environmentDot, formatMem, isLive, serviceResources, type PullRequestSummary, type Worktree } from '@canopy/shared'
 
 import { CHECK_ICON, REVIEW_LABEL, STATE_LOOK } from '@/components/git/pull-request/parts'
+import { BulkDestroyDialog } from '@/components/environment/bulk-destroy-dialog'
 import { MergedMark } from '@/components/merged-mark'
 import { PanelShell, type PanelDef } from '@/components/panel-shell'
 import { CoreGrid, SystemMemBar } from '@/components/resources/host-usage'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { FramedBox } from '@/components/ui/framed-box'
 import { Meter, type MeterSlot } from '@/components/ui/meter'
 import { StatusDot } from '@/components/ui/status-dot'
@@ -30,7 +32,7 @@ import {
   type TableSortDirection
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { prKey, useHost, useProjectPullRequests, useProjects, useWorktreeLifecycle, useWorktrees } from '@/lib/api-hooks'
+import { prKey, useBulkWorktreeAction, useHost, useProjectPullRequests, useProjects, useWorktreeLifecycle, useWorktrees } from '@/lib/api-hooks'
 import { PaneSplitDirection, createAppShellLayout, setSplitWeights, splitPane, type AppShellLayout } from '@/lib/app-shell-layout'
 import { cpuScale, gitHref, memScale, type GitLink } from '@/lib/environment-ui'
 import { useHostSamples } from '@/lib/events-provider'
@@ -100,6 +102,10 @@ function compareBy({ key, direction }: Sort): (a: Row, b: Row) => number {
     return sign * (typeof x === 'string' && typeof y === 'string' ? x.localeCompare(y) : Number(x) - Number(y))
   }
 }
+
+/** The main checkout is the repository itself; everything else can be selected for a bulk action. */
+const selectable = (worktree: Worktree): boolean => !worktree.isMain && worktree.environment.state !== 'destroying'
+const startable = (worktree: Worktree): boolean => worktree.environment.state === 'stopped' || worktree.environment.state === 'error'
 
 const Dash = (): React.JSX.Element => <span className="text-muted-foreground/50">—</span>
 /** One dot for the row; hovering it reveals every service's state. */
@@ -330,7 +336,7 @@ function PortsCell({ worktree }: { worktree: Worktree }): React.JSX.Element {
   )
 }
 
-function WorktreeRow({ row }: { row: Row }): React.JSX.Element {
+function WorktreeRow({ row, selected, onSelect }: { row: Row; selected: boolean; onSelect: (on: boolean) => void }): React.JSX.Element {
   const [, navigate] = useLocation()
   const { worktree, projectName } = row
   const env = worktree.environment
@@ -339,8 +345,16 @@ function WorktreeRow({ row }: { row: Row }): React.JSX.Element {
   const href = `/worktrees/${worktree.id}`
 
   return (
-    <TableRow className="group cursor-pointer" onClick={() => navigate(href)}>
-      <TableCell className="w-8 pr-0">
+    <TableRow className="group cursor-pointer" data-state={selected ? 'selected' : undefined} onClick={() => navigate(href)}>
+      <TableCell className="w-8 pr-0" onClick={(event) => event.stopPropagation()}>
+        <Checkbox
+          checked={selected}
+          disabled={!selectable(worktree)}
+          aria-label={`Select ${worktree.name}`}
+          onChange={(event) => onSelect(event.target.checked)}
+        />
+      </TableCell>
+      <TableCell className="w-6 px-0">
         <HealthDot worktree={worktree} />
       </TableCell>
       <TableCell className="max-w-72">
@@ -401,7 +415,7 @@ function WorktreeRow({ row }: { row: Row }): React.JSX.Element {
         )}
       </TableCell>
       <TableCell className="w-10 pl-0 text-right">
-        {env.state === 'stopped' || env.state === 'error' ? (
+        {startable(worktree) ? (
           <LifecycleButton worktree={worktree} action="start">
             <Play className="size-3.5" />
           </LifecycleButton>
@@ -415,7 +429,7 @@ function WorktreeRow({ row }: { row: Row }): React.JSX.Element {
   )
 }
 
-const COLUMNS = 11
+const COLUMNS = 12
 
 function SortableHead({ label, sortKey, sort, onSort, className }: { label: string; sortKey: SortKey; sort: Sort | null; onSort: (key: SortKey) => void; className?: string }): React.JSX.Element {
   const direction = sort?.key === sortKey ? sort.direction : undefined
@@ -441,6 +455,10 @@ function WorktreesPanel(): React.JSX.Element {
   const [branchFilter, setBranchFilter] = useState<BranchFilter>('any')
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<Sort | null>(null)
+  const [selectedIds, setSelectedIds] = useState<ReadonlySet<string>>(new Set())
+  const [destroying, setDestroying] = useState(false)
+  const bulk = useBulkWorktreeAction()
+  const [bulkProgress, setBulkProgress] = useState<{ verb: string; finished: number; total: number } | null>(null)
   const pullRequests = useProjectPullRequests(useMemo(() => projects.map((p) => p.id), [projects]))
 
   const rows = useMemo<Row[]>(() => {
@@ -463,6 +481,29 @@ function WorktreesPanel(): React.JSX.Element {
   const countWhere = (test: (row: Row) => boolean): number => searched.filter(test).length
 
   const kept = searched.filter((row) => byProject(row) && byEnv(row) && byBranch(row))
+  // A selection only ever names worktrees that still exist and can be acted on.
+  const selected = rows.filter((row) => selectedIds.has(row.worktree.id) && selectable(row.worktree)).map((row) => row.worktree)
+  const visibleSelectable = kept.filter((row) => selectable(row.worktree))
+  const allVisibleSelected = visibleSelectable.length > 0 && visibleSelectable.every((row) => selectedIds.has(row.worktree.id))
+  const someVisibleSelected = visibleSelectable.some((row) => selectedIds.has(row.worktree.id))
+  const select = (ids: string[], on: boolean): void =>
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      for (const id of ids) {
+        if (on) next.add(id)
+        else next.delete(id)
+      }
+      return next
+    })
+  const toStart = selected.filter(startable)
+  const toStop = selected.filter((wt) => isLive(wt.environment.state))
+  const runLifecycle = (action: 'start' | 'stop', targets: Worktree[]): void => {
+    setBulkProgress({ verb: action === 'start' ? 'Starting' : 'Stopping', finished: 0, total: targets.length })
+    bulk.mutate(
+      { ids: targets.map((wt) => wt.id), action, onEach: (finished) => setBulkProgress((p) => (p ? { ...p, finished } : p)) },
+      { onSettled: () => setBulkProgress(null) }
+    )
+  }
   const visible = sort ? [...kept].sort(compareBy(sort)) : kept
 
   const projectOptions: TableFilterOption[] = [
@@ -505,15 +546,52 @@ function WorktreesPanel(): React.JSX.Element {
             Clear
           </Button>
         ) : null}
-        <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
-          {filtered ? `${visible.length} of ${plural(rows.length, 'worktree')}` : plural(rows.length, 'worktree')}
-        </span>
+        {selected.length > 0 ? (
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+              {bulkProgress ? `${bulkProgress.verb} ${Math.min(bulkProgress.finished + 1, bulkProgress.total)} of ${bulkProgress.total}…` : `${selected.length} selected`}
+            </span>
+            <Button variant="outline" size="sm" className="h-8 gap-1" disabled={bulk.isPending || toStart.length === 0} onClick={() => runLifecycle('start', toStart)}>
+              {bulkProgress?.verb === 'Starting' ? <RotateCw className="size-3.5 animate-spin" /> : <Play className="size-3.5" />}
+              Start{toStart.length ? ` ${toStart.length}` : ''}
+            </Button>
+            <Button variant="outline" size="sm" className="h-8 gap-1" disabled={bulk.isPending || toStop.length === 0} onClick={() => runLifecycle('stop', toStop)}>
+              {bulkProgress?.verb === 'Stopping' ? <RotateCw className="size-3.5 animate-spin" /> : <Square className="size-3.5" />}
+              Stop{toStop.length ? ` ${toStop.length}` : ''}
+            </Button>
+            <Button variant="destructive" size="sm" className="h-8 gap-1" disabled={bulk.isPending} onClick={() => setDestroying(true)}>
+              <Trash2 className="size-3.5" />
+              Destroy {selected.length}…
+            </Button>
+            <Button variant="ghost" size="icon" className="size-8 text-muted-foreground" aria-label="Clear selection" disabled={bulk.isPending} onClick={() => setSelectedIds(new Set())}>
+              <X className="size-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <span className="ml-auto font-mono text-[11px] tabular-nums text-muted-foreground">
+            {filtered ? `${visible.length} of ${plural(rows.length, 'worktree')}` : plural(rows.length, 'worktree')}
+          </span>
+        )}
       </TableToolbar>
+      {bulk.data && bulk.data.failed.length > 0 && !bulk.isPending ? (
+        <p role="alert" className="text-xs text-destructive">
+          {plural(bulk.data.failed.length, 'worktree')} failed: {bulk.data.failed.map((f) => `${rows.find((row) => row.worktree.id === f.id)?.worktree.name ?? f.id} (${f.message})`).join('; ')}
+        </p>
+      ) : null}
       <TableShell className="min-h-0 flex-1">
         <Table containerClassName="min-h-0 flex-1 scroll-pt-9" containerLabel="Worktrees">
           <TableHeader sticky>
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-8 pr-0">
+                <Checkbox
+                  checked={allVisibleSelected}
+                  indeterminate={!allVisibleSelected && someVisibleSelected}
+                  disabled={visibleSelectable.length === 0}
+                  aria-label={allVisibleSelected ? 'Deselect every shown worktree' : 'Select every shown worktree'}
+                  onChange={() => select(visibleSelectable.map((row) => row.worktree.id), !allVisibleSelected)}
+                />
+              </TableHead>
+              <TableHead className="w-6 px-0">
                 <span className="sr-only">Health</span>
               </TableHead>
               <SortableHead label="Worktree" sortKey="name" sort={sort} onSort={onSort} />
@@ -534,11 +612,17 @@ function WorktreesPanel(): React.JSX.Element {
             {worktrees.isPending ? <TableEmpty colSpan={COLUMNS}>Reading worktrees…</TableEmpty> : null}
             {worktrees.data && visible.length === 0 ? <TableEmpty colSpan={COLUMNS}>No worktrees match these filters.</TableEmpty> : null}
             {visible.map((row) => (
-              <WorktreeRow key={row.worktree.id} row={row} />
+              <WorktreeRow key={row.worktree.id} row={row} selected={selectedIds.has(row.worktree.id)} onSelect={(on) => select([row.worktree.id], on)} />
             ))}
           </TableBody>
         </Table>
       </TableShell>
+      <BulkDestroyDialog
+        worktrees={selected}
+        open={destroying}
+        onOpenChange={setDestroying}
+        onDone={(result) => select(result.done, false)}
+      />
     </div>
   )
 }

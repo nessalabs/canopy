@@ -353,6 +353,42 @@ export const useWorktreeLifecycle = (worktreeId: string) => {
   return useInvalidating((action: 'start' | 'stop' | 'restart') => actions[action](worktreeId), () => [keys.worktree(worktreeId), keys.worktrees])
 }
 
+/** One action for many worktrees; a destroy carries each worktree's own force and branch choice. */
+export type BulkWorktreeAction = 'start' | 'stop' | { destroy: Record<string, { force: boolean; deleteBranch: boolean }> }
+
+export interface BulkWorktreeResult {
+  done: string[]
+  failed: { id: string; message: string }[]
+}
+
+/**
+ * Runs an action over several worktrees, one at a time: they share a repository (git's worktree
+ * list and lock) and a port range, so in parallel they would only queue up or trip over each
+ * other. One failure does not stop the rest; every outcome is reported, and `onEach` says how
+ * far it has got.
+ */
+export const useBulkWorktreeAction = () => {
+  const api = useApi()
+  return useInvalidating(
+    async ({ ids, action, onEach }: { ids: string[]; action: BulkWorktreeAction; onEach?: (finished: number) => void }): Promise<BulkWorktreeResult> => {
+      const result: BulkWorktreeResult = { done: [], failed: [] }
+      for (const [index, id] of ids.entries()) {
+        try {
+          if (action === 'start') await api.startWorktree(id)
+          else if (action === 'stop') await api.stopWorktree(id)
+          else await api.destroyWorktreeWith(id, action.destroy[id] ?? { force: false, deleteBranch: false })
+          result.done.push(id)
+        } catch (error) {
+          result.failed.push({ id, message: error instanceof Error ? error.message : String(error) })
+        }
+        onEach?.(index + 1)
+      }
+      return result
+    },
+    () => [keys.worktrees, keys.projects]
+  )
+}
+
 export const useProvisionWorktree = (worktreeId: string) => {
   const api = useApi()
   return useInvalidating((input: ProvisionInput) => api.provisionWorktree(worktreeId, input), () => [keys.worktree(worktreeId), keys.worktrees])
