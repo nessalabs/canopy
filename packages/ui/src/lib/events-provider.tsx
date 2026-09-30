@@ -7,10 +7,11 @@
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
-import type { CanopyEvent, HostSample, ResourceSample, Worktree, WorktreeEnvironment } from '@canopy/shared'
+import type { CanopyEvent, DestroyJob, HostSample, ResourceSample, Worktree, WorktreeEnvironment } from '@canopy/shared'
 
 import { useApi } from '../providers/api'
 import { setDaemonCapabilities } from './daemon-capabilities'
+import { upsertDestroyJob } from './destroy-jobs'
 import { keys } from './query-keys'
 
 const HISTORY = 90
@@ -139,6 +140,10 @@ function applyEvent(queryClient: QueryClient, samples: SampleStore, event: Canop
     case 'agent-sessions-changed':
       void queryClient.invalidateQueries({ queryKey: keys.sessions(event.worktreeId) })
       return
+    // Each destroy that lands also sends `worktrees-changed`, which refreshes the list itself.
+    case 'destroy-job':
+      queryClient.setQueryData<DestroyJob[]>(keys.destroyJobs, (current) => upsertDestroyJob(current, event.job))
+      return
     case 'reset':
       void queryClient.invalidateQueries()
       return
@@ -176,6 +181,7 @@ export function CanopyEventsProvider({ children }: { children: React.ReactNode }
         setState('reconnecting')
         // The stream ended or dropped: everything may have moved — refetch, then resume.
         void queryClient.invalidateQueries({ queryKey: keys.worktrees })
+        void queryClient.invalidateQueries({ queryKey: keys.destroyJobs })
         attempt += 1
         const delay = Math.min(15_000, 500 * 2 ** Math.min(attempt, 5)) + Math.random() * 300
         await new Promise((resolve) => setTimeout(resolve, delay))

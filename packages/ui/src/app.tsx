@@ -4,6 +4,7 @@ import { Route, Router, Switch } from 'wouter'
 import { useHashLocation } from 'wouter/use-hash-location'
 
 import { AppLayout } from './components/app-layout'
+import { BackgroundJobs } from './components/background-jobs'
 import { ExternalLinks } from './components/external-links'
 import { DiagramWindowProvider } from './components/ui/mermaid-diagram'
 import { TooltipProvider } from './components/ui/tooltip'
@@ -41,7 +42,7 @@ const HINTS: Record<Platform, string> = {
 /**
  * The app's screens. `/window/…` routes are what a pop-out window opens on: one file or one
  * diagram, and no app chrome around it — the window itself is the frame, and its only job is
- * to sit beside the window it was opened from.
+ * to sit beside the window it was opened from. Background work shows on every other screen.
  */
 function Routes(): React.JSX.Element {
   return (
@@ -62,6 +63,7 @@ function Routes(): React.JSX.Element {
             <Route component={CommandCenterScreen} />
           </Switch>
         </AppLayout>
+        <BackgroundJobs />
       </Route>
     </Switch>
   )

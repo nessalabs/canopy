@@ -6,7 +6,7 @@ import type { Worktree } from '@canopy/shared'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { useBulkWorktreeAction, type BulkWorktreeResult } from '@/lib/api-hooks'
+import { useStartDestroyJob } from '@/lib/api-hooks'
 import { plural } from '@/lib/format'
 
 const branches = (count: number): string => `${count} ${count === 1 ? 'branch' : 'branches'}`
@@ -17,6 +17,9 @@ const branches = (count: number): string => `${count} ${count === 1 ? 'branch' :
  * saved as a salvage commit first, as a single destroy does. Only a branch git confirms is in
  * its base is ever deleted; an unmerged branch is always kept, whatever the checkbox says,
  * because a list is the wrong place to discard commits nobody looked at.
+ *
+ * Confirming hands the list to the daemon as one job and closes at once; the job's progress
+ * card (`BackgroundJobs`) follows it from there, on whatever screen the user moves to.
  */
 export function BulkDestroyDialog({
   worktrees: offered,
@@ -27,47 +30,45 @@ export function BulkDestroyDialog({
   worktrees: Worktree[]
   open: boolean
   onOpenChange: (open: boolean) => void
-  onDone: (result: BulkWorktreeResult) => void
+  /** The worktrees handed to the job, once the daemon has accepted it. */
+  onDone: (ids: string[]) => void
 }): React.JSX.Element {
-  const bulk = useBulkWorktreeAction()
+  const start = useStartDestroyJob()
   const [deleteBranches, setDeleteBranches] = useState(true)
-  const [finished, setFinished] = useState(0)
-  const [failed, setFailed] = useState<BulkWorktreeResult['failed']>([])
-  // The list is fixed when the dialog opens: each worktree turns "destroying" as the run reaches
-  // it, and a list that followed the live selection would shrink under the progress count.
+  // The list is fixed when the dialog opens, so a status refresh or a selection change behind
+  // it cannot change what the button says it will destroy.
   const [worktrees, setWorktrees] = useState(offered)
   useEffect(() => {
     if (!open) return
     setWorktrees(offered)
     setDeleteBranches(true)
-    setFinished(0)
-    setFailed([])
+    start.reset()
     // Only the moment of opening resets the dialog; a status refresh must not.
   }, [open])
 
   const merged = worktrees.filter((wt) => wt.status?.merged === true && wt.branch)
   const unmerged = worktrees.filter((wt) => wt.branch && wt.status?.merged !== true)
   const dirty = worktrees.filter((wt) => (wt.status?.dirtyTotal ?? 0) > 0)
-  const names = new Map(worktrees.map((wt) => [wt.id, wt.name]))
 
   const run = (): void => {
-    const destroy = Object.fromEntries(
-      worktrees.map((wt) => [wt.id, { force: (wt.status?.dirtyTotal ?? 0) > 0, deleteBranch: deleteBranches && wt.status?.merged === true && Boolean(wt.branch) }])
-    )
-    bulk.mutate(
-      { ids: worktrees.map((wt) => wt.id), action: { destroy }, onEach: setFinished },
+    const items = worktrees.map((wt) => ({
+      id: wt.id,
+      force: (wt.status?.dirtyTotal ?? 0) > 0,
+      deleteBranch: deleteBranches && wt.status?.merged === true && Boolean(wt.branch)
+    }))
+    start.mutate(
+      { items },
       {
-        onSuccess: (result) => {
-          setFailed(result.failed)
-          onDone(result)
-          if (result.failed.length === 0) onOpenChange(false)
+        onSuccess: () => {
+          onDone(items.map((item) => item.id))
+          onOpenChange(false)
         }
       }
     )
   }
 
   return (
-    <Dialog open={open} onOpenChange={(next) => (bulk.isPending ? undefined : onOpenChange(next))}>
+    <Dialog open={open} onOpenChange={(next) => (start.isPending ? undefined : onOpenChange(next))}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Destroy {plural(worktrees.length, 'worktree')}?</DialogTitle>
@@ -99,31 +100,24 @@ export function BulkDestroyDialog({
           })}
         </ul>
         <label className="flex items-center gap-2 text-sm">
-          <Checkbox checked={deleteBranches} disabled={merged.length === 0 || bulk.isPending} onChange={(event) => setDeleteBranches(event.target.checked)} />
+          <Checkbox checked={deleteBranches} disabled={merged.length === 0 || start.isPending} onChange={(event) => setDeleteBranches(event.target.checked)} />
           <span>Delete the {merged.length === 1 ? 'merged branch' : `${merged.length} merged branches`} too</span>
         </label>
-        {failed.length > 0 ? (
-          <div role="alert" className="flex flex-col gap-1 text-xs text-destructive">
-            <span>{plural(failed.length, 'worktree')} could not be destroyed:</span>
-            {failed.map((failure) => (
-              <span key={failure.id} className="font-mono">
-                {names.get(failure.id) ?? failure.id}: {failure.message}
-              </span>
-            ))}
-          </div>
+        {start.error ? (
+          <p role="alert" className="text-xs text-destructive">
+            {start.error.message}
+          </p>
         ) : null}
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="ghost" size="sm" disabled={bulk.isPending}>
-              {failed.length > 0 ? 'Close' : 'Cancel'}
+            <Button variant="ghost" size="sm" disabled={start.isPending}>
+              Cancel
             </Button>
           </DialogClose>
-          {failed.length === 0 ? (
-            <Button variant="destructive" size="sm" disabled={bulk.isPending || worktrees.length === 0} onClick={run}>
-              {bulk.isPending ? <RotateCw className="animate-spin" /> : null}
-              {bulk.isPending ? `Destroying ${Math.min(finished + 1, worktrees.length)} of ${worktrees.length}…` : `Destroy ${plural(worktrees.length, 'worktree')}`}
-            </Button>
-          ) : null}
+          <Button variant="destructive" size="sm" disabled={start.isPending || worktrees.length === 0} onClick={run}>
+            {start.isPending ? <RotateCw className="animate-spin" /> : null}
+            Destroy {plural(worktrees.length, 'worktree')}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

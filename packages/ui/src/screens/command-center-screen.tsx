@@ -32,7 +32,8 @@ import {
   type TableSortDirection
 } from '@/components/ui/table'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { prKey, useBulkWorktreeAction, useHost, useProjectPullRequests, useProjects, useWorktreeLifecycle, useWorktrees } from '@/lib/api-hooks'
+import { prKey, useBulkWorktreeAction, useDestroyJobs, useHost, useProjectPullRequests, useProjects, useWorktreeLifecycle, useWorktrees } from '@/lib/api-hooks'
+import { heldWorktrees, type HeldPhase } from '@/lib/destroy-jobs'
 import { PaneSplitDirection, createAppShellLayout, setSplitWeights, splitPane, type AppShellLayout } from '@/lib/app-shell-layout'
 import { cpuScale, gitHref, memScale, type GitLink } from '@/lib/environment-ui'
 import { useHostSamples } from '@/lib/events-provider'
@@ -47,6 +48,8 @@ interface Row {
   pr: PullRequestSummary | undefined
   /** GitHub answered for this project, so a missing PR means the branch has none. */
   prKnown: boolean
+  /** A destroy job holds this worktree: it is being destroyed now, or is waiting its turn. */
+  held: HeldPhase | undefined
 }
 
 /**
@@ -105,6 +108,8 @@ function compareBy({ key, direction }: Sort): (a: Row, b: Row) => number {
 
 /** The main checkout is the repository itself; everything else can be selected for a bulk action. */
 const selectable = (worktree: Worktree): boolean => !worktree.isMain && worktree.environment.state !== 'destroying'
+/** A worktree a destroy job already holds cannot be picked for anything else. */
+const rowSelectable = (row: Row): boolean => selectable(row.worktree) && row.held === undefined
 const startable = (worktree: Worktree): boolean => worktree.environment.state === 'stopped' || worktree.environment.state === 'error'
 
 const Dash = (): React.JSX.Element => <span className="text-muted-foreground/50">—</span>
@@ -349,7 +354,7 @@ function WorktreeRow({ row, selected, onSelect }: { row: Row; selected: boolean;
       <TableCell className="w-8 pr-0" onClick={(event) => event.stopPropagation()}>
         <Checkbox
           checked={selected}
-          disabled={!selectable(worktree)}
+          disabled={!rowSelectable(row)}
           aria-label={`Select ${worktree.name}`}
           onChange={(event) => onSelect(event.target.checked)}
         />
@@ -376,7 +381,11 @@ function WorktreeRow({ row, selected, onSelect }: { row: Row; selected: boolean;
       </TableCell>
       <TableCell className="text-[12px] text-muted-foreground">{projectName}</TableCell>
       <TableCell>
-        <StatusBadge worktree={worktree} />
+        {row.held ? (
+          <span className="inline-flex w-24 justify-center text-[10px] text-muted-foreground">{row.held === 'destroying' ? 'Destroying…' : 'Queued'}</span>
+        ) : (
+          <StatusBadge worktree={worktree} />
+        )}
       </TableCell>
       <TableCell>
         <PullRequestCell row={row} />
@@ -460,16 +469,19 @@ function WorktreesPanel(): React.JSX.Element {
   const bulk = useBulkWorktreeAction()
   const [bulkProgress, setBulkProgress] = useState<{ verb: string; finished: number; total: number } | null>(null)
   const pullRequests = useProjectPullRequests(useMemo(() => projects.map((p) => p.id), [projects]))
+  const destroyJobs = useDestroyJobs().data
 
   const rows = useMemo<Row[]>(() => {
     const names = new Map(projects.map((p) => [p.id, p.name]))
+    const held = heldWorktrees(destroyJobs)
     return (worktrees.data ?? []).map((worktree) => ({
       worktree,
       projectName: names.get(worktree.projectId) ?? '',
       pr: worktree.branch && !worktree.isMain ? pullRequests.byBranch.get(prKey(worktree.projectId, worktree.branch)) : undefined,
-      prKnown: pullRequests.known.has(worktree.projectId)
+      prKnown: pullRequests.known.has(worktree.projectId),
+      held: held.get(worktree.id)
     }))
-  }, [worktrees.data, projects, pullRequests])
+  }, [worktrees.data, projects, pullRequests, destroyJobs])
 
   // Each facet is tested on its own, so a menu can count what the other two leave.
   const needle = query.trim().toLowerCase()
@@ -482,8 +494,8 @@ function WorktreesPanel(): React.JSX.Element {
 
   const kept = searched.filter((row) => byProject(row) && byEnv(row) && byBranch(row))
   // A selection only ever names worktrees that still exist and can be acted on.
-  const selected = rows.filter((row) => selectedIds.has(row.worktree.id) && selectable(row.worktree)).map((row) => row.worktree)
-  const visibleSelectable = kept.filter((row) => selectable(row.worktree))
+  const selected = rows.filter((row) => selectedIds.has(row.worktree.id) && rowSelectable(row)).map((row) => row.worktree)
+  const visibleSelectable = kept.filter(rowSelectable)
   const allVisibleSelected = visibleSelectable.length > 0 && visibleSelectable.every((row) => selectedIds.has(row.worktree.id))
   const someVisibleSelected = visibleSelectable.some((row) => selectedIds.has(row.worktree.id))
   const select = (ids: string[], on: boolean): void =>
@@ -621,7 +633,7 @@ function WorktreesPanel(): React.JSX.Element {
         worktrees={selected}
         open={destroying}
         onOpenChange={setDestroying}
-        onDone={(result) => select(result.done, false)}
+        onDone={(ids) => select(ids, false)}
       />
     </div>
   )
