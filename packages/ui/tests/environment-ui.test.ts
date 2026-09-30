@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DbInstanceInfo, EnvVar, HostSample } from '@canopy/shared'
 
-import { cpuScale, dotenv, lineage, logTime, memBreakdown, memScale, niceScale, parseGitPane, parseTab, seriesVar, shortId, sparkline, uptime } from '../src/lib/environment-ui'
+import { cpuScale, dotenv, lineage, logTime, memBreakdown, memScale, gitHref, niceScale, parseGitLink, parseTab, seriesVar, shortId, sparkline, uptime } from '../src/lib/environment-ui'
 import { ENV_STATE_BADGE } from '../src/lib/status'
 
 const MINUTE = 60_000
@@ -19,11 +19,17 @@ describe('tab deep links', () => {
     expect(parseTab('#/worktrees/abc?tab=gitdiff')).toBe('git')
   })
 
-  it('reads the Git tab pane, and ignores an unknown one', () => {
-    expect(parseGitPane('#/worktrees/abc?tab=git&pane=pr')).toBe('pr')
-    expect(parseGitPane('#/worktrees/abc?tab=git&pane=history')).toBe('history')
-    expect(parseGitPane('#/worktrees/abc?tab=git&pane=nope')).toBe(undefined)
-    expect(parseGitPane('#/worktrees/abc?tab=git')).toBe(undefined)
+  it('reads a Git tab link, and drops what it does not know', () => {
+    expect(parseGitLink('#/worktrees/abc?tab=git&pane=pr')).toEqual({ pane: 'pr', against: undefined, commit: undefined })
+    expect(parseGitLink('#/worktrees/abc?tab=git&pane=changes&against=base')).toEqual({ pane: 'changes', against: 'base', commit: undefined })
+    expect(parseGitLink('#/worktrees/abc?tab=git&pane=history&commit=3ba83e1')).toEqual({ pane: 'history', against: undefined, commit: '3ba83e1' })
+    expect(parseGitLink('#/worktrees/abc?tab=git&pane=nope&against=x&commit=HEAD~1')).toEqual({ pane: undefined, against: undefined, commit: undefined })
+  })
+
+  it('builds a Git tab link that reads back the same', () => {
+    const href = gitHref('abc', { pane: 'history', commit: 'deadbeef' })
+    expect(href).toBe('/worktrees/abc?tab=git&pane=history&commit=deadbeef')
+    expect(parseGitLink(href)).toEqual({ pane: 'history', against: undefined, commit: 'deadbeef' })
   })
 
   it('ignores a missing or unknown tab', () => {

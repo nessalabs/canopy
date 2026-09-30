@@ -132,7 +132,8 @@ export function ChangesView({
   onModeChange,
   onSendForReview,
   sending,
-  focus
+  focus,
+  initialAgainst
 }: {
   worktree: Worktree
   comments: ReviewComment[]
@@ -141,8 +142,10 @@ export function ChangesView({
   onSendForReview: () => void
   sending: boolean
   focus?: ExplorerFocus
+  /** What to compare against first; a link can open straight onto `vs <base>`. */
+  initialAgainst?: Against
 }): React.JSX.Element {
-  const [against, setAgainst] = useState<Against>('head')
+  const [against, setAgainst] = useState<Against>(initialAgainst ?? 'head')
   const spec = { kind: 'worktree', against } as const
   const changes = useDiffFiles(worktree.id, spec)
   const listed = changes.data as ChangesResponse | undefined
