@@ -12,6 +12,7 @@ import { plural } from '@/lib/format'
 import { mergeAffordance } from '@/lib/status'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
+import { parseGitPane, type GitPane } from '@/lib/environment-ui'
 
 import { ChangesView } from './changes-view'
 import { CommentsPanel } from './comments-panel'
@@ -22,7 +23,7 @@ import { PullRequestView } from './pull-request-view'
 import { GitHubThreadsPanel, threadAsNote, threadsAsComments } from './pull-request/threads'
 import { ReviewTargetDialog } from './review-target-dialog'
 
-type Pane = 'changes' | 'history' | 'pr' | 'comments'
+type Pane = GitPane
 
 /** A jump from the Comments pane: which view, which commit (History only), which file and comment. */
 interface Jump {
@@ -45,7 +46,8 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
   const comments = useComments(worktree.id).data ?? []
   const providers = useProviders().data ?? []
   const [mode, setMode] = useState<DiffMode>('unified')
-  const [pane, setPane] = useState<Pane>('changes')
+  // A link can open a pane directly: the Command Center's PR chip lands on `?tab=git&pane=pr`.
+  const [pane, setPane] = useState<Pane>(() => parseGitPane(window.location.hash) ?? 'changes')
   const [jump, setJump] = useState<Jump>()
   const [picking, setPicking] = useState(false)
   const [merging, setMerging] = useState(false)

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DbInstanceInfo, EnvVar, HostSample } from '@canopy/shared'
 
-import { cpuScale, dotenv, lineage, logTime, memBreakdown, memScale, niceScale, parseTab, seriesVar, shortId, sparkline, uptime } from '../src/lib/environment-ui'
+import { cpuScale, dotenv, lineage, logTime, memBreakdown, memScale, niceScale, parseGitPane, parseTab, seriesVar, shortId, sparkline, uptime } from '../src/lib/environment-ui'
 import { ENV_STATE_BADGE } from '../src/lib/status'
 
 const MINUTE = 60_000
@@ -17,6 +17,13 @@ describe('tab deep links', () => {
     expect(parseTab('#/worktrees/abc?tab=git')).toBe('git')
     // The tab was called Git Diff once; old links still land on it.
     expect(parseTab('#/worktrees/abc?tab=gitdiff')).toBe('git')
+  })
+
+  it('reads the Git tab pane, and ignores an unknown one', () => {
+    expect(parseGitPane('#/worktrees/abc?tab=git&pane=pr')).toBe('pr')
+    expect(parseGitPane('#/worktrees/abc?tab=git&pane=history')).toBe('history')
+    expect(parseGitPane('#/worktrees/abc?tab=git&pane=nope')).toBe(undefined)
+    expect(parseGitPane('#/worktrees/abc?tab=git')).toBe(undefined)
   })
 
   it('ignores a missing or unknown tab', () => {
