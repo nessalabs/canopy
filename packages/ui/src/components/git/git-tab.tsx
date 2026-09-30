@@ -12,7 +12,7 @@ import { plural } from '@/lib/format'
 import { mergeAffordance } from '@/lib/status'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
-import { parseGitLink, type GitPane } from '@/lib/environment-ui'
+import { linkQuery, parseGitLink, type GitPane } from '@/lib/environment-ui'
 
 import { ChangesView } from './changes-view'
 import { CommentsPanel } from './comments-panel'
@@ -48,7 +48,7 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
   const [mode, setMode] = useState<DiffMode>('unified')
   // A link can open a pane directly, with what Changes compares against or the commit History
   // selects: the Command Center links its PR, drift, uncommitted and last-commit cells here.
-  const [link] = useState(() => parseGitLink(window.location.hash))
+  const [link] = useState(() => parseGitLink(linkQuery()))
   const [pane, setPane] = useState<Pane>(link.pane ?? 'changes')
   const [jump, setJump] = useState<Jump>()
   const [picking, setPicking] = useState(false)

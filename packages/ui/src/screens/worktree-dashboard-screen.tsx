@@ -17,7 +17,7 @@ import { StatusDot } from '@/components/ui/status-dot'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useComments, useProjects, useWorktree } from '@/lib/api-hooks'
-import { parseTab, uptime, type DashboardTab } from '@/lib/environment-ui'
+import { forgetLinkQuery, linkQuery, parseTab, uptime, type DashboardTab } from '@/lib/environment-ui'
 import { plural } from '@/lib/format'
 import { ENV_STATE_BADGE, mergedLabel, WORKTREE_DOT } from '@/lib/status'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
@@ -103,7 +103,9 @@ const TABS = [
 
 function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectName: string }): React.JSX.Element {
   const [, navigate] = useLocation()
-  const [tab, setTab] = useState<DashboardTab>(() => parseTab(window.location.hash) ?? (worktree.environment.configured ? 'environment' : 'git'))
+  const [tab, setTab] = useState<DashboardTab>(() => parseTab(linkQuery()) ?? (worktree.environment.configured ? 'environment' : 'git'))
+  // The Git tab reads the same link while this first render mounts it; after that it is spent.
+  useEffect(forgetLinkQuery, [])
   const [destroyOpen, setDestroyOpen] = useState(false)
   const env = worktree.environment
   const agent = useWorktreeAgent(worktree)

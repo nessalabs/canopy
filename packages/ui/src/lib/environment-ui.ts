@@ -19,6 +19,24 @@ function hashParam(hash: string, name: string): string | null {
 }
 
 /**
+ * The query a link into a worktree carries. Wouter's hash router writes `navigate('/worktrees/x?tab=git')`
+ * as `?tab=git#/worktrees/x`, so the query sits in `location.search`; a hand-typed
+ * `#/worktrees/x?tab=git` keeps it in the hash, and that one wins.
+ */
+export function linkQuery(location: { hash: string; search: string } = window.location): string {
+  return location.hash.includes('?') ? location.hash : location.search
+}
+
+/**
+ * Drops `location.search` once a screen has read its link from it. The hash router never clears
+ * it, so it would otherwise ride along to the next route and open that worktree on this link's pane.
+ */
+export function forgetLinkQuery(): void {
+  if (!window.location.search) return
+  window.history.replaceState(window.history.state, '', window.location.pathname + window.location.hash)
+}
+
+/**
  * Reads `?tab=` out of a hash-router location (`#/worktrees/x?tab=resources`). Accepts the
  * raw `location.hash` or a bare query string; unknown tabs return undefined so the caller
  * keeps its own default.

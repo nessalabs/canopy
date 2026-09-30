@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DbInstanceInfo, EnvVar, HostSample } from '@canopy/shared'
 
-import { cpuScale, dotenv, lineage, logTime, memBreakdown, memScale, gitHref, niceScale, parseGitLink, parseTab, seriesVar, shortId, sparkline, uptime } from '../src/lib/environment-ui'
+import { cpuScale, dotenv, lineage, logTime, memBreakdown, memScale, gitHref, linkQuery, niceScale, parseGitLink, parseTab, seriesVar, shortId, sparkline, uptime } from '../src/lib/environment-ui'
 import { ENV_STATE_BADGE } from '../src/lib/status'
 
 const MINUTE = 60_000
@@ -20,6 +20,11 @@ describe('tab deep links', () => {
   })
 
   it('reads a Git tab link, and drops what it does not know', () => {
+    // How wouter's hash router actually writes a gitHref: the query ahead of the hash.
+    const routed = { search: '?tab=git&pane=pr', hash: '#/worktrees/abc' }
+    expect(parseGitLink(linkQuery(routed)).pane).toBe('pr')
+    expect(parseTab(linkQuery(routed))).toBe('git')
+    expect(linkQuery({ search: '?tab=git&pane=pr', hash: '#/worktrees/abc?tab=agent' })).toBe('#/worktrees/abc?tab=agent')
     expect(parseGitLink('#/worktrees/abc?tab=git&pane=pr')).toEqual({ pane: 'pr', against: undefined, commit: undefined })
     expect(parseGitLink('#/worktrees/abc?tab=git&pane=changes&against=base')).toEqual({ pane: 'changes', against: 'base', commit: undefined })
     expect(parseGitLink('#/worktrees/abc?tab=git&pane=history&commit=3ba83e1')).toEqual({ pane: 'history', against: undefined, commit: '3ba83e1' })
