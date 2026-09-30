@@ -1,29 +1,47 @@
 import { useEffect, useState } from 'react'
-import { CircleCheck, CircleDashed, CircleMinus, CircleX, ExternalLink, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, GitMerge, RotateCw, Upload } from 'lucide-react'
+import { ChevronsUpDown, CircleCheck, CircleDashed, CircleMinus, CircleX, Download, ExternalLink, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, GitMerge, MessageSquare, RotateCw, Upload, Users } from 'lucide-react'
+import { Popover } from 'radix-ui'
 
-import type { GhStatus, PullRequest, PullRequestCheck, PullRequestResponse, UpstreamStatus, Worktree } from '@canopy/shared'
+import type { GhStatus, PullRequest, PullRequestCheck, PullRequestResponse, PullRequestReviewer, ReviewComment, UpstreamStatus, Worktree } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
+import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
+import type { DiffMode } from '@/components/worktree-diff'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { CopyButton } from '@/components/ui/code-block'
 import { Input } from '@/components/ui/input'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
+import { PopoverSurface } from '@/components/ui/popover-surface'
 import { RandomAvatar } from '@/components/ui/random-avatar'
+import { SearchableListbox } from '@/components/ui/searchable-listbox'
+import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useCreatePullRequest, usePullRequest, usePushBranch } from '@/lib/api-hooks'
+import { useCreatePullRequest, useFetchPullRequest, usePullRequest, usePushBranch } from '@/lib/api-hooks'
 import { absoluteTime, plural, relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 import { usePlatform } from '@/providers/platform'
+
+import { CommitDetail } from './commit-detail'
+import { CommitList } from './commit-list'
 
 /**
  * The Git tab's Pull request pane: the branch's PR on GitHub, or a form to open one. GitHub is
  * reached through the GitHub CLI on the daemon's machine, so when that is not set up the pane
  * says what to run there instead.
  */
-export function PullRequestView({ worktree }: { worktree: Worktree }): React.JSX.Element {
+/** What a commit's diff needs from the Git tab: its comments, its view mode, and review sending. */
+export interface ReviewProps {
+  comments: ReviewComment[]
+  mode: DiffMode
+  onModeChange: (mode: DiffMode) => void
+  onSendForReview: () => void
+  sending: boolean
+}
+
+export function PullRequestView({ worktree, review }: { worktree: Worktree; review: ReviewProps }): React.JSX.Element {
   const query = usePullRequest(worktree.id)
   const data = query.data
 
@@ -41,7 +59,7 @@ export function PullRequestView({ worktree }: { worktree: Worktree }): React.JSX
   }
   if (data.gh.state !== 'ready') return <GhSetup status={data.gh} checking={query.isFetching} onCheck={() => void query.refetch()} />
   if (!data.branch) return <Empty>This worktree is on a detached HEAD. Check out a branch to open a pull request from it.</Empty>
-  if (data.pr) return <PullRequestDetail worktree={worktree} pr={data.pr} upstream={data.upstream} refreshing={query.isFetching} onRefresh={() => void query.refetch()} />
+  if (data.pr) return <PullRequestDetail worktree={worktree} pr={data.pr} upstream={data.upstream} review={review} refreshing={query.isFetching} onRefresh={() => void query.refetch()} />
   if (data.branch === data.baseBranch) {
     return (
       <Empty>
@@ -226,12 +244,14 @@ function PullRequestDetail({
   worktree,
   pr,
   upstream,
+  review,
   refreshing,
   onRefresh
 }: {
   worktree: Worktree
   pr: PullRequest
   upstream: UpstreamStatus | null
+  review: ReviewProps
   refreshing: boolean
   onRefresh: () => void
 }): React.JSX.Element {
@@ -239,6 +259,7 @@ function PullRequestDetail({
   const push = usePushBranch(worktree.id)
   const look = STATE_LOOK[pr.state === 'OPEN' && pr.draft ? 'DRAFT' : pr.state]!
   const unpushed = upstream?.ahead ?? 0
+  const [view, setView] = useState<'overview' | 'commits'>('overview')
   const facts = [
     pr.state === 'OPEN' ? (pr.reviewDecision ? REVIEW_LABEL[pr.reviewDecision] ?? pr.reviewDecision : 'No review required') : null,
     pr.state === 'OPEN' ? (pr.mergeable === 'CONFLICTING' ? 'Has conflicts with ' + pr.baseBranch : pr.mergeable === 'MERGEABLE' ? 'No conflicts' : null) : null,
@@ -246,8 +267,7 @@ function PullRequestDetail({
   ].filter((fact): fact is string => Boolean(fact))
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pb-6">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
         <header className="flex flex-col gap-2">
           <div className="flex items-start gap-3">
             <h3 className="min-w-0 flex-1 text-base font-medium">
@@ -305,6 +325,17 @@ function PullRequestDetail({
         ) : null}
         <ErrorNote error={push.error} />
 
+        <SegmentedControl value={view} onValueChange={(value) => setView(value as 'overview' | 'commits')} aria-label="Pull request view" className="w-fit">
+          <SegmentedControlOption value="overview">Overview</SegmentedControlOption>
+          <SegmentedControlOption value="commits">Commits · {pr.commitLog.length}</SegmentedControlOption>
+        </SegmentedControl>
+
+        {view === 'commits' ? (
+          <PullRequestCommits worktreeId={worktree.id} pr={pr} review={review} />
+        ) : (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+        <div className="grid gap-6 pb-6 lg:grid-cols-[minmax(0,1fr)_15rem]">
+        <div className="flex min-w-0 flex-col gap-5">
         {pr.checks.length ? (
           <section className="flex flex-col gap-1.5">
             <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Checks</h4>
@@ -359,6 +390,146 @@ function PullRequestDetail({
             ))}
           </section>
         ) : null}
+        </div>
+        <People pr={pr} />
+        </div>
+        </div>
+        )}
+    </div>
+  )
+}
+
+const REVIEWER_LOOK: Record<PullRequestReviewer['state'], { label: string; Icon: React.ComponentType<{ className?: string }>; className: string }> = {
+  requested: { label: 'Awaiting review', Icon: CircleDashed, className: 'text-amber-600 dark:text-amber-500' },
+  PENDING: { label: 'Review in progress', Icon: CircleDashed, className: 'text-amber-600 dark:text-amber-500' },
+  APPROVED: { label: 'Approved', Icon: CircleCheck, className: 'text-emerald-600 dark:text-emerald-500' },
+  CHANGES_REQUESTED: { label: 'Requested changes', Icon: CircleX, className: 'text-destructive' },
+  COMMENTED: { label: 'Commented', Icon: MessageSquare, className: 'text-muted-foreground' },
+  DISMISSED: { label: 'Review dismissed', Icon: CircleMinus, className: 'text-muted-foreground' }
+}
+
+function Side({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
+  return (
+    <section className="flex flex-col gap-2 border-b border-border/60 pb-4 last:border-b-0">
+      <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h4>
+      {children}
+    </section>
+  )
+}
+
+const None = ({ children }: { children: React.ReactNode }): React.JSX.Element => <p className="text-xs text-muted-foreground">{children}</p>
+
+/** GitHub's sidebar: who reviews, who owns it, how it is filed. */
+function People({ pr }: { pr: PullRequest }): React.JSX.Element {
+  return (
+    <aside className="flex flex-col gap-4 text-sm">
+      <Side title="Reviewers">
+        {pr.reviewers.length ? (
+          <ul className="flex flex-col gap-2">
+            {pr.reviewers.map((reviewer) => {
+              const look = REVIEWER_LOOK[reviewer.state]
+              return (
+                <li key={`${reviewer.team ? 'team' : 'user'}:${reviewer.name}`} className="flex items-center gap-2">
+                  {reviewer.team ? (
+                    <Users className="size-5 shrink-0 rounded-full bg-muted p-0.5 text-muted-foreground" />
+                  ) : (
+                    <RandomAvatar seed={reviewer.name} name={reviewer.name} className="size-5 shrink-0 rounded-full" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate">{reviewer.name}</span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <look.Icon className={cn('size-4 shrink-0', look.className)} aria-label={look.label} />
+                    </TooltipTrigger>
+                    <TooltipContent>{look.label}</TooltipContent>
+                  </Tooltip>
+                </li>
+              )
+            })}
+          </ul>
+        ) : (
+          <None>No reviews requested</None>
+        )}
+      </Side>
+      <Side title="Assignees">
+        {pr.assignees.length ? (
+          <ul className="flex flex-col gap-2">
+            {pr.assignees.map((person) => (
+              <li key={person.login} className="flex items-center gap-2">
+                <RandomAvatar seed={person.login} name={person.name ?? person.login} className="size-5 shrink-0 rounded-full" />
+                <span className="min-w-0 truncate">{person.login}</span>
+                {person.name ? <span className="min-w-0 truncate text-xs text-muted-foreground">{person.name}</span> : null}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <None>No one assigned</None>
+        )}
+      </Side>
+      <Side title="Labels">
+        {pr.labels.length ? (
+          <div className="flex flex-wrap gap-1.5">
+            {pr.labels.map((label) => (
+              <span
+                key={label.name}
+                className="rounded-full border px-2 py-0.5 text-xs"
+                style={{ borderColor: `#${label.color}`, backgroundColor: `#${label.color}26` }}
+              >
+                {label.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <None>None yet</None>
+        )}
+      </Side>
+      <Side title="Milestone">{pr.milestone ? <span>{pr.milestone}</span> : <None>No milestone</None>}</Side>
+    </aside>
+  )
+}
+
+/**
+ * The History tab's layout for just this PR: its commits on the left, the chosen one's files and
+ * diff on the right, with the same comments and review sending. A commit pushed from somewhere
+ * else is listed but has no diff here until it is fetched.
+ */
+function PullRequestCommits({ worktreeId, pr, review }: { worktreeId: string; pr: PullRequest; review: ReviewProps }): React.JSX.Element {
+  // Newest first, as History lists them.
+  const commits = [...pr.commitLog].reverse()
+  const [selected, setSelected] = useState<string>()
+  const current = commits.some((commit) => commit.sha === selected) ? selected : commits[0]?.sha
+  const missing = new Set(pr.missingCommits)
+  const fetch = useFetchPullRequest(worktreeId)
+
+  if (commits.length === 0) return <Empty>No commits in this pull request.</Empty>
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-2">
+      {missing.size ? (
+        <div className="flex items-center gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2">
+          <span className="flex-1 text-sm">
+            {plural(missing.size, 'commit')} {missing.size === 1 ? 'is' : 'are'} on GitHub but not in this checkout. Fetch {missing.size === 1 ? 'it' : 'them'} to see the diff — no branch
+            changes.
+          </span>
+          <Button size="sm" variant="outline" disabled={fetch.isPending} onClick={() => fetch.mutate()}>
+            {fetch.isPending ? <RotateCw className="animate-spin" /> : <Download />}
+            {fetch.isPending ? 'Fetching…' : 'Fetch'}
+          </Button>
+        </div>
+      ) : null}
+      <ErrorNote error={fetch.error} />
+      <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
+        <SplitView orientation={SplitViewOrientation.Horizontal} className="h-full">
+          <SplitViewPanel id="pr-commits" defaultSize={32} minSize={20} className="min-h-0 border-r border-border bg-card">
+            <CommitList commits={commits} selected={current} onSelect={setSelected} hasMore={false} loadingMore={false} onLoadMore={() => undefined} />
+          </SplitViewPanel>
+          <SplitViewSeparator />
+          <SplitViewPanel id="pr-commit-detail" minSize={40} className="min-h-0">
+            {current && missing.has(current) ? (
+              <p className="p-4 text-sm text-muted-foreground">This commit is not in this checkout yet. Fetch the pull request to see its diff.</p>
+            ) : current ? (
+              <CommitDetail worktreeId={worktreeId} sha={current} {...review} />
+            ) : null}
+          </SplitViewPanel>
+        </SplitView>
       </div>
     </div>
   )
@@ -366,13 +537,71 @@ function PullRequestDetail({
 
 // ---- opening one ----
 
+/** The branches a PR can go into, searchable: a remote can have hundreds. */
+function BranchPicker({
+  branches,
+  value,
+  suggested,
+  disabled,
+  onChange
+}: {
+  branches: string[]
+  value: string
+  suggested: string | null
+  disabled: boolean
+  onChange: (branch: string) => void
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 w-64 justify-between font-mono text-xs" disabled={disabled || branches.length === 0} aria-label="Branch to merge into">
+          <span className="truncate">{value || (branches.length ? 'Pick a branch' : 'No remote branches')}</span>
+          <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </Button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content asChild side="bottom" align="start" sideOffset={6} collisionPadding={8}>
+          <PopoverSurface className="w-[min(92vw,22rem)] p-0">
+            <SearchableListbox
+              items={branches}
+              getItemId={(branch) => branch}
+              getItemKeywords={(branch) => [branch]}
+              renderItem={(branch) => (
+                <span className="flex w-full items-center gap-2 font-mono text-xs">
+                  <span className="min-w-0 flex-1 truncate">{branch}</span>
+                  {branch === suggested ? <span className="shrink-0 font-sans text-[10px] text-muted-foreground">cut from here</span> : null}
+                </span>
+              )}
+              value={value}
+              onValueChange={(branch) => {
+                onChange(branch)
+                setOpen(false)
+              }}
+              listLabel="Branches on the remote"
+              searchPlaceholder="Search branches"
+              listClassName="max-h-72"
+            />
+          </PopoverSurface>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  )
+}
+
 function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullRequestResponse }): React.JSX.Element {
   const create = useCreatePullRequest(worktree.id)
   const [title, setTitle] = useState(data.draft?.title ?? '')
   const [body, setBody] = useState(data.draft?.body ?? '')
-  const [base, setBase] = useState(data.baseBranch)
+  const [base, setBase] = useState(data.suggestedBase ?? '')
   const [draft, setDraft] = useState(false)
   const [touched, setTouched] = useState(false)
+
+  // Branches arrive with the read; until someone picks one, the form follows the suggestion.
+  const [basePicked, setBasePicked] = useState(false)
+  useEffect(() => {
+    if (!basePicked && data.suggestedBase) setBase(data.suggestedBase)
+  }, [data.suggestedBase])
 
   // The suggestion follows new commits until someone starts writing their own.
   useEffect(() => {
@@ -431,7 +660,16 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
         <div className="flex flex-wrap items-end gap-4">
           <label className="flex flex-col gap-1.5">
             <span className="text-xs text-muted-foreground">Into</span>
-            <Input className="h-8 w-48 font-mono text-xs" value={base} disabled={create.isPending} onChange={(event) => setBase(event.target.value)} />
+            <BranchPicker
+              branches={data.bases}
+              value={base}
+              suggested={data.suggestedBase}
+              disabled={create.isPending}
+              onChange={(next) => {
+                setBasePicked(true)
+                setBase(next)
+              }}
+            />
           </label>
           <label className="flex h-8 items-center gap-2 text-sm">
             <Checkbox checked={draft} disabled={create.isPending} onChange={(event) => setDraft(event.target.checked)} />
@@ -441,7 +679,7 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
         {dirty > 0 ? <p className="text-xs text-amber-600 dark:text-amber-500">{plural(dirty, 'uncommitted change')} here will not be part of it — only commits are pushed.</p> : null}
         {nothing ? <p className="text-xs text-muted-foreground">This branch has no commits that {data.baseBranch} lacks, so there is nothing to open a pull request for yet.</p> : null}
         <ErrorNote error={create.error} />
-        <Button type="submit" size="sm" className="w-fit" disabled={create.isPending || nothing || title.trim().length === 0}>
+        <Button type="submit" size="sm" className="w-fit" disabled={create.isPending || nothing || title.trim().length === 0 || !base}>
           {create.isPending ? <RotateCw className="animate-spin" /> : needsPush ? <Upload /> : <GitPullRequest />}
           {create.isPending ? (needsPush ? 'Pushing and opening…' : 'Opening…') : needsPush ? 'Push and open pull request' : 'Open pull request'}
         </Button>
