@@ -182,12 +182,26 @@ export const PullRequestAction = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('close') }),
   z.object({ kind: z.literal('reopen') }),
   /** Re-runs the failed jobs of every GitHub Actions run with a failing check. */
-  z.object({ kind: z.literal('rerun') })
+  z.object({ kind: z.literal('rerun') }),
+  /** Request or withdraw reviews; a team is `org/slug`. */
+  z.object({ kind: z.literal('reviewers'), add: z.array(z.string()).default([]), remove: z.array(z.string()).default([]) }),
+  z.object({ kind: z.literal('assignees'), add: z.array(z.string()).default([]), remove: z.array(z.string()).default([]) }),
+  z.object({ kind: z.literal('labels'), add: z.array(z.string()).default([]), remove: z.array(z.string()).default([]) }),
+  /** null clears the milestone. */
+  z.object({ kind: z.literal('milestone'), milestone: z.string().nullable() })
 ])
 export type PullRequestAction = z.input<typeof PullRequestAction>
 
 export const PullRequestActionResult = z.object({ message: z.string() })
 export type PullRequestActionResult = z.infer<typeof PullRequestActionResult>
+
+/** What the repository offers for the PR's sidebar: people to ask, labels, open milestones. */
+export const PullRequestOptions = z.object({
+  users: z.array(z.object({ login: z.string(), name: z.string().nullable() })),
+  labels: z.array(z.object({ name: z.string(), color: z.string() })),
+  milestones: z.array(z.string())
+})
+export type PullRequestOptions = z.infer<typeof PullRequestOptions>
 
 export const PushResult = z.object({ upstream: UpstreamStatus })
 export type PushResult = z.infer<typeof PushResult>

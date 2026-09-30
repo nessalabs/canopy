@@ -369,6 +369,38 @@ describe('GitHubService', () => {
       ])
     })
 
+    it('edits reviewers, assignees, labels and the milestone through gh pr edit', async () => {
+      const gh = ghWithPr()
+      const { ready, github } = service(gh)
+      await ready
+      expect((await github.act('w', { kind: 'reviewers', add: ['pal', 'acme/core'], remove: ['rev'] })).message).toBe('Reviewers: added pal, acme/core; removed rev.')
+      await github.act('w', { kind: 'assignees', add: ['octo'] })
+      await github.act('w', { kind: 'labels', remove: ['bug'] })
+      await github.act('w', { kind: 'milestone', milestone: 'v2' })
+      await github.act('w', { kind: 'milestone', milestone: null })
+      expect((await github.act('w', { kind: 'labels' })).message).toBe('Nothing to change.')
+      expect(gh.calls.filter((args) => args[1] === 'edit')).toEqual([
+        ['pr', 'edit', '7', '--add-reviewer', 'pal,acme/core', '--remove-reviewer', 'rev'],
+        ['pr', 'edit', '7', '--add-assignee', 'octo'],
+        ['pr', 'edit', '7', '--remove-label', 'bug'],
+        ['pr', 'edit', '7', '--milestone', 'v2'],
+        ['pr', 'edit', '7', '--remove-milestone']
+      ])
+    })
+
+    it('lists who can be asked, labels and open milestones in one query, then remembers them', async () => {
+      const answer = { data: { repository: { assignableUsers: { nodes: [{ login: 'zed', name: null }, { login: 'amy', name: 'Amy' }] }, labels: { nodes: [{ name: 'bug', color: 'd73a4a' }] }, milestones: { nodes: [{ title: 'v1' }] } } } }
+      const gh = ghWithPr(RAW_PR, (args) => (args[1] === 'graphql' ? ok(JSON.stringify(answer)) : undefined))
+      const { ready, github } = service(gh)
+      await ready
+      expect(await github.options('w')).toEqual({ users: [{ login: 'amy', name: 'Amy' }, { login: 'zed', name: null }], labels: [{ name: 'bug', color: 'd73a4a' }], milestones: ['v1'] })
+      await github.options('w')
+      const queries = gh.calls.filter((args) => args[1] === 'graphql')
+      expect(queries).toHaveLength(1)
+      expect(queries[0]).toContain('o=acme')
+      expect(queries[0]).toContain('r=app')
+    })
+
     it('re-runs the failed jobs of each failing Actions run once', async () => {
       const raw = {
         ...RAW_PR,

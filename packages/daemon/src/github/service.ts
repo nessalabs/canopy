@@ -7,7 +7,7 @@
  * each pay for `gh auth status` (which goes to the network). A failed check is never remembered,
  * so "Check again" after installing or signing in answers at once.
  */
-import type { CreatePullRequestInput, GhStatus, MergeMethod, PullRequest, PullRequestAction, PullRequestActionResult, PullRequestCheck, PullRequestEvent, PullRequestResponse, PushResult, UpstreamStatus } from '@canopy/shared'
+import type { CreatePullRequestInput, GhStatus, MergeMethod, PullRequest, PullRequestAction, PullRequestActionResult, PullRequestOptions, PullRequestCheck, PullRequestEvent, PullRequestResponse, PushResult, UpstreamStatus } from '@canopy/shared'
 
 import type { GitRunner } from '../git/exec'
 import type { ReviewService } from '../review/service'
@@ -282,6 +282,8 @@ export class GitHubService {
   private readonly repoInfo = new Map<string, { at: number; info: RepoInfo }>()
   /** Per host: who `gh` is signed in as. */
   private readonly viewers = new Map<string, string>()
+  /** Per checkout: the sidebar's choices, read when a picker opens and kept a while. */
+  private readonly choices = new Map<string, { at: number; options: PullRequestOptions }>()
 
   constructor(private readonly deps: Deps) {}
 
@@ -532,6 +534,34 @@ export class GitHubService {
     return pr
   }
 
+  /**
+   * Who can be asked and assigned, which labels exist, which milestones are open. One GraphQL
+   * query, so a picker opens after one round trip; kept as long as repository settings are.
+   */
+  async options(worktreeId: string): Promise<PullRequestOptions> {
+    const { path } = this.deps.worktrees.location(worktreeId)
+    const cached = this.choices.get(path)
+    if (cached && this.now() - cached.at < REPO_TTL_MS) return cached.options
+    const gh = await this.status(path, await this.branchOf(path))
+    if (gh.state !== 'ready' || !gh.repo) throw conflict(`gh_${gh.state.replace('-', '_')}`, 'GitHub is not reachable through gh for this worktree')
+    const [owner, name] = gh.repo.split('/') as [string, string]
+    const query =
+      'query($o:String!,$r:String!){ repository(owner:$o,name:$r){ assignableUsers(first:100){ nodes{ login name } } labels(first:100){ nodes{ name color } } milestones(first:50,states:OPEN){ nodes{ title } } } }'
+    const run = await this.deps.gh(path, ['api', 'graphql', '-f', `query=${query}`, '-F', `o=${owner}`, '-F', `r=${name}`])
+    if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', githubMessage(run.stderr) ?? `gh api graphql exited with ${run.exitCode}`)
+    const raw = JSON.parse(run.stdout || '{}') as {
+      data?: { repository?: { assignableUsers?: { nodes?: Array<{ login: string; name?: string | null }> }; labels?: { nodes?: Array<{ name: string; color?: string }> }; milestones?: { nodes?: Array<{ title: string }> } } }
+    }
+    const repo = raw.data?.repository
+    const options: PullRequestOptions = {
+      users: (repo?.assignableUsers?.nodes ?? []).map((user) => ({ login: user.login, name: user.name || null })).sort((a, b) => a.login.localeCompare(b.login)),
+      labels: (repo?.labels?.nodes ?? []).map((label) => ({ name: label.name, color: label.color ?? '888888' })),
+      milestones: (repo?.milestones?.nodes ?? []).map((milestone) => milestone.title)
+    }
+    this.choices.set(path, { at: this.now(), options })
+    return options
+  }
+
   /** One action on the branch's PR. Each re-reads the PR first, so it acts on what GitHub has now. */
   async act(worktreeId: string, action: PullRequestAction): Promise<PullRequestActionResult> {
     const { path } = this.deps.worktrees.location(worktreeId)
@@ -597,6 +627,23 @@ export class GitHubService {
       case 'reopen':
         await run(['pr', 'reopen', n])
         return { message: `Reopened #${n}.` }
+      case 'reviewers':
+      case 'assignees':
+      case 'labels': {
+        const add = action.add ?? []
+        const remove = action.remove ?? []
+        if (add.length === 0 && remove.length === 0) return { message: 'Nothing to change.' }
+        const noun = action.kind === 'reviewers' ? 'reviewer' : action.kind === 'assignees' ? 'assignee' : 'label'
+        const args = ['pr', 'edit', n]
+        if (add.length) args.push(`--add-${noun}`, add.join(','))
+        if (remove.length) args.push(`--remove-${noun}`, remove.join(','))
+        await run(args)
+        const parts = [add.length ? `added ${add.join(', ')}` : '', remove.length ? `removed ${remove.join(', ')}` : ''].filter(Boolean)
+        return { message: `${action.kind[0]!.toUpperCase()}${action.kind.slice(1)}: ${parts.join('; ')}.` }
+      }
+      case 'milestone':
+        await run(action.milestone === null ? ['pr', 'edit', n, '--remove-milestone'] : ['pr', 'edit', n, '--milestone', action.milestone])
+        return { message: action.milestone === null ? `Removed the milestone from #${n}.` : `#${n} is in milestone ${action.milestone}.` }
       case 'rerun': {
         const runs = new Set<string>()
         for (const check of pr.checks) {
