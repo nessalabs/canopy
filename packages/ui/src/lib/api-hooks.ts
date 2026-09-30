@@ -12,6 +12,7 @@ import type {
   CreatePullRequestInput,
   PullRequestAction,
   PullRequestResponse,
+  PullRequestSummary,
   MergeInput,
   CreateWorktreeInput,
   ExcludeInput,
@@ -616,7 +617,8 @@ export const usePullRequestAction = (worktreeId: string) => {
     keys.comments(worktreeId),
     keys.worktree(worktreeId),
     keys.worktrees,
-    ['diff-files', worktreeId]
+    ['diff-files', worktreeId],
+    ['project-pull-requests']
   ])
 }
 
@@ -649,10 +651,37 @@ export const usePrefetchPullRequest = (worktreeId: string) => {
   }, [api, queryClient, worktreeId])
 }
 
+/**
+ * Every project's recent PRs, keyed `projectId + branch`, for the Command Center's rows: one
+ * `gh` call per project instead of one per worktree. A project without a working `gh` simply
+ * contributes nothing.
+ */
+export const useProjectPullRequests = (projectIds: string[]): Map<string, PullRequestSummary> => {
+  const api = useApi()
+  const results = useQueries({
+    queries: projectIds.map((id) => ({
+      queryKey: keys.projectPullRequests(id),
+      queryFn: () => api.projectPullRequests(id),
+      staleTime: 60_000,
+      refetchInterval: PR_POLL_MS * 2,
+      refetchIntervalInBackground: false,
+      retry: false
+    })),
+    combine: (all) => all.map((result) => result.data)
+  })
+  const byBranch = new Map<string, PullRequestSummary>()
+  results.forEach((data, index) => {
+    for (const pr of data?.prs ?? []) byBranch.set(prKey(projectIds[index]!, pr.headBranch), pr)
+  })
+  return byBranch
+}
+
+export const prKey = (projectId: string, branch: string): string => `${projectId}\u0000${branch}`
+
 /** Opening a PR pushes the branch too, so the worktree's own status is read again with it. */
 export const useCreatePullRequest = (worktreeId: string) => {
   const api = useApi()
-  return useInvalidating((input: CreatePullRequestInput) => api.createPullRequest(worktreeId, input), () => [keys.pullRequest(worktreeId), keys.worktree(worktreeId)])
+  return useInvalidating((input: CreatePullRequestInput) => api.createPullRequest(worktreeId, input), () => [keys.pullRequest(worktreeId), keys.worktree(worktreeId), ['project-pull-requests']])
 }
 
 /**

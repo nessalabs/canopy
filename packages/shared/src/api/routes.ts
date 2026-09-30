@@ -11,6 +11,8 @@ export const routes = {
   branches: (id: string) => `${API_PREFIX}/projects/${id}/branches`,
   projectWorktrees: (id: string) => `${API_PREFIX}/projects/${id}/worktrees`,
   projectTrash: (id: string) => `${API_PREFIX}/projects/${id}/trash`,
+  /** Recent PRs across the project's repository, for the Command Center's list. */
+  projectPullRequests: (id: string) => `${API_PREFIX}/projects/${id}/pull-requests`,
   trashEntry: (id: string, entry: string) => `${API_PREFIX}/projects/${id}/trash/${entry}`,
   trashRestore: (id: string, entry: string) => `${API_PREFIX}/projects/${id}/trash/${entry}/restore`,
   worktrees: () => `${API_PREFIX}/worktrees`,

@@ -7,7 +7,7 @@
  * each pay for `gh auth status` (which goes to the network). A failed check is never remembered,
  * so "Check again" after installing or signing in answers at once.
  */
-import type { CreatePullRequestInput, GhStatus, GitHubThread, MergeMethod, PullRequest, PullRequestAction, PullRequestActionResult, PullRequestOptions, PullRequestThreadsResponse, PullRequestCheck, PullRequestEvent, PullRequestResponse, PushResult, UpstreamStatus } from '@canopy/shared'
+import type { CreatePullRequestInput, GhStatus, GitHubThread, MergeMethod, PullRequest, PullRequestAction, PullRequestActionResult, PullRequestOptions, PullRequestThreadsResponse, PullRequestCheck, PullRequestEvent, PullRequestResponse, PullRequestSummary, ProjectPullRequests, PushResult, UpstreamStatus } from '@canopy/shared'
 
 import type { GitRunner } from '../git/exec'
 import type { ReviewService } from '../review/service'
@@ -27,6 +27,12 @@ const REPO_TTL_MS = 10 * 60_000
  * daemon does to the PR drops it.
  */
 const PR_TTL_MS = 20_000
+
+/** How long the Command Center's PR list is reused: it is a glance, and GitHub is slow. */
+const LIST_TTL_MS = 30_000
+/** Recent PRs enough to cover the branches anyone still has a worktree for. */
+const LIST_LIMIT = 100
+const SUMMARY_FIELDS = 'number,title,url,state,isDraft,headRefName,baseRefName,reviewDecision,statusCheckRollup,updatedAt,isCrossRepository'
 
 /** Every field the pane shows, in one `gh pr list` call. */
 const PR_FIELDS = [
@@ -267,6 +273,41 @@ export function toPullRequest(raw: RawPr): PullRequest {
   }
 }
 
+/** All of a PR's checks as one verdict: any failure fails it, else anything running keeps it pending. */
+export function checksVerdict(checks: RawCheck[] | undefined): PullRequestSummary['checks'] {
+  const outcomes = (checks ?? []).map(outcomeOf)
+  if (outcomes.length === 0) return null
+  if (outcomes.includes('fail')) return 'fail'
+  return outcomes.includes('pending') ? 'pending' : 'pass'
+}
+
+/**
+ * One PR per head branch, the newest (gh lists newest first, the same one the pane picks). A
+ * fork's PR is dropped: its head names a branch in someone else's repository, and a local
+ * branch that happens to share the name is not the one it proposes.
+ */
+export function toSummaries(raw: Array<RawPr & { isCrossRepository?: boolean }>): PullRequestSummary[] {
+  const seen = new Set<string>()
+  const out: PullRequestSummary[] = []
+  for (const pr of raw) {
+    if (pr.isCrossRepository || seen.has(pr.headRefName)) continue
+    seen.add(pr.headRefName)
+    out.push({
+      number: pr.number,
+      title: pr.title,
+      url: pr.url,
+      state: pr.state,
+      draft: pr.isDraft ?? false,
+      headBranch: pr.headRefName,
+      baseBranch: pr.baseRefName,
+      reviewDecision: pr.reviewDecision || null,
+      checks: checksVerdict(pr.statusCheckRollup),
+      updatedAt: pr.updatedAt
+    })
+  }
+  return out
+}
+
 /** `feat/add-pr-tab` → "Add pr tab": a starting point for a PR opened from several commits. */
 export function titleFromBranch(branch: string): string {
   const words = (branch.split('/').pop() ?? branch).replace(/[-_]+/g, ' ').trim()
@@ -297,6 +338,9 @@ export class GitHubService {
   private readonly threadCache = new Map<string, { at: number; response: PullRequestThreadsResponse }>()
   /** Refreshes under way, so two stale reads start one `gh` call, not two. */
   private readonly refreshing = new Map<string, Promise<PullRequest | null>>()
+
+  /** Per repository: the Command Center's PR list, shared by everyone asking within the TTL. */
+  private readonly lists = new Map<string, { at: number; value: Promise<ProjectPullRequests> }>()
 
   constructor(private readonly deps: Deps) {}
 
@@ -607,6 +651,31 @@ export class GitHubService {
     return { ...empty, upstream, draft: suggested, ...(targets ?? {}) }
   }
 
+  /**
+   * A repository's recent PRs in one `gh pr list`, for the Command Center to match against its
+   * worktrees' branches — one call per project rather than one per worktree. Callers within the
+   * TTL share the answer (and an answer still in flight); a failure is not kept.
+   */
+  list(cwd: string): Promise<ProjectPullRequests> {
+    const cached = this.lists.get(cwd)
+    if (cached && this.now() - cached.at < LIST_TTL_MS) return cached.value
+    const value = this.readList(cwd)
+    const entry = { at: this.now(), value }
+    this.lists.set(cwd, entry)
+    value.catch(() => {
+      if (this.lists.get(cwd) === entry) this.lists.delete(cwd)
+    })
+    return value
+  }
+
+  private async readList(cwd: string): Promise<ProjectPullRequests> {
+    const { remote: _remote, ...gh } = await this.status(cwd, null)
+    if (gh.state !== 'ready') return { gh, prs: [] }
+    const run = await this.deps.gh(cwd, ['pr', 'list', '--state', 'all', '--limit', String(LIST_LIMIT), '--json', SUMMARY_FIELDS])
+    if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', firstLine(run.stderr) ?? `gh pr list exited with ${run.exitCode}`)
+    return { gh, prs: toSummaries(JSON.parse(run.stdout || '[]')) }
+  }
+
   async push(worktreeId: string): Promise<PushResult> {
     const { path } = this.deps.worktrees.location(worktreeId)
     const branch = await this.branchOf(path)
@@ -627,7 +696,24 @@ export class GitHubService {
     if (!upstream.name) await this.deps.git(cwd, ['branch', `--set-upstream-to=${remote}/${branch}`, branch], { okCodes: [0, 128] })
   }
 
+  /** The Command Center's list is dropped once a PR changes, or it would say the old thing for another TTL. */
   async create(worktreeId: string, input: CreatePullRequestInput): Promise<PullRequest> {
+    try {
+      return await this.createPr(worktreeId, input)
+    } finally {
+      this.lists.clear()
+    }
+  }
+
+  async act(worktreeId: string, action: PullRequestAction): Promise<PullRequestActionResult> {
+    try {
+      return await this.actOnPr(worktreeId, action)
+    } finally {
+      this.lists.clear()
+    }
+  }
+
+  private async createPr(worktreeId: string, input: CreatePullRequestInput): Promise<PullRequest> {
     const { path, baseBranch } = this.deps.worktrees.location(worktreeId)
     const branch = await this.branchOf(path)
     if (!branch) throw badRequest('detached', 'a detached worktree has no branch to open a pull request from')
@@ -679,7 +765,7 @@ export class GitHubService {
   }
 
   /** One action on the branch's PR. Each re-reads the PR first, so it acts on what GitHub has now. */
-  async act(worktreeId: string, action: PullRequestAction): Promise<PullRequestActionResult> {
+  private async actOnPr(worktreeId: string, action: PullRequestAction): Promise<PullRequestActionResult> {
     const { path } = this.deps.worktrees.location(worktreeId)
     const branch = await this.branchOf(path)
     if (!branch) throw badRequest('detached', 'a detached worktree has no pull request')
