@@ -602,6 +602,12 @@ export const useCreatePullRequest = (worktreeId: string) => {
   return useInvalidating((input: CreatePullRequestInput) => api.createPullRequest(worktreeId, input), () => [keys.pullRequest(worktreeId), keys.worktree(worktreeId)])
 }
 
+/** Brings a PR's commits pushed from elsewhere into the repository, so their diffs can be read. */
+export const useFetchPullRequest = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating(() => api.fetchPullRequest(worktreeId), () => [keys.pullRequest(worktreeId), ['diff-files', worktreeId]])
+}
+
 export const usePushBranch = (worktreeId: string) => {
   const api = useApi()
   return useInvalidating(() => api.pushBranch(worktreeId), () => [keys.pullRequest(worktreeId), keys.worktree(worktreeId)])
