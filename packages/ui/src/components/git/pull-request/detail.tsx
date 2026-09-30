@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Download, ExternalLink, GitMerge, GitPullRequestDraft, MessageSquareText, MoreHorizontal, RotateCw, Send, Upload, Users } from 'lucide-react'
 
-import type { ChangedFile, DiffSpec, PullRequest, PullRequestResponse, Worktree } from '@canopy/shared'
+import type { ChangedFile, DiffSpec, PullRequest, PullRequestAction, PullRequestResponse, Worktree } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
@@ -22,6 +22,7 @@ import { CommitList } from '../commit-list'
 import { DiffExplorer } from '../diff-explorer'
 import { ReviewToolbar } from '../review-toolbar'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
+import { SidePicker } from './pickers'
 import { CHECK_ICON, Empty, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
 
 type View = 'overview' | 'commits' | 'files'
@@ -288,14 +289,17 @@ function LocalWork({ worktree, pr, data, onOpenChanges }: { worktree: Worktree; 
   )
 }
 
-function Overview({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: PullRequest; onRun: (action: { kind: 'comment'; body: string } | { kind: 'rerun' }) => void; running: boolean }): React.JSX.Element {
+function Overview({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: PullRequest; onRun: (action: PullRequestAction) => void; running: boolean }): React.JSX.Element {
   const open = useExternalLink()
   const state = MERGE_STATE[pr.mergeState] ?? MERGE_STATE.UNKNOWN!
   const failing = pr.checks.some((check) => check.outcome === 'fail')
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="grid gap-6 pb-6 lg:grid-cols-[minmax(0,1fr)_15rem]">
+      <div className="grid gap-6 pr-3 pb-6 lg:grid-cols-[minmax(0,1fr)_15rem]">
         <div className="flex min-w-0 flex-col gap-5">
+          <section className="rounded-lg border border-border p-4">{pr.body.trim() ? <Markdown>{pr.body}</Markdown> : <p className="text-sm text-muted-foreground italic">No description.</p>}</section>
+
+          <Conversation pr={pr} />
           <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
             <div className="flex items-center gap-2">
               <h4 className="flex-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
@@ -333,12 +337,9 @@ function Overview({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: 
             {pr.state === 'OPEN' ? <p className={cn('text-xs', TONE_CLASS[state.tone])}>{pr.autoMerge ? 'Auto-merge is on: GitHub merges this once its requirements pass.' : state.hint}</p> : null}
           </section>
 
-          <section className="rounded-lg border border-border p-4">{pr.body.trim() ? <Markdown>{pr.body}</Markdown> : <p className="text-sm text-muted-foreground italic">No description.</p>}</section>
-
-          <Conversation pr={pr} />
           {pr.state !== 'MERGED' ? <CommentBox key={pr.number} onComment={(body) => onRun({ kind: 'comment', body })} running={running} /> : null}
         </div>
-        <People pr={pr} />
+        <People worktreeId={worktreeId} pr={pr} onRun={onRun} running={running} />
       </div>
     </div>
   )
@@ -395,10 +396,13 @@ function CommentBox({ onComment, running }: { onComment: (body: string) => void;
   )
 }
 
-function Side({ title, children }: { title: string; children: React.ReactNode }): React.JSX.Element {
+function Side({ title, picker, children }: { title: string; picker?: React.ReactNode; children: React.ReactNode }): React.JSX.Element {
   return (
     <section className="flex flex-col gap-2 border-b border-border/60 pb-4 last:border-b-0">
-      <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h4>
+      <div className="flex items-center gap-1">
+        <h4 className="flex-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h4>
+        {picker}
+      </div>
       {children}
     </section>
   )
@@ -406,11 +410,27 @@ function Side({ title, children }: { title: string; children: React.ReactNode })
 
 const None = ({ children }: { children: React.ReactNode }): React.JSX.Element => <p className="text-xs text-muted-foreground">{children}</p>
 
-/** GitHub's sidebar: who reviews, who owns it, how it is filed. */
-function People({ pr }: { pr: PullRequest }): React.JSX.Element {
+/** GitHub's sidebar: who reviews, who owns it, how it is filed — each editable in place. */
+function People({ worktreeId, pr, onRun, running }: { worktreeId: string; pr: PullRequest; onRun: (action: PullRequestAction) => void; running: boolean }): React.JSX.Element {
+  const editable = pr.state === 'OPEN' && !running
+  const people = (options: { users: { login: string; name: string | null }[] }) => options.users.map((user) => ({ id: user.login, label: user.login, detail: user.name }))
+  const requested = pr.reviewers.filter((reviewer) => reviewer.state === 'requested').map((reviewer) => reviewer.name)
   return (
     <aside className="flex flex-col gap-4 text-sm">
-      <Side title="Reviewers">
+      <Side
+        title="Reviewers"
+        picker={
+          <SidePicker
+            worktreeId={worktreeId}
+            title="Reviewers"
+            choices={(options) => people(options).filter((choice) => choice.id !== pr.author)}
+            selected={requested}
+            allowCustom={(query) => (query.includes('/') ? { id: query, label: query, detail: 'team' } : null)}
+            onCommit={(add, remove) => onRun({ kind: 'reviewers', add, remove })}
+            disabled={!editable}
+          />
+        }
+      >
         {pr.reviewers.length ? (
           <ul className="flex flex-col gap-2">
             {pr.reviewers.map((reviewer) => {
@@ -437,7 +457,10 @@ function People({ pr }: { pr: PullRequest }): React.JSX.Element {
           <None>No reviews requested</None>
         )}
       </Side>
-      <Side title="Assignees">
+      <Side
+        title="Assignees"
+        picker={<SidePicker worktreeId={worktreeId} title="Assignees" choices={people} selected={pr.assignees.map((person) => person.login)} onCommit={(add, remove) => onRun({ kind: 'assignees', add, remove })} disabled={!editable} />}
+      >
         {pr.assignees.length ? (
           <ul className="flex flex-col gap-2">
             {pr.assignees.map((person) => (
@@ -452,7 +475,19 @@ function People({ pr }: { pr: PullRequest }): React.JSX.Element {
           <None>No one assigned</None>
         )}
       </Side>
-      <Side title="Labels">
+      <Side
+        title="Labels"
+        picker={
+          <SidePicker
+            worktreeId={worktreeId}
+            title="Labels"
+            choices={(options) => options.labels.map((label) => ({ id: label.name, label: label.name, color: label.color }))}
+            selected={pr.labels.map((label) => label.name)}
+            onCommit={(add, remove) => onRun({ kind: 'labels', add, remove })}
+            disabled={!editable}
+          />
+        }
+      >
         {pr.labels.length ? (
           <div className="flex flex-wrap gap-1.5">
             {pr.labels.map((label) => (
@@ -465,7 +500,22 @@ function People({ pr }: { pr: PullRequest }): React.JSX.Element {
           <None>None yet</None>
         )}
       </Side>
-      <Side title="Milestone">{pr.milestone ? <span>{pr.milestone}</span> : <None>No milestone</None>}</Side>
+      <Side
+        title="Milestone"
+        picker={
+          <SidePicker
+            worktreeId={worktreeId}
+            title="Milestone"
+            single
+            choices={(options) => options.milestones.map((title) => ({ id: title, label: title }))}
+            selected={pr.milestone ? [pr.milestone] : []}
+            onCommit={(add) => onRun({ kind: 'milestone', milestone: add[0] ?? null })}
+            disabled={!editable}
+          />
+        }
+      >
+        {pr.milestone ? <span>{pr.milestone}</span> : <None>No milestone</None>}
+      </Side>
     </aside>
   )
 }
