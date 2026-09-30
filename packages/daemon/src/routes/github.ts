@@ -11,7 +11,9 @@ import { IdParams } from './params'
 const FreshQuery = z.object({ fresh: z.enum(['1', 'true']).optional() })
 
 /** The Git tab's Pull request pane: GitHub through the daemon host's `gh`, and the push it needs. */
-export function registerGitHubRoutes(app: FastifyInstance, { github }: Services): void {
+export function registerGitHubRoutes(app: FastifyInstance, { github, projects }: Services): void {
+  app.get(routes.projectPullRequests(':id'), async (request) => github.list(projects.get(IdParams.parse(request.params).id).path))
+
   app.get(routes.pullRequest(':id'), async (request) => github.read(IdParams.parse(request.params).id, { fresh: FreshQuery.parse(request.query).fresh !== undefined }))
 
   app.post(routes.pullRequest(':id'), async (request, reply) => {

@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Activity, FolderGit2, GitBranch, ListTree, Play, Search, Square } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, FolderGit2, GitBranch, GitMerge, ListTree, Play, Search, Square } from 'lucide-react'
 import { useLocation } from 'wouter'
 
-import { environmentDot, formatMem, isLive, serviceResources, type Worktree } from '@canopy/shared'
+import { environmentDot, formatMem, isLive, serviceResources, type PullRequestSummary, type Worktree } from '@canopy/shared'
 
+import { CHECK_ICON, REVIEW_LABEL, STATE_LOOK } from '@/components/git/pull-request/parts'
 import { MergedMark } from '@/components/merged-mark'
 import { PanelShell, type PanelDef } from '@/components/panel-shell'
 import { CoreGrid, SystemMemBar } from '@/components/resources/host-usage'
@@ -15,21 +16,28 @@ import { Meter, type MeterSlot } from '@/components/ui/meter'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { StatusDot } from '@/components/ui/status-dot'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useHost, useProjects, useWorktreeLifecycle, useWorktrees } from '@/lib/api-hooks'
+import { prKey, useHost, useProjectPullRequests, useProjects, useWorktreeLifecycle, useWorktrees } from '@/lib/api-hooks'
 import { PaneSplitDirection, createAppShellLayout, setSplitWeights, splitPane, type AppShellLayout } from '@/lib/app-shell-layout'
 import { cpuScale, memScale } from '@/lib/environment-ui'
 import { useHostSamples } from '@/lib/events-provider'
 import { plural, relativeTime } from '@/lib/format'
 import { ENV_STATE_BADGE, SERVICE_DOT, SERVICE_LABEL, WORKTREE_BADGE, WORKTREE_DOT } from '@/lib/status'
+import { cn } from '@/lib/utils'
+import { usePlatform } from '@/providers/platform'
 
-type Filter = 'all' | 'running' | 'attention' | 'stopped' | 'changes'
+type Filter = 'all' | 'running' | 'attention' | 'stopped' | 'changes' | 'review' | 'merged'
 
-const FILTERS: Record<Filter, { label: string; matches: (worktree: Worktree) => boolean }> = {
+/** A branch has landed when git says so locally or GitHub merged its PR. */
+const isMerged = (wt: Worktree, pr: PullRequestSummary | undefined): boolean => wt.status?.merged === true || pr?.state === 'MERGED'
+
+const FILTERS: Record<Filter, { label: string; matches: (worktree: Worktree, pr: PullRequestSummary | undefined) => boolean }> = {
   all: { label: 'All', matches: () => true },
   running: { label: 'Running', matches: (wt) => isLive(wt.environment.state) },
   attention: { label: 'Attention', matches: (wt) => wt.environment.state === 'degraded' || wt.environment.state === 'error' },
   stopped: { label: 'Stopped', matches: (wt) => wt.environment.state === 'stopped' || wt.environment.state === 'none' },
-  changes: { label: 'Changes', matches: (wt) => (wt.status?.dirtyTotal ?? 0) > 0 }
+  changes: { label: 'Changes', matches: (wt) => (wt.status?.dirtyTotal ?? 0) > 0 },
+  review: { label: 'In review', matches: (_wt, pr) => pr?.state === 'OPEN' },
+  merged: { label: 'Merged', matches: (wt, pr) => isMerged(wt, pr) }
 }
 
 /** The ports a worktree occupies: the allocation map when it has one, else whatever its services publish. */
@@ -99,7 +107,96 @@ function LifecycleButton({ worktree, action, children }: { worktree: Worktree; a
   )
 }
 
-function WorktreeRow({ worktree, projectName }: { worktree: Worktree; projectName: string }): React.JSX.Element {
+/** The branch's PR as a chip: state colour, number, and CI. Clicking it opens the PR on GitHub. */
+function PullRequestChip({ pr }: { pr: PullRequestSummary }): React.JSX.Element {
+  const { openExternal } = usePlatform()
+  const look = STATE_LOOK[pr.state === 'OPEN' && pr.draft ? 'DRAFT' : pr.state]
+  const check = pr.state === 'OPEN' && pr.checks ? CHECK_ICON[pr.checks] : null
+  const review = pr.state === 'OPEN' && pr.reviewDecision ? REVIEW_LABEL[pr.reviewDecision] : null
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn('inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 font-mono text-[10px] font-medium tabular-nums', look.className)}
+          aria-label={`${look.label} pull request #${pr.number}`}
+          onClick={(event) => {
+            event.stopPropagation()
+            openExternal(pr.url)
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <look.Icon className="size-3" />#{pr.number}
+          {check ? <check.Icon className="size-3" /> : null}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-72">
+        <div className="flex flex-col gap-0.5 py-0.5">
+          <span className="font-medium">{pr.title}</span>
+          <span className="text-muted-foreground">
+            {look.label} · into {pr.baseBranch}
+            {review ? ` · ${review}` : ''}
+            {pr.state === 'OPEN' && pr.checks ? ` · checks ${pr.checks === 'pass' ? 'passed' : pr.checks === 'fail' ? 'failing' : 'running'}` : ''}
+          </span>
+        </div>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
+/**
+ * Where the branch stands at a glance: its PR (or that it has none), whether it has landed in
+ * its base, and how far it has drifted from it. The main checkout is the base, so it has none.
+ */
+function BranchGlance({ worktree, pr }: { worktree: Worktree; pr: PullRequestSummary | undefined }): React.JSX.Element | null {
+  if (worktree.isMain || !worktree.branch) return null
+  const status = worktree.status
+  const ahead = status?.ahead ?? 0
+  const behind = status?.behind ?? 0
+  // GitHub's merged chip already says it; the local verdict is for branches that landed without a PR.
+  const mergedLocally = status?.merged === true && pr?.state !== 'MERGED'
+  return (
+    <span className="hidden w-44 shrink-0 items-center gap-1.5 md:flex">
+      {pr ? <PullRequestChip pr={pr} /> : <span className="shrink-0 font-mono text-[10px] text-muted-foreground/60">no PR</span>}
+      {mergedLocally ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full border border-violet-600/40 px-1.5 text-[10px] font-medium text-violet-600 dark:text-violet-400">
+              <GitMerge className="size-3" />
+              merged
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Every commit on this branch is already in {worktree.baseBranch}</TooltipContent>
+        </Tooltip>
+      ) : null}
+      {ahead > 0 || behind > 0 ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex shrink-0 items-center gap-1 font-mono text-[10px] tabular-nums text-muted-foreground">
+              {ahead > 0 ? (
+                <span className="inline-flex items-center">
+                  <ArrowUp className="size-2.5" />
+                  {ahead}
+                </span>
+              ) : null}
+              {behind > 0 ? (
+                <span className="inline-flex items-center">
+                  <ArrowDown className="size-2.5" />
+                  {behind}
+                </span>
+              ) : null}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {plural(ahead, 'commit')} ahead of {worktree.baseBranch}, {behind} behind
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </span>
+  )
+}
+
+function WorktreeRow({ worktree, projectName, pr }: { worktree: Worktree; projectName: string; pr: PullRequestSummary | undefined }): React.JSX.Element {
   const [, navigate] = useLocation()
   const env = worktree.environment
   const gitBadge = WORKTREE_BADGE[worktree.state]
@@ -140,10 +237,14 @@ function WorktreeRow({ worktree, projectName }: { worktree: Worktree; projectNam
         {env.state === 'none' ? (worktree.state === 'dirty' && status ? plural(status.dirtyTotal, 'change') : gitBadge.label) : envBadge.label}
       </Badge>
       {worktree.isMain ? (
-        <Badge variant="outline" className="hidden text-[10px] xl:inline-flex">
-          main checkout
-        </Badge>
-      ) : null}
+        <span className="hidden w-44 shrink-0 md:flex">
+          <Badge variant="outline" className="text-[10px]">
+            main checkout
+          </Badge>
+        </span>
+      ) : (
+        <BranchGlance worktree={worktree} pr={pr} />
+      )}
       <span className="hidden flex-wrap gap-1 lg:flex">
         {ports.slice(0, 4).map((port) => (
           <span key={port} className="rounded border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
@@ -184,13 +285,15 @@ function WorktreesPanel(): React.JSX.Element {
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const projectName = (id: string): string => projects.find((p) => p.id === id)?.name ?? ''
+  const pullRequests = useProjectPullRequests(useMemo(() => projects.map((p) => p.id), [projects]))
+  const prOf = (wt: Worktree): PullRequestSummary | undefined => (wt.branch && !wt.isMain ? pullRequests.get(prKey(wt.projectId, wt.branch)) : undefined)
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return (worktrees.data ?? []).filter(
-      (wt) => FILTERS[filter].matches(wt) && (!needle || `${wt.name} ${wt.branch ?? ''} ${projectName(wt.projectId)}`.toLowerCase().includes(needle))
+      (wt) => FILTERS[filter].matches(wt, prOf(wt)) && (!needle || `${wt.name} ${wt.branch ?? ''} ${projectName(wt.projectId)}`.toLowerCase().includes(needle))
     )
-  }, [worktrees.data, filter, query, projects])
+  }, [worktrees.data, filter, query, projects, pullRequests])
 
   return (
     <div className="flex flex-col gap-2 px-3 py-2.5">
@@ -211,7 +314,7 @@ function WorktreesPanel(): React.JSX.Element {
       {worktrees.data && visible.length === 0 ? <p className="py-8 text-center text-sm text-muted-foreground">No worktrees match that filter.</p> : null}
       <div className="flex flex-col divide-y divide-border/60">
         {visible.map((wt) => (
-          <WorktreeRow key={wt.id} worktree={wt} projectName={projectName(wt.projectId)} />
+          <WorktreeRow key={wt.id} worktree={wt} projectName={projectName(wt.projectId)} pr={prOf(wt)} />
         ))}
       </div>
     </div>
@@ -299,10 +402,11 @@ function UsagePanel(): React.JSX.Element {
   )
 }
 
+/** Worktrees take the width and the height; usage sits in a column on the right. */
 function buildCommandCenterLayout(): AppShellLayout {
-  let layout = createAppShellLayout({ initialPaneId: 'pane-usage', views: ['usage'], openDocks: [] })
-  layout = splitPane(layout, { paneId: 'pane-usage', direction: PaneSplitDirection.Down, newPaneId: 'pane-worktrees', views: ['worktrees'] })
-  layout = setSplitWeights(layout, { splitId: 'split:pane-worktrees', weights: [0.42, 0.58] })
+  let layout = createAppShellLayout({ initialPaneId: 'pane-worktrees', views: ['worktrees'], openDocks: [] })
+  layout = splitPane(layout, { paneId: 'pane-worktrees', direction: PaneSplitDirection.Right, newPaneId: 'pane-usage', views: ['usage'] })
+  layout = setSplitWeights(layout, { splitId: 'split:pane-usage', weights: [0.68, 0.32] })
   return layout
 }
 
@@ -330,7 +434,7 @@ export function CommandCenterScreen(): React.JSX.Element {
         <h1 className="text-xl font-semibold tracking-tight">Command Center</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">Every worktree on this daemon, what it's running, and what it costs.</p>
       </div>
-      <PanelShell storageKey="canopy-cc-layout-v5" buildDefaultLayout={buildCommandCenterLayout} panels={PANELS} className="min-h-0 flex-1" />
+      <PanelShell storageKey="canopy-cc-layout-v6" buildDefaultLayout={buildCommandCenterLayout} panels={PANELS} className="min-h-0 flex-1" />
     </div>
   )
 }

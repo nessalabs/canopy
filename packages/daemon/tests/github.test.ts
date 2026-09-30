@@ -523,6 +523,32 @@ describe('GitHubService', () => {
     })
   })
 
+  it('lists a repository\'s PRs once per head branch, skips forks, and reuses the answer', async () => {
+    const pr = (number: number, head: string, extra: object = {}) => ({ ...RAW_PR, number, headRefName: head, ...extra })
+    const listed = [
+      pr(9, 'feat/thing', { state: 'MERGED', statusCheckRollup: [] }),
+      pr(8, 'feat/thing', { state: 'CLOSED' }),
+      pr(7, 'main', { isCrossRepository: true }),
+      pr(6, 'fix/other', { isDraft: true, reviewDecision: 'APPROVED', statusCheckRollup: [{ __typename: 'CheckRun', name: 't', status: 'IN_PROGRESS' }] })
+    ]
+    let now = 0
+    const gh = fakeGh((args) => (args[0] === 'pr' ? ok(JSON.stringify(listed)) : ok()))
+    await repo.git('remote', 'set-url', 'origin', 'git@github.com:acme/app.git')
+    const github = new GitHubService({ review: fakeReview(), git: runGit, gh, now: () => now, worktrees: { location: () => ({ path: repo.path, baseBranch: 'main', projectId: 'p' }) } })
+
+    const res = await github.list(repo.path)
+    expect(res.gh.state).toBe('ready')
+    expect(res.prs.map((p) => [p.number, p.headBranch, p.state, p.draft, p.reviewDecision, p.checks])).toEqual([
+      [9, 'feat/thing', 'MERGED', false, null, null],
+      [6, 'fix/other', 'OPEN', true, 'APPROVED', 'pending']
+    ])
+    await github.list(repo.path)
+    expect(gh.calls.filter((args) => args[0] === 'pr')).toHaveLength(1)
+    now = 60_000
+    await github.list(repo.path)
+    expect(gh.calls.filter((args) => args[0] === 'pr')).toHaveLength(2)
+  })
+
   it('passes gh failures through with what gh said', async () => {
     const gh = fakeGh((args) => (args[0] === 'pr' ? { found: true, exitCode: 1, stdout: '', stderr: 'HTTP 502: Bad Gateway\n' } : ok()))
     const { ready, github } = service(gh)

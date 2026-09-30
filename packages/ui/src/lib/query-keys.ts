@@ -18,6 +18,8 @@ export const keys = {
   hidden: (worktreeId: string) => ['hidden', worktreeId] as const,
   /** The branch's GitHub PR (or why there is none to show), read through the daemon's `gh`. */
   pullRequest: (worktreeId: string) => ['pull-request', worktreeId] as const,
+  /** A project's recent PRs, one per head branch, for the Command Center's worktree list. */
+  projectPullRequests: (projectId: string) => ['project-pull-requests', projectId] as const,
   /** The repository's assignable users, labels and milestones, read when a sidebar picker opens. */
   pullRequestOptions: (worktreeId: string) => ['pull-request-options', worktreeId] as const,
   pullRequestThreads: (worktreeId: string) => ['pull-request-threads', worktreeId] as const,

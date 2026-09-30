@@ -111,6 +111,33 @@ export const PullRequest = z.object({
 })
 export type PullRequest = z.infer<typeof PullRequest>
 
+/**
+ * A PR as the Command Center's worktree list shows it: enough to say at a glance whether a
+ * branch has one and where it stands, without the pane's timeline, commits or diff range.
+ */
+export const PullRequestSummary = z.object({
+  number: z.number().int(),
+  title: z.string(),
+  url: z.string(),
+  state: PullRequestState,
+  draft: z.boolean(),
+  headBranch: z.string(),
+  baseBranch: z.string(),
+  /** APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or null when the repo requires no review. */
+  reviewDecision: z.string().nullable(),
+  /** All checks folded into one: any failure fails, else any pending is pending; null with no checks. */
+  checks: z.enum(['pass', 'fail', 'pending']).nullable(),
+  updatedAt: z.string()
+})
+export type PullRequestSummary = z.infer<typeof PullRequestSummary>
+
+/** Every recent PR of a project's repository, newest first, one per head branch. */
+export const ProjectPullRequests = z.object({
+  gh: GhStatus,
+  prs: z.array(PullRequestSummary)
+})
+export type ProjectPullRequests = z.infer<typeof ProjectPullRequests>
+
 /** Where the local branch stands against the branch it pushes to. */
 export const UpstreamStatus = z.object({
   /** e.g. `origin/feat/x`; null when the branch has never been pushed. */
