@@ -435,6 +435,39 @@ describe('GitHubService', () => {
     })
   })
 
+  it('reads the PR review threads, normalized, and holds them with the PR', async () => {
+    const answer = {
+      data: {
+        repository: {
+          pullRequest: {
+            reviewThreads: {
+              nodes: [
+                { id: 'T1', isResolved: true, isOutdated: true, path: 'infra/ecs.tf', line: null, originalLine: 40, diffSide: 'RIGHT', comments: { nodes: [{ databaseId: 1, author: { login: 'sanzog03' }, body: 'secrets?', createdAt: '2026-09-24T19:40:36Z', url: 'https://x/1' }] } },
+                { id: 'T2', isResolved: false, isOutdated: false, path: 'api/auth.py', line: 12, originalLine: 12, diffSide: 'LEFT', comments: { nodes: [{ databaseId: 2, author: null, body: 'gone user', createdAt: '2026-09-24T19:41:00Z', url: 'https://x/2' }] } }
+              ]
+            }
+          }
+        }
+      }
+    }
+    const gh = fakeGh((args) => (args[0] === 'pr' && args[1] === 'list' ? ok(JSON.stringify([RAW_PR])) : args[1] === 'graphql' ? ok(JSON.stringify(answer)) : ok()))
+    const { ready, github } = service(gh)
+    await ready
+    const threads = await github.threads('w')
+    expect(threads.number).toBe(7)
+    expect(threads.threads).toEqual([
+      { id: 'T1', file: 'infra/ecs.tf', line: null, originalLine: 40, side: 'new', resolved: true, outdated: true, comments: [{ id: '1', author: 'sanzog03', body: 'secrets?', at: '2026-09-24T19:40:36Z', url: 'https://x/1' }] },
+      { id: 'T2', file: 'api/auth.py', line: 12, originalLine: 12, side: 'old', resolved: false, outdated: false, comments: [{ id: '2', author: 'ghost', body: 'gone user', at: '2026-09-24T19:41:00Z', url: 'https://x/2' }] }
+    ])
+    await github.threads('w')
+    expect(gh.calls.filter((args) => args[1] === 'graphql')).toHaveLength(1)
+    expect(gh.calls.find((args) => args[1] === 'graphql')).toContain('n=7')
+    // An action changes GitHub's side; the threads are asked for again after it.
+    await github.act('w', { kind: 'comment', body: 'x' })
+    await github.threads('w')
+    expect(gh.calls.filter((args) => args[1] === 'graphql')).toHaveLength(2)
+  })
+
   describe('cache', () => {
     const listCalls = (gh: { calls: string[][] }) => gh.calls.filter((args) => args[0] === 'pr' && args[1] === 'list').length
     const build = (gh: GhRunner, clock: { now: number }) => {

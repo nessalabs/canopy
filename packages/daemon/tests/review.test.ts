@@ -32,6 +32,23 @@ describe('review prompt', () => {
   })
 })
 
+describe('review prompt with GitHub threads', () => {
+  it('adds a section naming each reviewer, and stands alone without local comments', () => {
+    const prompt = formatReviewPrompt({
+      branch: 'feat/x',
+      comments: [],
+      github: [
+        { author: 'sanzog03', file: 'infra/app/ecs.tf', side: 'new', body: 'sanzog03: check what needs to be secret.\nrohit: agreed', url: 'https://github.com/acme/app/pull/378#discussion_r1', resolved: true },
+        { author: 'pal', file: 'api/auth.py', line: 12, side: 'new', body: 'pal: this can be None', url: 'https://github.com/acme/app/pull/378#discussion_r2', resolved: false }
+      ]
+    })
+    expect(prompt).toContain('Review comments left on the pull request on GitHub (reviewer named on each):')
+    expect(prompt).toContain('  - infra/app/ecs.tf (line no longer in the diff) [resolved on GitHub] — https://github.com/acme/app/pull/378#discussion_r1\n    sanzog03: check what needs to be secret.\n    rohit: agreed')
+    expect(prompt).toContain('  - api/auth.py:12 — https://github.com/acme/app/pull/378#discussion_r2\n    pal: this can be None')
+    expect(() => formatReviewPrompt({ comments: [], github: [] })).toThrow()
+  })
+})
+
 describe('comments and review', () => {
   let server: TestServer
   let repo: FixtureRepo
@@ -73,6 +90,14 @@ describe('comments and review', () => {
     const [comment] = (await server.call('GET', routes.comments(worktreeId))).body.comments
     expect(comment).toMatchObject({ sent: true, sentSessionId: 's1' })
     expect((await server.call('POST', routes.review(worktreeId), { provider: 'claude', sessionId: 's1' })).status).toBe(400)
+  })
+
+  it('reviews GitHub threads alone, with no local comment to mark', async () => {
+    const github = [{ author: 'pal', file: 'a.txt', line: 1, side: 'new', body: 'pal: rename this', url: 'https://github.com/acme/app/pull/1#discussion_r9', resolved: false }]
+    const response = await server.call('POST', routes.review(worktreeId), { provider: 'claude', sessionId: 's1', github })
+    expect(response.status).toBe(200)
+    expect(server.agent.sent[0]?.text).toContain('a.txt:1 — https://github.com/acme/app/pull/1#discussion_r9')
+    expect(server.agent.sent[0]?.text).toContain('pal: rename this')
   })
 
   it('starts a new session when sessionId is null, then marks and pins the minted one', async () => {

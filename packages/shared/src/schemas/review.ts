@@ -18,13 +18,37 @@ export const AddCommentInput = z.object({
 })
 export type AddCommentInput = z.infer<typeof AddCommentInput>
 
+/** Set on a comment the client builds from a GitHub review thread; never stored by the daemon. */
+export const GitHubOrigin = z.object({
+  author: z.string(),
+  url: z.string(),
+  resolved: z.boolean(),
+  host: z.string().nullable()
+})
+export type GitHubOrigin = z.infer<typeof GitHubOrigin>
+
 export const ReviewComment = AddCommentInput.extend({
   id: Id,
   worktreeId: Id,
   createdAt: Millis,
   sent: z.boolean(),
-  sentSessionId: z.string().optional()
+  sentSessionId: z.string().optional(),
+  github: GitHubOrigin.optional()
 })
+
+/** A GitHub review thread handed to the agent alongside (or instead of) local comments. */
+export const GitHubNote = z.object({
+  author: z.string(),
+  file: z.string(),
+  /** Missing for an outdated thread whose line is gone; the file still anchors it. */
+  line: z.number().int().positive().optional(),
+  side: CommentSide.optional(),
+  /** The thread's replies, oldest first, as `author: text`. */
+  body: z.string().min(1),
+  url: z.string(),
+  resolved: z.boolean().default(false)
+})
+export type GitHubNote = z.infer<typeof GitHubNote>
 export type ReviewComment = z.infer<typeof ReviewComment>
 
 export const ReviewRequest = TurnOptions.extend({
@@ -33,6 +57,8 @@ export const ReviewRequest = TurnOptions.extend({
   sessionId: z.string().min(1).nullable(),
   /** Defaults to every unsent comment on the worktree. */
   commentIds: z.array(Id).optional(),
+  /** GitHub review threads to include; a request may carry these and no local comments. */
+  github: z.array(GitHubNote).optional(),
   note: z.string().optional()
 })
 export type ReviewRequest = z.infer<typeof ReviewRequest>

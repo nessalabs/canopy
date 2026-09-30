@@ -7,7 +7,7 @@
  * each pay for `gh auth status` (which goes to the network). A failed check is never remembered,
  * so "Check again" after installing or signing in answers at once.
  */
-import type { CreatePullRequestInput, GhStatus, MergeMethod, PullRequest, PullRequestAction, PullRequestActionResult, PullRequestOptions, PullRequestCheck, PullRequestEvent, PullRequestResponse, PushResult, UpstreamStatus } from '@canopy/shared'
+import type { CreatePullRequestInput, GhStatus, GitHubThread, MergeMethod, PullRequest, PullRequestAction, PullRequestActionResult, PullRequestOptions, PullRequestThreadsResponse, PullRequestCheck, PullRequestEvent, PullRequestResponse, PushResult, UpstreamStatus } from '@canopy/shared'
 
 import type { GitRunner } from '../git/exec'
 import type { ReviewService } from '../review/service'
@@ -293,6 +293,8 @@ export class GitHubService {
   private readonly choices = new Map<string, { at: number; options: PullRequestOptions }>()
   /** Per checkout and branch: what GitHub last said about the PR (before the local git bits). */
   private readonly prs = new Map<string, { at: number; pr: PullRequest | null }>()
+  /** Per checkout and PR number: its review threads, held as long as the PR answer is. */
+  private readonly threadCache = new Map<string, { at: number; response: PullRequestThreadsResponse }>()
   /** Refreshes under way, so two stale reads start one `gh` call, not two. */
   private readonly refreshing = new Map<string, Promise<PullRequest | null>>()
 
@@ -394,6 +396,68 @@ export class GitHubService {
   /** Anything this daemon changed on GitHub makes the held answer wrong. */
   private forget(cwd: string, branch: string): void {
     this.prs.delete(`${cwd}\0${branch}`)
+    for (const key of this.threadCache.keys()) if (key.startsWith(`${cwd}\0`)) this.threadCache.delete(key)
+  }
+
+  /**
+   * The PR's inline review threads: file, line, resolved, every reply. GraphQL, because the REST
+   * comments list has no notion of a thread or of resolution. Held as long as the PR itself.
+   */
+  async threads(worktreeId: string): Promise<PullRequestThreadsResponse> {
+    const { path } = this.deps.worktrees.location(worktreeId)
+    const branch = await this.branchOf(path)
+    if (!branch) throw badRequest('detached', 'a detached worktree has no pull request')
+    const gh = await this.status(path, branch)
+    if (gh.state !== 'ready' || !gh.repo) throw conflict(`gh_${gh.state.replace('-', '_')}`, 'GitHub is not reachable through gh for this worktree')
+    const pr = await this.cachedPr(path, branch, false)
+    if (!pr) throw conflict('no_pull_request', `no pull request for ${branch}`)
+    const key = `${path}\0${pr.number}`
+    const held = this.threadCache.get(key)
+    if (held && this.now() - held.at < PR_TTL_MS) return held.response
+    const [owner, name] = gh.repo.split('/') as [string, string]
+    const query =
+      'query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ pullRequest(number:$n){ reviewThreads(first:100){ nodes{ id isResolved isOutdated path line originalLine diffSide comments(first:50){ nodes{ databaseId author{login} body createdAt url } } } } } } }'
+    const run = await this.deps.gh(path, ['api', 'graphql', '-f', `query=${query}`, '-F', `o=${owner}`, '-F', `r=${name}`, '-F', `n=${pr.number}`])
+    if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', githubMessage(run.stderr) ?? `gh api graphql exited with ${run.exitCode}`)
+    const raw = JSON.parse(run.stdout || '{}') as {
+      data?: {
+        repository?: {
+          pullRequest?: {
+            reviewThreads?: {
+              nodes?: Array<{
+                id: string
+                isResolved?: boolean
+                isOutdated?: boolean
+                path: string
+                line?: number | null
+                originalLine?: number | null
+                diffSide?: string
+                comments?: { nodes?: Array<{ databaseId?: number | string; author?: { login?: string } | null; body?: string; createdAt?: string; url?: string }> }
+              }>
+            }
+          }
+        }
+      }
+    }
+    const threads: GitHubThread[] = (raw.data?.repository?.pullRequest?.reviewThreads?.nodes ?? []).map((thread) => ({
+      id: thread.id,
+      file: thread.path,
+      line: thread.line ?? null,
+      originalLine: thread.originalLine ?? null,
+      side: thread.diffSide === 'LEFT' ? 'old' : 'new',
+      resolved: thread.isResolved ?? false,
+      outdated: thread.isOutdated ?? false,
+      comments: (thread.comments?.nodes ?? []).map((comment) => ({
+        id: String(comment.databaseId ?? ''),
+        author: comment.author?.login ?? 'ghost',
+        body: comment.body ?? '',
+        at: comment.createdAt ?? '',
+        url: comment.url ?? ''
+      }))
+    }))
+    const response = { number: pr.number, threads }
+    this.threadCache.set(key, { at: this.now(), response })
+    return response
   }
 
   private async findPr(cwd: string, branch: string, remote: string | null = null, fresh = false): Promise<PullRequest | null> {
