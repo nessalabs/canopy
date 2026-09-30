@@ -641,6 +641,12 @@ export const useCreatePullRequest = (worktreeId: string) => {
   return useInvalidating((input: CreatePullRequestInput) => api.createPullRequest(worktreeId, input), () => [keys.pullRequest(worktreeId), keys.worktree(worktreeId)])
 }
 
+/** Read the first time a sidebar picker opens; the daemon keeps it for ten minutes, this keeps it for the session. */
+export const usePullRequestOptions = (worktreeId: string, enabled: boolean) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.pullRequestOptions(worktreeId), queryFn: () => api.pullRequestOptions(worktreeId), enabled, staleTime: 10 * 60_000 })
+}
+
 /** Brings a PR's commits pushed from elsewhere into the repository, so their diffs can be read. */
 export const useFetchPullRequest = (worktreeId: string) => {
   const api = useApi()

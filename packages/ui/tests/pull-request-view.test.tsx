@@ -159,6 +159,14 @@ describe('PullRequestView', () => {
     expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'Merge')).toBe(true)
   })
 
+  it('puts the checks card after the conversation, and offers a picker for each sidebar section', async () => {
+    await render()
+    const text = host.textContent ?? ''
+    expect(text.indexOf('Looks right')).toBeLessThan(text.indexOf('Re-run failed'))
+    const pickers = [...host.querySelectorAll('button[aria-label^="Edit "]')].map((button) => button.getAttribute('aria-label'))
+    expect(pickers).toEqual(['Edit reviewers', 'Edit assignees', 'Edit labels', 'Edit milestone'])
+  })
+
   it('lists the PR commits with the chosen one diffed, and its whole diff under Files changed', async () => {
     await render()
     await click('Commits · 2')

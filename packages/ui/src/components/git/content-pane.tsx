@@ -70,8 +70,12 @@ function HunksBody({ worktreeId, spec, file, comments, mode }: Props): React.JSX
   )
 }
 
-/** Which blob the non-diff views read: the commit's copy, or the working tree's. */
-const revOf = (spec: DiffSpec): string | undefined => (spec.kind === 'commit' ? spec.sha : undefined)
+/**
+ * Which blob the non-diff views read: the commit's copy, the after side of a two-tree diff (a PR
+ * head, an agent snapshot), or the working tree's. Whatever the kind, it is the side the patch
+ * was made against, so the marks always land on the lines they describe.
+ */
+const revOf = (spec: DiffSpec): string | undefined => (spec.kind === 'commit' ? spec.sha : spec.kind === 'trees' ? spec.after : undefined)
 
 /** The rendered diff: the doc as prose, with the change marked on it. Markdown only. */
 function RenderedDiffBody({ worktreeId, spec, file, onOpenPath }: Props): React.JSX.Element {
@@ -84,13 +88,11 @@ function RenderedDiffBody({ worktreeId, spec, file, onOpenPath }: Props): React.
 
 /**
  * The whole file, with the change marked on its lines. The file shows as soon as it is read; the
- * marks follow once the patch is in, so a slow diff never holds the file back. A snapshot diff
- * (`trees`) compares two trees the working copy shown here may have moved on from, so it gets none.
+ * marks follow once the patch is in, so a slow diff never holds the file back.
  */
 function FileBody({ worktreeId, spec, file, anchor, onOpenPath }: Props): React.JSX.Element {
-  const marked = spec.kind !== 'trees'
-  const patch = useFilePatch(worktreeId, spec, file.path, marked)
-  return <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} patch={marked ? (patch.data?.patch ?? undefined) : undefined} onOpenPath={onOpenPath} />
+  const patch = useFilePatch(worktreeId, spec, file.path, true)
+  return <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} patch={patch.data?.patch ?? undefined} onOpenPath={onOpenPath} />
 }
 
 /** Each view is one component; the tabs pick the row of this table, the toggle picks the column. */
