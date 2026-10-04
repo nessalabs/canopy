@@ -13,7 +13,7 @@ import type { GitRunner } from '../../git/exec'
 import type { PortAllocator } from '../ports/allocator'
 import { resolveEnvironment, type ResolvedEnvironment } from '../config/resolve'
 import type { DbAdapter, DbContext, ProvisionContext, ProvisionStepImpl } from '../types'
-import { rulesFor, type Canopyd } from '../worktree/canopyd'
+import { copiedRoots, rulesFor, type Canopyd } from '../worktree/canopyd'
 import type { WorktreeBackend } from '../worktree/backend'
 import { SHARED_STORE_ENV, changedLockfiles, installCommand } from './caches'
 
@@ -136,7 +136,10 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
 
       // Only paths that actually moved are "copied"; a skipped one was already there.
       const landed = outcome.entries.filter((entry) => entry.result !== 'skipped' && entry.result !== 'planned')
-      ctx.state.copiedFiles = landed.map((entry) => entry.path)
+      ctx.state.copiedFiles = copiedRoots(
+        landed.map((entry) => entry.path),
+        ctx.settings.caches.rules
+      )
       for (const failure of outcome.failures) ctx.logs.sys(`could not copy ${failure.path}: ${failure.message}`)
 
       if (ctx.settings.caches.reinstallOnLockChange) {

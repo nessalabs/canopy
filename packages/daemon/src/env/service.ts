@@ -71,11 +71,13 @@ import { loadAppSettings, saveAppSettings } from './settings/app-settings'
 import { loadProjectSettings, saveProjectSettings } from './settings/project-settings'
 import { sinkFor } from './logs/store'
 import type { DbAdapter, DbContext, DockerHelper, EventBus, LogStore, ProvisionContext, ProvisionState, ServiceRunner } from './types'
-import { supportsContainers, supportsRunControl, type Canopyd } from './worktree/canopyd'
+import { copiedRoots, supportsContainers, supportsRunControl, type Canopyd } from './worktree/canopyd'
 import type { WorktreeBackend } from './worktree/backend'
 
 /** How many numbers a database port may lose to `canopyd`'s registry before allocation gives up. */
 const MAX_RESERVE_ATTEMPTS = 8
+/** More saved copied paths than this means a per-file list from before they were folded. */
+const FOLDED_COPIED_FILES_MAX = 200
 
 export interface EnvironmentDeps {
   db: Database
@@ -197,6 +199,8 @@ export class EnvironmentService {
       } catch {
         env = emptyEnvironment(false)
       }
+      // A list saved before copied paths were folded holds one entry per file under node_modules.
+      if (env.copiedFiles.length > FOLDED_COPIED_FILES_MAX) env.copiedFiles = copiedRoots(env.copiedFiles, this.settings(row.project_id).caches.rules)
       // Nothing is running right after boot; reconcile() restarts what was desired.
       env.services = env.services.map((svc) => ({ ...svc, status: 'stopped', pid: undefined, containerId: undefined, cpuPct: undefined, memMb: undefined, startedAt: null }))
       env.desired = row.desired_state

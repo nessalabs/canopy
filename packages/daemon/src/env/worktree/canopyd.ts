@@ -14,6 +14,8 @@
  * to where it was invoked, so running from the main checkout would silently use the wrong file
  * for a branch that changed what it runs.
  */
+import picomatch from 'picomatch'
+
 import type { CacheRule, CacheStrategy, CopyFileRule, PortSpec } from '@canopy/shared'
 
 import { conflict } from '../../lib/errors'
@@ -145,6 +147,38 @@ export function rulesFor(copyFiles: CopyFileRule[], caches: CacheRule[]): Array<
     if (strategy) rules.push({ pattern: rule.path, strategy })
   }
   return rules
+}
+
+/**
+ * The copied paths as a worktree's environment keeps them: a file under a cache directory is told
+ * as that directory (`node_modules/`), every other path as itself.
+ *
+ * The crate reports one entry per file, and a cloned `node_modules` is tens of thousands of them.
+ * Kept whole, that list rode in every worktree response and event: megabytes per worktree.
+ */
+export function copiedRoots(paths: string[], caches: CacheRule[]): string[] {
+  const isCache = caches.map((rule) => picomatch(rule.path.replace(/\/(\*\*)?$/, ''), { dot: true }))
+  const known = new Map<string, boolean>()
+  const matches = (dir: string): boolean => {
+    let hit = known.get(dir)
+    if (hit === undefined) {
+      hit = isCache.some((match) => match(dir))
+      known.set(dir, hit)
+    }
+    return hit
+  }
+  const roots = new Set<string>()
+  for (const path of paths) {
+    let root = path
+    for (let slash = path.indexOf('/'); slash !== -1; slash = path.indexOf('/', slash + 1)) {
+      if (matches(path.slice(0, slash))) {
+        root = path.slice(0, slash + 1)
+        break
+      }
+    }
+    roots.add(root)
+  }
+  return [...roots]
 }
 
 /** `run --control`, `--env` on every service command, bare `--env KEY` and resumable logs arrived in canopyd 0.2.0. */
