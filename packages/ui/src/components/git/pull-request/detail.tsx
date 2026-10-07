@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Download, ExternalLink, GitMerge, GitPullRequestDraft, MessageSquareText, MoreHorizontal, RotateCw, Send, Upload, Users } from 'lucide-react'
+import { Download, GitMerge, GitPullRequestDraft, MessageSquareText, MoreHorizontal, RotateCw, Send, Upload, Users } from 'lucide-react'
 
 import type { ChangedFile, DiffSpec, PullRequest, PullRequestAction, PullRequestResponse, ReviewComment, Worktree } from '@canopy/shared'
 
@@ -19,7 +19,6 @@ import { cn } from '@/lib/utils'
 import { CommitDetail } from '../commit-detail'
 import { CommitList } from '../commit-list'
 import { DiffExplorer, type ExplorerFocus } from '../diff-explorer'
-import { ReviewToolbar } from '../review-toolbar'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
 import { SidePicker } from './pickers'
 import { CHECK_ICON, Empty, GitHubAvatar, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
@@ -70,80 +69,86 @@ export function PullRequestDetail({
     action.mutate(next, { onSuccess: (result) => setNotice(result.message) })
   }
 
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <Header pr={pr} host={data.gh.host} refreshing={refreshing} onRefresh={onRefresh} />
+  const actions = (
+    <>
+      {open && pr.draft ? (
+        <Button variant="outline" size="sm" className="h-7 text-xs" disabled={action.isPending} onClick={() => run({ kind: 'ready', ready: true })}>
+          Ready for review
+        </Button>
+      ) : null}
+      {open ? (
+        <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => setReviewing(true)}>
+          <MessageSquareText />
+          Review
+        </Button>
+      ) : null}
+      {open ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span>
+              <Button size="sm" className="h-7 text-xs" disabled={!data.canMerge} onClick={() => setMerging(true)}>
+                <GitMerge />
+                {pr.autoMerge ? 'Auto-merge on' : 'Merge'}
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>{data.canMerge ? (MERGE_STATE[pr.mergeState] ?? MERGE_STATE.UNKNOWN!).hint : 'You do not have permission to merge in this repository.'}</TooltipContent>
+        </Tooltip>
+      ) : null}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon" className="size-7" aria-label="More pull request actions" disabled={action.isPending}>
+            <MoreHorizontal />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {open && !pr.draft ? (
+            <DropdownMenuItem onSelect={() => run({ kind: 'ready', ready: false })}>
+              <GitPullRequestDraft /> Convert to draft
+            </DropdownMenuItem>
+          ) : null}
+          {pr.checks.some((check) => check.outcome === 'fail') ? (
+            <DropdownMenuItem onSelect={() => run({ kind: 'rerun' })}>
+              <RotateCw /> Re-run failed checks
+            </DropdownMenuItem>
+          ) : null}
+          {open ? <DropdownMenuSeparator /> : null}
+          {open ? (
+            <DropdownMenuItem variant="destructive" onSelect={() => run({ kind: 'close' })}>
+              Close pull request
+            </DropdownMenuItem>
+          ) : pr.state === 'CLOSED' ? (
+            <DropdownMenuItem onSelect={() => run({ kind: 'reopen' })}>Reopen pull request</DropdownMenuItem>
+          ) : (
+            <DropdownMenuItem disabled>Merged — nothing to do</DropdownMenuItem>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </>
+  )
 
-      <div className="flex flex-wrap items-center gap-2">
-        <SegmentedControl value={view} onValueChange={(value) => setView(value as View)} aria-label="Pull request view">
+  return (
+    <div className="@container flex min-h-0 flex-1 flex-col">
+      <Header pr={pr} host={data.gh.host} refreshing={refreshing} onRefresh={onRefresh} actions={actions}>
+        <SegmentedControl value={view} onValueChange={(value) => setView(value as View)} aria-label="Pull request view" className="shrink-0 text-xs">
           <SegmentedControlOption value="overview">Overview</SegmentedControlOption>
           <SegmentedControlOption value="commits">Commits · {pr.commitLog.length}</SegmentedControlOption>
-          <SegmentedControlOption value="files">Files changed · {pr.changedFiles}</SegmentedControlOption>
+          <SegmentedControlOption value="files">Files · {pr.changedFiles}</SegmentedControlOption>
         </SegmentedControl>
-        <div className="ml-auto flex items-center gap-2">
-          {open && pr.draft ? (
-            <Button variant="outline" size="sm" className="h-8" disabled={action.isPending} onClick={() => run({ kind: 'ready', ready: true })}>
-              Ready for review
-            </Button>
-          ) : null}
-          {open ? (
-            <Button variant="outline" size="sm" className="h-8" onClick={() => setReviewing(true)}>
-              <MessageSquareText />
-              Review
-            </Button>
-          ) : null}
-          {open ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span>
-                  <Button size="sm" className="h-8" disabled={!data.canMerge} onClick={() => setMerging(true)}>
-                    <GitMerge />
-                    {pr.autoMerge ? 'Auto-merge on' : 'Merge'}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{data.canMerge ? (MERGE_STATE[pr.mergeState] ?? MERGE_STATE.UNKNOWN!).hint : 'You do not have permission to merge in this repository.'}</TooltipContent>
-            </Tooltip>
-          ) : null}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="size-8" aria-label="More pull request actions" disabled={action.isPending}>
-                <MoreHorizontal />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
-              {open && !pr.draft ? (
-                <DropdownMenuItem onSelect={() => run({ kind: 'ready', ready: false })}>
-                  <GitPullRequestDraft /> Convert to draft
-                </DropdownMenuItem>
-              ) : null}
-              {pr.checks.some((check) => check.outcome === 'fail') ? (
-                <DropdownMenuItem onSelect={() => run({ kind: 'rerun' })}>
-                  <RotateCw /> Re-run failed checks
-                </DropdownMenuItem>
-              ) : null}
-              {open ? <DropdownMenuSeparator /> : null}
-              {open ? (
-                <DropdownMenuItem variant="destructive" onSelect={() => run({ kind: 'close' })}>
-                  Close pull request
-                </DropdownMenuItem>
-              ) : pr.state === 'CLOSED' ? (
-                <DropdownMenuItem onSelect={() => run({ kind: 'reopen' })}>Reopen pull request</DropdownMenuItem>
-              ) : (
-                <DropdownMenuItem disabled>Merged — nothing to do</DropdownMenuItem>
-              )}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+      </Header>
+
+      <div className="flex flex-col gap-2 px-6 pt-3 empty:hidden">
+        {action.isPending ? <p className="font-mono text-xs text-muted-foreground">Asking GitHub…</p> : null}
+        {notice ? <p className="text-xs text-emerald-600 dark:text-emerald-500">{notice}</p> : null}
+        {action.error ? <ErrorNote error={action.error} /> : null}
+        {open ? <LocalWork worktree={worktree} pr={pr} data={data} onOpenChanges={onOpenChanges} /> : null}
       </div>
 
-      {action.isPending ? <p className="font-mono text-xs text-muted-foreground">Asking GitHub…</p> : null}
-      {notice ? <p className="text-xs text-emerald-600 dark:text-emerald-500">{notice}</p> : null}
-      <ErrorNote error={action.error} />
-
-      {open ? <LocalWork worktree={worktree} pr={pr} data={data} onOpenChanges={onOpenChanges} /> : null}
-
-      {view === 'overview' ? <Overview worktreeId={worktree.id} pr={pr} host={data.gh.host} onRun={run} running={action.isPending} /> : null}
+      {view === 'overview' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          <Overview worktreeId={worktree.id} pr={pr} host={data.gh.host} onRun={run} running={action.isPending} />
+        </div>
+      ) : null}
       {view === 'commits' ? <CommitsView worktreeId={worktree.id} pr={pr} review={review} /> : null}
       {view === 'files' ? <FilesView worktreeId={worktree.id} pr={pr} review={review} githubComments={githubComments} focus={focus} /> : null}
 
@@ -153,8 +158,26 @@ export function PullRequestDetail({
   )
 }
 
-function Header({ pr, host, refreshing, onRefresh }: { pr: PullRequest; host: string | null; refreshing: boolean; onRefresh: () => void }): React.JSX.Element {
-  const open = useExternalLink()
+/**
+ * The PR in one row: its state, title and who is merging what where, its size, the view switch
+ * and the actions GitHub offers. Opening it on GitHub is the top bar's primary action.
+ */
+function Header({
+  pr,
+  host,
+  refreshing,
+  onRefresh,
+  actions,
+  children
+}: {
+  pr: PullRequest
+  host: string | null
+  refreshing: boolean
+  onRefresh: () => void
+  actions: React.ReactNode
+  /** The view switch, placed between the PR's size and its actions. */
+  children: React.ReactNode
+}): React.JSX.Element {
   const look = stateLook(pr)
   const facts = [
     pr.state === 'OPEN' ? (pr.reviewDecision ? (REVIEW_LABEL[pr.reviewDecision] ?? pr.reviewDecision) : 'No review required') : null,
@@ -163,51 +186,44 @@ function Header({ pr, host, refreshing, onRefresh }: { pr: PullRequest; host: st
   ].filter((fact): fact is string => Boolean(fact))
 
   return (
-    <header className="flex flex-col gap-2">
-      <div className="flex items-start gap-3">
-        <h3 className="min-w-0 flex-1 text-base font-medium">
-          {pr.title} <span className="font-normal text-muted-foreground">#{pr.number}</span>
-        </h3>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-8 shrink-0" aria-label="Refresh" disabled={refreshing} onClick={onRefresh}>
-              <RotateCw className={cn(refreshing && 'animate-spin')} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>Read it from GitHub again</TooltipContent>
-        </Tooltip>
-        <Button variant="outline" size="sm" className="h-8 shrink-0" asChild>
-          <a href={pr.url} target="_blank" rel="noreferrer" onClick={open(pr.url)}>
-            <ExternalLink />
-            Open on GitHub
-          </a>
-        </Button>
-      </div>
-      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <Badge className={look.className}>
-          <look.Icon />
-          {look.label}
-        </Badge>
-        <span className="inline-flex items-center gap-1.5">
-          <GitHubAvatar login={pr.author} host={host} className="size-4 rounded-full" />
-          <span className="text-foreground">{pr.author}</span> {pr.state === 'MERGED' ? 'merged' : 'wants to merge'} {plural(pr.commits, 'commit')} into{' '}
-          <span className="font-mono">{pr.baseBranch}</span> from <span className="font-mono">{pr.headBranch}</span>
-        </span>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span>· updated {relativeTime(at(pr.updatedAt))}</span>
-          </TooltipTrigger>
-          <TooltipContent>{absoluteTime(at(pr.updatedAt))}</TooltipContent>
-        </Tooltip>
-      </p>
-      <p className="flex flex-wrap items-center gap-x-3 font-mono text-[11px] text-muted-foreground">
+    <header className="flex shrink-0 items-center gap-2.5 overflow-hidden border-b border-border py-2 ps-6 pe-3 whitespace-nowrap">
+      <Badge className={cn('shrink-0', look.className)}>
+        <look.Icon />
+        {look.label}
+      </Badge>
+      <h3 className="min-w-0 shrink truncate text-sm font-semibold">
+        {pr.title} <span className="font-normal text-muted-foreground">#{pr.number}</span>
+      </h3>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="hidden min-w-0 flex-1 items-center gap-1.5 truncate text-xs text-muted-foreground @5xl:inline-flex">
+            <GitHubAvatar login={pr.author} host={host} className="size-4 shrink-0 rounded-full" />
+            <span className="truncate">
+              <span className="text-foreground">{pr.author}</span> {pr.state === 'MERGED' ? 'merged' : 'wants to merge'} {plural(pr.commits, 'commit')} into{' '}
+              <span className="font-mono">{pr.baseBranch}</span> from <span className="font-mono">{pr.headBranch}</span> · updated {relativeTime(at(pr.updatedAt))}
+              {facts.map((fact) => ` · ${fact}`).join('')}
+            </span>
+          </span>
+        </TooltipTrigger>
+        <TooltipContent>
+          {absoluteTime(at(pr.updatedAt))}
+          {facts.length ? ` · ${facts.join(' · ')}` : ''}
+        </TooltipContent>
+      </Tooltip>
+      <span className="ms-auto flex shrink-0 items-center gap-2 font-mono text-[11px]">
         <span className="text-emerald-600 dark:text-emerald-500">+{pr.additions}</span>
         <span className="text-destructive">−{pr.deletions}</span>
-        <span>{plural(pr.changedFiles, 'file')}</span>
-        {facts.map((fact) => (
-          <span key={fact}>· {fact}</span>
-        ))}
-      </p>
+      </span>
+      {children}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button variant="ghost" size="icon" className="size-7 shrink-0" aria-label="Refresh" disabled={refreshing} onClick={onRefresh}>
+            <RotateCw className={cn(refreshing && 'animate-spin')} />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Read it from GitHub again</TooltipContent>
+      </Tooltip>
+      <span className="flex shrink-0 items-center gap-1.5">{actions}</span>
     </header>
   )
 }
@@ -282,10 +298,7 @@ function LocalWork({ worktree, pr, data, onOpenChanges }: { worktree: Worktree; 
             {plural(pr.missingCommits.length, 'commit')} in the pull request {pr.missingCommits.length === 1 ? 'is' : 'are'} not in this checkout. Fetch to read {pr.missingCommits.length === 1 ? 'its' : 'their'}{' '}
             diff; no branch moves.
           </span>
-          <Button size="sm" variant="outline" className="h-7" disabled={fetch.isPending} onClick={() => fetch.mutate()}>
-            {fetch.isPending ? <RotateCw className="animate-spin" /> : <Download />}
-            {fetch.isPending ? 'Fetching…' : 'Fetch'}
-          </Button>
+          <FetchButton pending={fetch.isPending} onFetch={() => fetch.mutate()} />
         </div>
       ) : behind > 0 ? (
         <p className="text-sm">
@@ -294,6 +307,28 @@ function LocalWork({ worktree, pr, data, onOpenChanges }: { worktree: Worktree; 
       ) : null}
       <ErrorNote error={fetch.error} />
     </section>
+  )
+}
+
+/** Brings the PR's commits into this checkout — a fetch only, no branch moves. */
+function FetchButton({ pending, onFetch }: { pending: boolean; onFetch: () => void }): React.JSX.Element {
+  return (
+    <Button size="sm" variant="outline" className="h-7" disabled={pending} onClick={onFetch}>
+      {pending ? <RotateCw className="animate-spin" /> : <Download />}
+      {pending ? 'Fetching…' : 'Fetch'}
+    </Button>
+  )
+}
+
+/** A diff that waits on commits this checkout lacks, with the fetch that brings them right there. */
+function NeedsFetch({ worktreeId, children }: { worktreeId: string; children: React.ReactNode }): React.JSX.Element {
+  const fetch = useFetchPullRequest(worktreeId)
+  return (
+    <div className="flex flex-col items-start gap-2 p-4">
+      <p className="text-sm text-muted-foreground">{children}</p>
+      <FetchButton pending={fetch.isPending} onFetch={() => fetch.mutate()} />
+      <ErrorNote error={fetch.error} />
+    </div>
   )
 }
 
@@ -544,7 +579,7 @@ function CommitsView({ worktreeId, pr, review }: { worktreeId: string; pr: PullR
 
   if (commits.length === 0) return <Empty>No commits in this pull request.</Empty>
   return (
-    <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border">
+    <div className="min-h-0 flex-1 overflow-hidden">
       <SplitView orientation={SplitViewOrientation.Horizontal} className="h-full">
         <SplitViewPanel id="pr-commits" defaultSize={32} minSize={20} className="min-h-0 border-r border-border bg-card">
           <CommitList commits={commits} selected={current} onSelect={setSelected} hasMore={false} loadingMore={false} onLoadMore={() => undefined} />
@@ -552,7 +587,7 @@ function CommitsView({ worktreeId, pr, review }: { worktreeId: string; pr: PullR
         <SplitViewSeparator />
         <SplitViewPanel id="pr-commit-detail" minSize={40} className="min-h-0">
           {current && missing.has(current) ? (
-            <p className="p-4 text-sm text-muted-foreground">This commit is not in this checkout yet. Fetch the pull request (above) to read its diff.</p>
+            <NeedsFetch worktreeId={worktreeId}>This commit is not in this checkout yet. Fetch the pull request to read its diff.</NeedsFetch>
           ) : current ? (
             <CommitDetail worktreeId={worktreeId} sha={current} {...review} />
           ) : null}
@@ -570,7 +605,7 @@ function FilesView({ worktreeId, pr, review, githubComments, focus }: { worktree
   const range = pr.filesRange
   const spec: DiffSpec = range ? { kind: 'trees', before: range.before, after: range.after } : WORKING_TREE
   const diff = useDiffFiles(worktreeId, spec)
-  if (!range) return <Empty>This checkout does not have the pull request’s head or its target yet. Fetch the pull request (above) to read its diff.</Empty>
+  if (!range) return <NeedsFetch worktreeId={worktreeId}>This checkout does not have the pull request’s head or its target yet. Fetch the pull request to read its diff.</NeedsFetch>
   if (diff.isPending) return <p className="p-4 font-mono text-xs text-muted-foreground">Reading the diff…</p>
   if (diff.error) return <ErrorNote error={diff.error} />
   const files: ChangedFile[] = diff.data && 'files' in diff.data ? diff.data.files : []
@@ -578,10 +613,5 @@ function FilesView({ worktreeId, pr, review, githubComments, focus }: { worktree
   // GitHub's threads sit on their lines beside the local comments; they count as sent, so the
   // toolbar's unsent tally and the review dialog leave them alone.
   const shown = [...comments, ...githubComments]
-  return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <ReviewToolbar files={files} comments={shown} mode={review.mode} onModeChange={review.onModeChange} onSendForReview={review.onSendForReview} sending={review.sending} />
-      <DiffExplorer worktreeId={worktreeId} spec={spec} files={files} comments={shown} mode={review.mode} focus={focus} className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border" />
-    </div>
-  )
+  return <DiffExplorer worktreeId={worktreeId} spec={spec} files={files} comments={shown} mode={review.mode} focus={focus} className="min-h-0 flex-1 overflow-hidden" />
 }

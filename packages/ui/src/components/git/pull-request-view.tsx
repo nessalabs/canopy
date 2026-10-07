@@ -44,21 +44,33 @@ export function PullRequestView({
   const refresh = useRefreshPullRequest(worktree.id)
   const data = query.data
 
-  if (query.isPending) return <Loading />
-  if (query.error || !data) {
-    return (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-border py-10">
-        <ErrorNote error={query.error ?? new Error('No answer from the daemon.')} />
-        <Button variant="outline" size="sm" disabled={query.isFetching} onClick={() => void query.refetch()}>
-          <RotateCw className={cn(query.isFetching && 'animate-spin')} />
-          Try again
-        </Button>
-      </div>
-    )
+  /** Everything short of a PR to show: loading, setup, a reason there is none, or the form to open one. */
+  const page = (): React.JSX.Element => {
+    if (query.isPending) return <Loading />
+    if (query.error || !data) {
+      return (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-border py-10">
+          <ErrorNote error={query.error ?? new Error('No answer from the daemon.')} />
+          <Button variant="outline" size="sm" disabled={query.isFetching} onClick={() => void query.refetch()}>
+            <RotateCw className={cn(query.isFetching && 'animate-spin')} />
+            Try again
+          </Button>
+        </div>
+      )
+    }
+    if (data.gh.state !== 'ready') return <GhSetup status={data.gh} checking={query.isFetching || refresh.isPending} onCheck={() => refresh.mutate()} />
+    if (!data.branch) return <Empty>This worktree is on a detached HEAD. Check out a branch to open a pull request from it.</Empty>
+    if (data.branch === data.baseBranch) {
+      return (
+        <Empty>
+          This checkout is on <span className="font-mono text-foreground">{data.branch}</span>, the base branch. Pull requests are opened from the worktrees cut from it.
+        </Empty>
+      )
+    }
+    return <CreatePullRequest worktree={worktree} data={data} />
   }
-  if (data.gh.state !== 'ready') return <GhSetup status={data.gh} checking={query.isFetching || refresh.isPending} onCheck={() => refresh.mutate()} />
-  if (!data.branch) return <Empty>This worktree is on a detached HEAD. Check out a branch to open a pull request from it.</Empty>
-  if (data.pr) {
+
+  if (data?.pr && data.gh.state === 'ready' && data.branch) {
     return (
       <PullRequestDetail
         worktree={worktree}
@@ -73,14 +85,8 @@ export function PullRequestView({
       />
     )
   }
-  if (data.branch === data.baseBranch) {
-    return (
-      <Empty>
-        This checkout is on <span className="font-mono text-foreground">{data.branch}</span>, the base branch. Pull requests are opened from the worktrees cut from it.
-      </Empty>
-    )
-  }
-  return <CreatePullRequest worktree={worktree} data={data} />
+  // A page of its own, padded off the bar's edges; the PR itself runs edge to edge.
+  return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">{page()}</div>
 }
 
 /** The PR page's outline while GitHub answers, so the pane lands at once and fills in. */

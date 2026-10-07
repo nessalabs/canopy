@@ -2,19 +2,18 @@ import { useState } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 import { useLocation } from 'wouter'
 
-import { isLive, type Worktree } from '@canopy/shared'
+import type { Worktree } from '@canopy/shared'
 
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
-import { useOpenWorktree, useProvisionWorktree, useWorktreeLifecycle } from '@/lib/api-hooks'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
 import { DestroyWorktreeDialog } from './destroy-worktree-dialog'
-import { useToolLabels, WORKTREE_BUSY_STATES } from './worktree-actions'
+import { WorktreeMenuItems } from './worktree-actions'
 
 /**
  * The overflow menu a worktree gets where there is no room for its full action row — the
- * sidebar, for one. Lifecycle, the configured editor and terminal, and destroy, which opens
- * the same confirmation the dashboard uses. Leaving the worktree that is on screen sends the
+ * sidebar, for one. The same items as the status bar's branch menu; destroy opens the same
+ * confirmation the dashboard uses. Leaving the worktree that is on screen sends the
  * reader home rather than to a dashboard for something that no longer exists.
  */
 /**
@@ -29,20 +28,6 @@ const REVEAL_ON_HOVER =
 export function WorktreeMenu({ worktree, revealOnHover = false, className }: { worktree: Worktree; revealOnHover?: boolean; className?: string }): React.JSX.Element {
   const [location, navigate] = useLocation()
   const [destroyOpen, setDestroyOpen] = useState(false)
-  const env = worktree.environment
-  const lifecycle = useWorktreeLifecycle(worktree.id)
-  const provision = useProvisionWorktree(worktree.id)
-  const open = useOpenWorktree(worktree.id)
-  const { editor, terminal } = useToolLabels()
-
-  const busy = WORKTREE_BUSY_STATES.includes(env.state) || lifecycle.isPending || provision.isPending
-  const live = isLive(env.state)
-  const startable = !busy && (env.state === 'stopped' || env.state === 'error' || (env.state === 'none' && env.configured))
-  const start = (): void => {
-    if (env.state === 'none') provision.mutate({ autoStart: true })
-    else lifecycle.mutate('start')
-  }
-
   return (
     <>
       <DropdownMenu>
@@ -59,24 +44,7 @@ export function WorktreeMenu({ worktree, revealOnHover = false, className }: { w
           <MoreHorizontal className="size-3.5" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" onClick={(event) => event.stopPropagation()}>
-          {startable ? <DropdownMenuItem onSelect={start}>{env.state === 'none' ? 'Provision & start' : 'Start'}</DropdownMenuItem> : null}
-          {live ? (
-            <>
-              <DropdownMenuItem disabled={busy} onSelect={() => lifecycle.mutate('stop')}>
-                Stop
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={busy} onSelect={() => lifecycle.mutate('restart')}>
-                Restart
-              </DropdownMenuItem>
-            </>
-          ) : null}
-          {startable || live ? <DropdownMenuSeparator /> : null}
-          <DropdownMenuItem onSelect={() => open.mutate({ target: 'editor' })}>Open in {editor}</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => open.mutate({ target: 'terminal' })}>Open in {terminal}</DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" disabled={worktree.isMain || busy} onSelect={() => setDestroyOpen(true)}>
-            Destroy worktree…
-          </DropdownMenuItem>
+          <WorktreeMenuItems worktree={worktree} onDestroy={() => setDestroyOpen(true)} />
         </DropdownMenuContent>
       </DropdownMenu>
       <DestroyWorktreeDialog

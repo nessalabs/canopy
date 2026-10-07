@@ -1,26 +1,29 @@
 import { useMemo, useState } from 'react'
 import { FileDiff, MessageSquare, Users } from 'lucide-react'
 
-import type { RewindResult, SessionOrigin, SessionRef, Worktree } from '@canopy/shared'
+import type { RewindResult, SessionRef, Worktree } from '@canopy/shared'
 import type { Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
-import { ErrorNote } from '@/components/error-note'
 import { PanelShell, type PanelDef, type PanelRequest } from '@/components/panel-shell'
+import { ShellSlot } from '@/components/shell-slots'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useIsMobile } from '@/components/ui/sidebar/sidebar-provider'
 import { useAgentEdits, useDiffFiles, useProviders, useWorktrees } from '@/lib/api-hooks'
 import { PaneSplitDirection, createAppShellLayout, setSplitWeights, splitPane, type AppShellLayout } from '@/lib/app-shell-layout'
 import { NO_MESSAGE_ID, rewindInputFor } from '@/lib/rewind'
+import { parseSessionPanelId, sessionPanelId } from '@/lib/session-panels'
 import { filesByTurn, mergeTurns, resolveTurn, snapshotsByTurn, type Checkout, type TurnEntry, type TurnPick } from '@/lib/turn-changes'
 import { useTranscriptModel } from '@/lib/use-transcript-model'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
-import { AgentComposer } from './composer'
+import { Conversation } from './conversation'
 import { NewSessionButton } from './new-session-button'
 import { RewindDialog } from './rewind-dialog'
-import { SessionRail } from './session-rail'
-import { TranscriptView, type TurnWrites } from './transcript'
+import { ProviderIcon } from './provider-icon'
+import { SessionPane } from './session-pane'
+import { SessionRail, sessionTitle } from './session-rail'
+import type { TurnWrites } from './transcript'
 import { TurnChanges, type TurnReview } from './turn-changes'
 
 const LAYOUT_KEY = 'canopy-agent-layout-v3'
@@ -34,40 +37,6 @@ function buildAgentLayout(): AppShellLayout {
   const layout = createAppShellLayout({ initialPaneId: 'pane-sessions', views: ['sessions'], openDocks: [] })
   const split = splitPane(layout, { paneId: 'pane-sessions', direction: PaneSplitDirection.Right, newPaneId: 'pane-conversation', views: ['conversation'] })
   return setSplitWeights(split, { splitId: 'split:pane-conversation', weights: [0.25, 0.75] })
-}
-
-function emptyMessage(agent: WorktreeAgent, worktree: Worktree): string {
-  if (agent.fresh) return `New ${agent.fresh === 'claude' ? 'Claude Code' : 'Codex'} session in ${worktree.path}. Your first message starts it.`
-  if (agent.loading) return 'Looking for agent sessions that ran in this worktree…'
-  if (agent.sessions.length === 0) {
-    const none = `No Claude Code or Codex session has run in ${worktree.path} yet. Start one there and it shows up here.`
-    if (agent.elsewhere.length === 0) return none
-    // The usual case for a fresh worktree: the conversation about its branch happened in the main checkout.
-    const onBranch = worktree.branch ? agent.elsewhere.filter((s) => s.gitBranch === worktree.branch).length : 0
-    if (onBranch > 0) return `${none} ${onBranch === 1 ? 'One session' : `${onBranch} sessions`} in the main checkout worked on ${worktree.branch}; pick one under Sessions to read or continue it.`
-    return worktree.isMain ? `${none} Sessions from this project's other checkouts are listed under Sessions.` : `${none} The main checkout's sessions are listed under Sessions.`
-  }
-  if (agent.history.isPending) return 'Loading transcript…'
-  return 'No conversation yet. Comment on the changes in the Git tab and send them for review, or ask the agent something about this worktree.'
-}
-
-/** Where a session from another checkout ran, and where a message to it will run. */
-function OriginNote({ origin }: { origin: SessionOrigin }): React.JSX.Element {
-  const where = origin.kind === 'main' ? 'the main checkout' : origin.name
-  return (
-    <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-      {origin.kind === 'removed' ? (
-        <>
-          This session ran in <span className="font-mono">{origin.path}</span>, which has been removed. Its transcript is kept; a message continues it in{' '}
-          <span className="font-mono">{origin.runIn}</span>.
-        </>
-      ) : (
-        <>
-          This session ran in {where} (<span className="font-mono">{origin.path}</span>). A message continues it there.
-        </>
-      )}
-    </p>
-  )
 }
 
 const promptOf = (turn: Turn | undefined): string =>
@@ -164,6 +133,17 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     setRewindOpen(true)
   }
 
+  // Sessions opened beside the main conversation are panels made on demand, one per session.
+  const everySession = [...agent.sessions, ...agent.elsewhere]
+  const changedFiles = changes.data?.files ?? []
+  const sessionPanel = (viewId: string): PanelDef | undefined => {
+    const ref = parseSessionPanelId(viewId)
+    const summary = ref && everySession.find((s) => s.provider === ref.provider && s.sessionId === ref.sessionId)
+    if (!ref) return undefined
+    return { id: viewId, title: summary ? sessionTitle(summary) : ref.sessionId.slice(0, 8), icon: MessageSquare, render: () => <SessionPane worktree={worktree} session={ref} changedFiles={changedFiles} /> }
+  }
+  const openBeside = (ref: SessionRef): void => setRequest({ id: sessionPanelId(ref), action: 'open', nonce: Date.now() })
+
   // Text quoted out of the transcript, on its way to the composer, which clears it once it is a chip.
   // The id makes a repeat quote of the same passage its own request rather than a no-op.
   const [quote, setQuote] = useState<{ id: number; text: string }>()
@@ -174,19 +154,15 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
       title: 'Sessions',
       icon: Users,
       render: () => (
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="flex justify-end border-b border-border px-2 py-1">
-            <NewSessionButton providers={providers.data ?? []} active={agent.fresh} onStart={agent.startSession} disabled={agent.turn.busy} />
-          </div>
-          <SessionRail
-            sessions={agent.sessions}
-            elsewhere={agent.elsewhere}
-            branch={worktree.branch}
-            selected={agent.selected}
-            onSelect={agent.select}
-            className="min-h-0 flex-1"
-          />
-        </div>
+        <SessionRail
+          sessions={agent.sessions}
+          elsewhere={agent.elsewhere}
+          branch={worktree.branch}
+          selected={agent.selected}
+          onSelect={agent.select}
+          onOpenBeside={mobile ? undefined : openBeside}
+          className="h-full min-h-0"
+        />
       )
     },
     {
@@ -194,42 +170,21 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
       title: 'Conversation',
       icon: MessageSquare,
       render: () => (
-        <div className="flex h-full min-h-0 flex-col gap-2 p-2">
-          <ErrorNote error={agent.error ?? agent.history.error ?? agent.turn.error} />
-          {agent.selected?.origin ? <OriginNote origin={agent.selected.origin} /> : null}
-          <TranscriptView
-            transcript={model.transcript}
-            previews={model.previews}
-            extras={model.extras}
-            pending={agent.turn.pending}
-            queued={agent.turn.queued}
-            streamingText={agent.turn.streamingText}
-            activity={agent.turn.activity}
-            startedAt={agent.turn.startedAt}
-            tokens={agent.turn.tokens}
-            usage={agent.turn.usage}
-            avatarSeed={agent.selected?.sessionId ?? worktree.id}
-            capabilities={agent.capabilities}
-            emptyMessage={emptyMessage(agent, worktree)}
-            writesByTurn={writesByTurn}
-            openInTerminal={agent.history.data?.openInTerminal}
-            onReviewTurn={show}
-            onRewindTurn={sessionRef && !removed ? askRewind : undefined}
-            onAnswerPermission={agent.turn.answerPermission}
-            onPickModel={agent.setModel}
-            onQuote={(text) => setQuote({ id: Date.now(), text })}
-            className="min-h-0 flex-1"
-          />
-          <AgentComposer
-            agent={agent}
-            changedFiles={changes.data?.files ?? []}
-            placeholder={`Ask the agent about ${worktree.branch ?? worktree.name}`}
-            latestChanges={{ count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }}
-            quote={quote}
-            onQuoteStaged={() => setQuote(undefined)}
-            context={model.context}
-          />
-        </div>
+        <Conversation
+          worktree={worktree}
+          agent={agent}
+          model={model}
+          changedFiles={changes.data?.files ?? []}
+          changes={{
+            writesByTurn,
+            onReviewTurn: show,
+            onRewindTurn: sessionRef && !removed ? askRewind : undefined,
+            latestChanges: { count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }
+          }}
+          quote={quote}
+          onQuote={(text) => setQuote({ id: Date.now(), text })}
+          onQuoteStaged={() => setQuote(undefined)}
+        />
       )
     },
     {
@@ -266,11 +221,30 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     />
   )
 
+  // The top bar names the conversation on screen, as Git's tabs name its view.
+  const provider = agent.selected?.provider ?? agent.fresh
+  const chrome = (
+    <>
+      {provider ? (
+        <ShellSlot name="view">
+          <span className="flex min-w-0 items-center gap-2 text-sm">
+            <ProviderIcon provider={provider} className="size-4 shrink-0" />
+            <span className="truncate font-medium">{agent.selected ? sessionTitle(agent.selected) : 'New session'}</span>
+          </span>
+        </ShellSlot>
+      ) : null}
+      <ShellSlot name="actions">
+        <NewSessionButton providers={providers.data ?? []} active={agent.fresh} onStart={agent.startSession} disabled={agent.turn.busy} />
+      </ShellSlot>
+    </>
+  )
+
   if (mobile) {
     const current = panels.find((panel) => panel.id === mobilePanel) ?? panels[1]
     return (
-      <div className="flex min-h-0 flex-1 flex-col gap-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 p-2">
         {rewindDialog}
+        {chrome}
         <SegmentedControl value={mobilePanel} onValueChange={(value) => setMobilePanel(value as PanelId)} aria-label="Agent panel" className="w-full">
           {panels.map((panel) => (
             <SegmentedControlOption key={panel.id} value={panel.id} className="flex-1">
@@ -286,7 +260,22 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   return (
     <>
       {rewindDialog}
-      <PanelShell storageKey={LAYOUT_KEY} buildDefaultLayout={buildAgentLayout} panels={panels} request={request} onVisibleChange={setVisible} className="min-h-0 flex-1" />
+      {chrome}
+      <PanelShell
+        storageKey={LAYOUT_KEY}
+        buildDefaultLayout={buildAgentLayout}
+        panels={panels}
+        resolvePanel={sessionPanel}
+        renderEmpty={(place) => (
+          <div className="flex h-full min-h-0 flex-col">
+            <p className="px-4 pt-3 text-xs text-muted-foreground">Open a session here — or drag one in from Sessions.</p>
+            <SessionRail sessions={agent.sessions} elsewhere={agent.elsewhere} branch={worktree.branch} onSelect={(ref) => place(sessionPanelId(ref))} className="min-h-0 flex-1" />
+          </div>
+        )}
+        request={request}
+        onVisibleChange={setVisible}
+        className="min-h-0 flex-1 rounded-none border-0"
+      />
     </>
   )
 }

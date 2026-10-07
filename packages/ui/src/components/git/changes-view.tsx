@@ -1,22 +1,18 @@
 import { useMemo, useState } from 'react'
-import { ArrowDown, ArrowUp, GitCommitHorizontal } from 'lucide-react'
 
 import type { Against, ChangedFile, ChangesResponse, ExcludeMethod, ReviewComment, Worktree } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ContextMenuItem, ContextMenuSeparator } from '@/components/ui/context-menu'
-import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useDiffFiles, useExclude, useStage } from '@/lib/api-hooks'
 import { checkStateOf, dirCheckStates, filesUnder, type CheckState } from '@/lib/commit-selection'
 import { treeFromPaths, type FlatRow } from '@/lib/file-tree'
-import { plural, relativeTime } from '@/lib/format'
 
 import { CommitBox } from './commit-box'
-import { DiffExplorer, type ExplorerFocus } from './diff-explorer'
+import { DiffExplorer, FilesSummary, type ExplorerFocus } from './diff-explorer'
 import type { CommitSelection } from './file-tree'
 import { HiddenPaths } from './hidden-paths'
-import { ReviewToolbar } from './review-toolbar'
 
 /** Stable stand-in while the list is loading, so the memos below do not rebuild every render. */
 const EMPTY_FILES: ChangedFile[] = []
@@ -125,78 +121,37 @@ function useCommitPanel(worktreeId: string, changes: ChangesResponse | undefined
   return { selection, allState, toggleAll, error: stage.error ?? exclude.error }
 }
 
+/**
+ * The working tree's changes against HEAD — with the commit panel — or against the base. What it
+ * compares against, the diff layout and the Commit action live in the top bar.
+ */
 export function ChangesView({
   worktree,
   comments,
   mode,
-  onModeChange,
-  onSendForReview,
-  sending,
   focus,
-  initialAgainst
+  against
 }: {
   worktree: Worktree
   comments: ReviewComment[]
   mode: DiffMode
-  onModeChange: (mode: DiffMode) => void
-  onSendForReview: () => void
-  sending: boolean
   focus?: ExplorerFocus
-  /** What to compare against first; a link can open straight onto `vs <base>`. */
-  initialAgainst?: Against
+  against: Against
 }): React.JSX.Element {
-  const [against, setAgainst] = useState<Against>(initialAgainst ?? 'head')
   const spec = { kind: 'worktree', against } as const
   const changes = useDiffFiles(worktree.id, spec)
   const listed = changes.data as ChangesResponse | undefined
   const files: ChangedFile[] = listed?.files ?? []
-  const last = worktree.status?.lastCommit
   const uncommitted = comments.filter((comment) => !comment.commitSha)
   const panel = useCommitPanel(worktree.id, listed, against === 'head')
+  const status = (message: string, tone = 'text-muted-foreground'): React.JSX.Element => <p className={`px-4 py-3 font-mono text-xs ${tone}`}>{message}</p>
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-3">
-      <ReviewToolbar files={files} comments={uncommitted} mode={mode} onModeChange={onModeChange} onSendForReview={onSendForReview} sending={sending}>
-        <SegmentedControl value={against} onValueChange={(value) => setAgainst(value as Against)} aria-label="Compare against">
-          <SegmentedControlOption value="head">vs HEAD</SegmentedControlOption>
-          <SegmentedControlOption value="base">vs {worktree.baseBranch}</SegmentedControlOption>
-        </SegmentedControl>
-        {panel && files.length > 0 ? (
-          <label className="flex cursor-pointer items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-            <Checkbox
-              checked={panel.allState === 'checked'}
-              indeterminate={panel.allState === 'mixed'}
-              disabled={panel.selection.disabled}
-              onChange={panel.toggleAll}
-              className="size-3.5"
-              aria-label="Include every changed file in the commit"
-            />
-            {plural(files.length, 'changed file')}
-          </label>
-        ) : null}
-        {panel ? <HiddenPaths worktreeId={worktree.id} /> : null}
-      </ReviewToolbar>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-muted-foreground">
-        {last ? (
-          <span className="flex items-center gap-1">
-            <GitCommitHorizontal className="size-3.5" />"{last.subject}" — {last.author}, {relativeTime(last.at)}
-          </span>
-        ) : null}
-        {worktree.status?.ahead !== null && worktree.status?.ahead !== undefined ? (
-          <span className="flex items-center gap-0.5">
-            <ArrowUp className="size-3" />
-            {worktree.status.ahead} ahead
-            <ArrowDown className="ml-1.5 size-3" />
-            {worktree.status.behind} behind {worktree.baseBranch}
-          </span>
-        ) : null}
-      </div>
-      {changes.isPending ? <p className="py-6 text-center font-mono text-xs text-muted-foreground">Reading working tree…</p> : null}
-      {changes.error ? <p className="text-xs text-destructive">{changes.error.message}</p> : null}
-      {panel?.error ? <p className="text-xs text-destructive">{panel.error.message}</p> : null}
-      {changes.data && files.length === 0 && !panel ? (
-        <div className="rounded-xl border border-border py-10 text-center text-sm text-muted-foreground">Nothing differs from {worktree.baseBranch}.</div>
-      ) : null}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {changes.isPending ? status('Reading working tree…') : null}
+      {changes.error ? status(changes.error.message, 'text-destructive') : null}
+      {panel?.error ? status(panel.error.message, 'text-destructive') : null}
+      {changes.data && files.length === 0 && !panel ? <div className="py-10 text-center text-sm text-muted-foreground">Nothing differs from {worktree.baseBranch}.</div> : null}
       {/*
         With the commit panel on, the explorer stays mounted even with nothing to show: the commit
         box lives in its footer, and unmounting it the moment the last file is committed would take
@@ -211,8 +166,26 @@ export function ChangesView({
           mode={mode}
           focus={focus}
           commit={panel?.selection}
+          treeMeta={
+            panel ? (
+              <>
+                <HiddenPaths worktreeId={worktree.id} />
+                {files.length > 0 ? (
+                  <Checkbox
+                    checked={panel.allState === 'checked'}
+                    indeterminate={panel.allState === 'mixed'}
+                    disabled={panel.selection.disabled}
+                    onChange={panel.toggleAll}
+                    className="size-3.5"
+                    aria-label="Include every changed file in the commit"
+                  />
+                ) : null}
+                <FilesSummary files={files} />
+              </>
+            ) : undefined
+          }
           treeFooter={panel ? <CommitBox worktreeId={worktree.id} branch={listed?.branch ?? worktree.branch} files={files} operation={listed?.operation ?? null} /> : undefined}
-          className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border"
+          className="min-h-0 flex-1 overflow-hidden"
         />
       ) : null}
     </div>

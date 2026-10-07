@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import type { ChangedFile, GitOperation } from '@canopy/shared'
 
@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useCommitChanges } from '@/lib/api-hooks'
 import { plural } from '@/lib/format'
+
+import { commitFormId } from './git-chrome'
 
 /** What a commit would carry: everything the index holds, whole files and part-staged alike. */
 const stagedCount = (files: ChangedFile[]): number => files.filter((file) => file.staged !== 'unstaged').length
@@ -38,6 +40,7 @@ export function CommitBox({
   const [summary, setSummary] = useState('')
   const [description, setDescription] = useState('')
   const [committed, setCommitted] = useState<string>()
+  const summaryRef = useRef<HTMLInputElement>(null)
 
   const staged = stagedCount(files)
   const conflicted = files.filter((file) => file.conflicted).length
@@ -59,17 +62,31 @@ export function CommitBox({
     )
   }
 
+  // A form so the top bar's Commit can submit it from outside; with no summary yet, that
+  // click is a request to write one, so it lands in the field instead.
   return (
-    <div className="flex shrink-0 flex-col gap-2 border-t border-border bg-card px-3 py-2">
+    <form
+      id={commitFormId(worktreeId)}
+      className="flex shrink-0 flex-col gap-2 border-t border-border bg-card px-3 py-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (summary.trim() === '') summaryRef.current?.focus()
+        else submit()
+      }}
+    >
       {operation ? <p className="text-[11px] text-amber-600 dark:text-amber-500">{OPERATION_NOTE[operation]}</p> : null}
       <Input
+        ref={summaryRef}
         value={summary}
         onChange={(event) => setSummary(event.target.value)}
         placeholder="Summary (required)"
         aria-label="Commit summary"
         className="h-8 text-xs"
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit()
+          if (event.key !== 'Enter') return
+          // Plain Enter would submit the form; committing stays a deliberate ⌘/Ctrl+Enter.
+          event.preventDefault()
+          if (event.metaKey || event.ctrlKey) submit()
         }}
       />
       <Textarea
@@ -84,9 +101,9 @@ export function CommitBox({
       />
       {commit.error ? <p className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-destructive">{commit.error.message}</p> : null}
       {committed ? <p className="font-mono text-[11px] text-muted-foreground">Committed {committed}.</p> : null}
-      <Button size="sm" className="h-8 w-full" disabled={!ready} title={blocked} onClick={submit}>
+      <Button type="submit" size="sm" className="h-8 w-full" disabled={!ready} title={blocked}>
         {commit.isPending ? 'Committing…' : `Commit ${staged > 0 ? staged : ''} to ${branch ?? 'a detached HEAD'}`}
       </Button>
-    </div>
+    </form>
   )
 }

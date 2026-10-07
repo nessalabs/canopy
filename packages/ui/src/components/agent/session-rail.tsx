@@ -1,12 +1,16 @@
 import { Fragment } from 'react'
+import { Columns2 } from 'lucide-react'
 
 import type { AgentSessionSummary, SessionOrigin, SessionRef } from '@canopy/shared'
 
+import { IconAction } from '@/components/icon-action'
+import { VIEW_DRAG_TYPE } from '@/components/panel-shell'
 import { RandomAvatar } from '@/components/ui/random-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { StatusDot } from '@/components/ui/status-dot'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { relativeTime } from '@/lib/format'
+import { sessionPanelId } from '@/lib/session-panels'
 import { cn } from '@/lib/utils'
 
 import { ProviderIcon } from './provider-icon'
@@ -62,16 +66,32 @@ function GroupHeading({ origin }: { origin: SessionOrigin }): React.JSX.Element 
   )
 }
 
-function SessionRow({ session, active, onSelect, branch }: { session: AgentSessionSummary; active: boolean; onSelect: (ref: SessionRef) => void; branch: string | null }): React.JSX.Element {
-  const title = session.title || session.sessionId.slice(0, 8)
+/** What a session is called: its own title, or the start of its id when it never got one. */
+export const sessionTitle = (session: Pick<AgentSessionSummary, 'title' | 'sessionId'>): string => session.title || session.sessionId.slice(0, 8)
+
+/** What a row does besides becoming the main conversation: open beside it, by button or by drag. */
+interface RowActions {
+  onSelect: (ref: SessionRef) => void
+  onOpenBeside?: (ref: SessionRef) => void
+}
+
+function SessionRow({ session, active, actions, branch }: { session: AgentSessionSummary; active: boolean; actions: RowActions; branch: string | null }): React.JSX.Element {
+  const title = sessionTitle(session)
+  const ref: SessionRef = { provider: session.provider, sessionId: session.sessionId }
+  const { onSelect, onOpenBeside } = actions
   return (
-    <li>
+    <li className="group/session relative">
       <button
         type="button"
         role="option"
         aria-selected={active}
+        draggable={onOpenBeside !== undefined}
+        onDragStart={(event) => {
+          event.dataTransfer.setData(VIEW_DRAG_TYPE, sessionPanelId(ref))
+          event.dataTransfer.effectAllowed = 'copy'
+        }}
         className={cn('flex w-full min-w-0 items-start gap-2.5 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-accent/50', active && 'bg-accent')}
-        onClick={() => onSelect({ provider: session.provider, sessionId: session.sessionId })}
+        onClick={() => onSelect(ref)}
       >
         <RandomAvatar seed={session.sessionId} name={title} className="mt-0.5 size-6 shrink-0 rounded-full" />
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
@@ -109,6 +129,11 @@ function SessionRow({ session, active, onSelect, branch }: { session: AgentSessi
           </span>
         </span>
       </button>
+      {onOpenBeside && !active ? (
+        <IconAction label="Open beside — or drag it onto a panel" className="absolute top-2 right-2 opacity-0 group-hover/session:opacity-100 focus-visible:opacity-100" onClick={() => onOpenBeside(ref)}>
+          <Columns2 className="size-3.5" />
+        </IconAction>
+      ) : null}
     </li>
   )
 }
@@ -126,6 +151,7 @@ export function SessionRail({
   branch = null,
   selected,
   onSelect,
+  onOpenBeside,
   className
 }: {
   sessions: AgentSessionSummary[]
@@ -134,8 +160,11 @@ export function SessionRail({
   branch?: string | null
   selected?: AgentSessionSummary
   onSelect: (ref: SessionRef) => void
+  /** Opens a session in a pane of its own beside the main conversation; rows drag there too. */
+  onOpenBeside?: (ref: SessionRef) => void
   className?: string
 }): React.JSX.Element {
+  const actions: RowActions = { onSelect, onOpenBeside }
   const isSelected = (session: AgentSessionSummary): boolean => session.sessionId === selected?.sessionId && session.provider === selected?.provider
   const groups = groupsOf(elsewhere, branch)
   return (
@@ -144,14 +173,14 @@ export function SessionRail({
     <ScrollArea className={cn('h-full [&_[data-radix-scroll-area-viewport]>div]:!block', className)}>
       <ul className="flex flex-col gap-0.5 p-2" role="listbox" aria-label="Agent sessions">
         {sessions.map((session) => (
-          <SessionRow key={`${session.provider}:${session.sessionId}`} session={session} active={isSelected(session)} onSelect={onSelect} branch={branch} />
+          <SessionRow key={`${session.provider}:${session.sessionId}`} session={session} active={isSelected(session)} actions={actions} branch={branch} />
         ))}
         {sessions.length === 0 ? <li className="p-3 text-xs text-muted-foreground">No sessions here yet.</li> : null}
         {groups.map((group) => (
           <Fragment key={group.key}>
             <GroupHeading origin={group.origin} />
             {group.sessions.map((session) => (
-              <SessionRow key={`${session.provider}:${session.sessionId}`} session={session} active={isSelected(session)} onSelect={onSelect} branch={branch} />
+              <SessionRow key={`${session.provider}:${session.sessionId}`} session={session} active={isSelected(session)} actions={actions} branch={branch} />
             ))}
           </Fragment>
         ))}

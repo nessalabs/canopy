@@ -11,12 +11,8 @@ import { useElementWidth } from '@/lib/use-element-width'
 /** Tree beside the content, tree above it, or tree in a popover — chosen from the container width. */
 type Arrangement = 'side' | 'stacked' | 'overlay'
 
-const BREAKPOINTS: ReadonlyArray<[minWidth: number, arrangement: Arrangement]> = [
-  [680, 'side'],
-  [480, 'stacked'],
-  [0, 'overlay']
-]
-const arrangementFor = (width: number): Arrangement => (BREAKPOINTS.find(([min]) => width >= min) as [number, Arrangement])[1]
+/** Below `overlayBelow` px the tree folds into a popover; a caller whose tree *is* the point can lower it. */
+const arrangementFor = (width: number, overlayBelow: number): Arrangement => (width >= 680 ? 'side' : width >= overlayBelow ? 'stacked' : 'overlay')
 
 // A wide container splits along a vertical line — tree left, file right. Squeeze it and the
 // split turns horizontal, tree above the file, which is the only way a phone-width column
@@ -77,8 +73,10 @@ export function ExplorerShell({
   overlayHeader,
   sideTreeSize = 30,
   stackedTreeSize = 40,
+  treeMeta,
   treeFooter,
   content,
+  overlayBelow = 480,
   className
 }: {
   tree: React.ReactNode
@@ -89,6 +87,8 @@ export function ExplorerShell({
   /** Share of the width the tree takes beside the content, and of the height above it. */
   sideTreeSize?: number
   stackedTreeSize?: number
+  /** Beside the tree's label — what it lists, in numbers. */
+  treeMeta?: React.ReactNode
   /**
    * Pinned under the tree — the commit box. It sits inside the panel rather than under the whole
    * explorer so that it scrolls with nothing, survives the tree going empty, and does not change
@@ -96,11 +96,13 @@ export function ExplorerShell({
    */
   treeFooter?: React.ReactNode
   content: React.ReactNode
+  /** The width under which the tree moves behind a button; 0 keeps it on screen at any width. */
+  overlayBelow?: number
   className?: string
 }): React.JSX.Element {
   const container = useRef<HTMLDivElement>(null)
   const [hidden, setHidden] = useState(false)
-  const measured = arrangementFor(useElementWidth(container))
+  const measured = arrangementFor(useElementWidth(container), overlayBelow)
   const arrangement = hidden ? 'overlay' : measured
   // Wide, the tree sits to the side and folds away to the left; stacked, it sits above and
   // folds up — the icon says which way the panel goes.
@@ -134,8 +136,9 @@ export function ExplorerShell({
             className={arrangement === 'side' ? 'min-h-0 border-r border-border bg-card' : 'min-h-0 border-b border-border bg-card'}
           >
             <div className="flex h-full min-h-0 flex-col">
-              <div className="flex h-7 shrink-0 items-center justify-between gap-1 border-b border-border pe-1 ps-2">
-                <span className="truncate text-[11px] font-medium text-muted-foreground">{treeLabel}</span>
+              <div className="flex h-8 shrink-0 items-center gap-2 border-b border-border pe-1 ps-3">
+                <span className="truncate text-xs text-muted-foreground">{treeLabel}</span>
+                <span className="ms-auto flex shrink-0 items-center gap-2">{treeMeta}</span>
                 <IconAction label="Hide the file tree" onClick={() => setHidden(true)}>
                   <Close aria-hidden className="size-3.5" />
                 </IconAction>

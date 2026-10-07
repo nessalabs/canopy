@@ -1,22 +1,19 @@
 import { useMemo, useState } from 'react'
-import { GitMerge } from 'lucide-react'
 
-import type { GitHubNote, GitHubThread, ReviewComment, Worktree } from '@canopy/shared'
+import type { Against, GitHubNote, GitHubThread, ReviewComment, Worktree } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
-import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { useComments, usePrefetchPullRequest, useProviders, usePullRequest, usePullRequestThreads } from '@/lib/api-hooks'
-import { plural } from '@/lib/format'
-import { mergeAffordance } from '@/lib/status'
+import { GIT_PANES, linkQuery, parseGitLink, type GitPane } from '@/lib/environment-ui'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
+import { useHotkeys } from '@/lib/use-hotkeys'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
-import { linkQuery, parseGitLink, type GitPane } from '@/lib/environment-ui'
 
 import { ChangesView } from './changes-view'
 import { CommentsPanel } from './comments-panel'
 import type { ExplorerFocus } from './diff-explorer'
+import { DiffTools, GitActions, GitViewTabs } from './git-chrome'
 import { HistoryView } from './history-view'
 import { MergeDialog } from './merge-dialog'
 import { PullRequestView } from './pull-request-view'
@@ -40,21 +37,34 @@ const jumpFor = (comment: ReviewComment): Jump => ({
 
 /**
  * Git = Changes (working tree) | History (log + per-commit diff) | Pull request (the branch's PR
- * on GitHub) | Comments (everything left on Changes or History).
+ * on GitHub) | Comments (everything left on Changes or History). Its tabs, diff switches and
+ * primary action live in the top bar; the pane below starts at its content.
  */
-export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktree; agent: WorktreeAgent; onSendForReview: (target: ReviewTarget, note: string | undefined, github?: GitHubNote[]) => void }): React.JSX.Element {
+export function GitTab({
+  worktree,
+  agent,
+  pane,
+  onPaneChange,
+  onSendForReview
+}: {
+  worktree: Worktree
+  agent: WorktreeAgent
+  pane: Pane
+  onPaneChange: (pane: Pane) => void
+  onSendForReview: (target: ReviewTarget, note: string | undefined, github?: GitHubNote[]) => void
+}): React.JSX.Element {
   const comments = useComments(worktree.id).data ?? []
   const providers = useProviders().data ?? []
   const [mode, setMode] = useState<DiffMode>('unified')
-  // A link can open a pane directly, with what Changes compares against or the commit History
-  // selects: the Command Center links its PR, drift, uncommitted and last-commit cells here.
+  // A link can open Changes on what it compares against, or History on a commit: the Command
+  // Center links its drift, uncommitted and last-commit cells here.
   const [link] = useState(() => parseGitLink(linkQuery()))
-  const [pane, setPane] = useState<Pane>(link.pane ?? 'changes')
+  const [against, setAgainst] = useState<Against>(link.against ?? 'head')
   const [jump, setJump] = useState<Jump>()
   const [picking, setPicking] = useState(false)
   const [merging, setMerging] = useState(false)
+  useHotkeys(Object.fromEntries(GIT_PANES.map((id, index) => [`shift+${index + 1}`, () => onPaneChange(id)])))
   const unsent = comments.filter((c) => !c.sent)
-  const merge = mergeAffordance(worktree)
   const prefetchPr = usePrefetchPullRequest(worktree.id)
   // GitHub's review threads: read once the Comments or Pull request pane is open, and shown in
   // both — as cards under the local comments, and on their lines in the PR's Files changed.
@@ -70,11 +80,11 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
   const onJump = (comment: ReviewComment): void => {
     const next = jumpFor(comment)
     setJump(next)
-    setPane(next.pane)
+    onPaneChange(next.pane)
   }
   const onJumpThread = (thread: GitHubThread): void => {
     setPrFocus({ path: thread.file, commentId: thread.comments[0] ? `gh:${thread.comments[0].id}` : undefined })
-    setPane('pr')
+    onPaneChange('pr')
   }
   const pickThread = (id: string, on: boolean): void =>
     setPickedThreads((current) => {
@@ -83,45 +93,38 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
       else next.delete(id)
       return next
     })
-  const shared = { comments, mode, onModeChange: setMode, onSendForReview: () => setPicking(true), sending: agent.turn.busy }
+  const shared = { comments, mode }
   const focusFor = (target: Pane): ExplorerFocus | undefined => (jump?.pane === target ? jump.focus : undefined)
 
   return (
     <>
-      <Tabs value={pane} onValueChange={(value) => setPane(value as Pane)} className="flex-1">
-        <div className="flex items-center gap-3">
-          <TabsList>
-            <TabsTrigger value="changes">Changes{worktree.status?.dirtyTotal ? ` · ${worktree.status.dirtyTotal}` : ''}</TabsTrigger>
-            <TabsTrigger value="history">History</TabsTrigger>
-            <TabsTrigger value="pr" onPointerEnter={prefetchPr} onFocus={prefetchPr}>
-              Pull request
-            </TabsTrigger>
-            <TabsTrigger value="comments">Comments{comments.length ? ` · ${comments.length}` : ''}</TabsTrigger>
-          </TabsList>
-          {merge.shown ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="ml-auto">
-                  <Button variant="outline" size="sm" className="h-8" disabled={!merge.enabled} onClick={() => setMerging(true)}>
-                    <GitMerge />
-                    {merge.label}
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>{merge.hint}</TooltipContent>
-            </Tooltip>
-          ) : null}
-        </div>
-        <TabsContent value="changes" className="mt-3 flex min-h-0 flex-1 flex-col">
-          <ChangesView worktree={worktree} focus={focusFor('changes')} initialAgainst={link.against} {...shared} />
+      <Tabs value={pane} onValueChange={(value) => onPaneChange(value as Pane)} className="flex min-h-0 flex-1 flex-col">
+        <GitViewTabs dirty={worktree.status?.dirtyTotal ?? 0} comments={comments.length} onPrefetchPr={prefetchPr} />
+        {pane === 'comments' ? null : <DiffTools mode={mode} onModeChange={setMode} against={pane === 'changes' ? against : undefined} onAgainstChange={setAgainst} baseBranch={worktree.baseBranch} />}
+        <GitActions
+          worktree={worktree}
+          pane={pane}
+          onPaneChange={onPaneChange}
+          mode={mode}
+          onModeChange={setMode}
+          against={against}
+          onAgainstChange={setAgainst}
+          pendingReview={unsent.length + pickedThreads.size}
+          sending={agent.turn.busy}
+          onSendForReview={() => setPicking(true)}
+          onMerge={() => setMerging(true)}
+          prUrl={prQuery.data?.pr?.url}
+        />
+        <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
+          <ChangesView worktree={worktree} focus={focusFor('changes')} against={against} {...shared} />
         </TabsContent>
-        <TabsContent value="history" className="mt-3 flex min-h-0 flex-1 flex-col">
+        <TabsContent value="history" className="flex min-h-0 flex-1 flex-col">
           <HistoryView worktreeId={worktree.id} focusCommit={jump?.commitSha ?? link.commit} focus={focusFor('history')} {...shared} />
         </TabsContent>
-        <TabsContent value="pr" className="mt-3 flex min-h-0 flex-1 flex-col">
-          <PullRequestView worktree={worktree} review={shared} githubComments={githubComments} focus={prFocus} onOpenChanges={() => setPane('changes')} />
+        <TabsContent value="pr" className="flex min-h-0 flex-1 flex-col">
+          <PullRequestView worktree={worktree} review={shared} githubComments={githubComments} focus={prFocus} onOpenChanges={() => onPaneChange('changes')} />
         </TabsContent>
-        <TabsContent value="comments" className="mt-3 flex flex-col gap-6 overflow-y-auto">
+        <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-5">
           <CommentsPanel worktreeId={worktree.id} comments={comments} onJump={onJump} />
           {threadsQuery.data ? (
             <GitHubThreadsPanel number={threadsQuery.data.number} threads={threads} host={host} picked={pickedThreads} onPick={pickThread} onJump={onJumpThread} onSend={() => setPicking(true)} sending={agent.turn.busy} />
@@ -143,7 +146,6 @@ export function GitTab({ worktree, agent, onSendForReview }: { worktree: Worktre
           onSendForReview(target, note, notes)
         }}
       />
-      <span className="sr-only">{plural(unsent.length, 'unsent comment')}</span>
     </>
   )
 }

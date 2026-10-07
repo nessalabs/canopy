@@ -11,22 +11,21 @@ import { ProviderIcon } from './provider-icon'
 const NAMES: Record<AgentProvider, string> = { claude: 'Claude Code', codex: 'Codex' }
 
 /**
- * Starts composing a new session. One installed provider starts it directly; several
+ * The Agent section's primary action in the top bar: starts composing a new session. One installed provider starts it directly; several
  * offer a choice. `active` marks that a new session is being composed right now.
  */
 export function NewSessionButton({ providers, active, onStart, disabled }: { providers: AgentProvider[]; active?: AgentProvider; onStart: (provider: AgentProvider) => void; disabled?: boolean }): React.JSX.Element {
   const [only] = providers
   const trigger = (
     <Button
-      variant="ghost"
-      size="icon"
-      className={cn('size-7', active && 'bg-accent')}
+      size="sm"
+      className={cn('h-7 text-xs', active && 'ring-2 ring-ring/40')}
       aria-label="New session"
-      title="New session"
       disabled={disabled || providers.length === 0}
       onClick={providers.length === 1 && only ? () => onStart(only) : undefined}
     >
       <Plus aria-hidden="true" />
+      <span className="hidden @3xl:inline">New session</span>
     </Button>
   )
   if (providers.length <= 1) return trigger

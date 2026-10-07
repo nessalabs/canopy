@@ -13,9 +13,6 @@ import { usePlatform } from '@/providers/platform'
 export interface ReviewProps {
   comments: ReviewComment[]
   mode: DiffMode
-  onModeChange: (mode: DiffMode) => void
-  onSendForReview: () => void
-  sending: boolean
 }
 
 type Look = { label: string; Icon: React.ComponentType<{ className?: string }>; className: string }

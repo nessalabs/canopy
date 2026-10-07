@@ -3,7 +3,8 @@ import { useEffect, useMemo } from 'react'
 import type { ChangedFile, DiffSpec, ReviewComment } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
-import { FileDiffPath } from '@/components/ui/file-diff-list'
+import { DiffStat, FileDiffPath } from '@/components/ui/file-diff-list'
+import { plural } from '@/lib/format'
 import { groupBy } from '@/lib/group'
 import { useFileTrail } from '@/lib/use-file-trail'
 import { useHighlighterWarmup } from '@/lib/use-highlighter-warmup'
@@ -13,6 +14,17 @@ import { ContentPane, LooseFilePane } from './content-pane'
 import { preloadCodeEditor } from './file-viewer'
 import { ExplorerShell } from './explorer-shell'
 import { ChangedFilesTree, type CommitSelection } from './file-tree'
+
+/** A change set in numbers: how many files, and the lines it adds and removes. */
+export function FilesSummary({ files }: { files: ChangedFile[] }): React.JSX.Element {
+  const totals = files.reduce((sum, f) => ({ additions: sum.additions + f.additions, deletions: sum.deletions + f.deletions }), { additions: 0, deletions: 0 })
+  return (
+    <span className="flex items-center gap-2 font-mono text-[11px] text-muted-foreground">
+      {plural(files.length, 'file')}
+      <DiffStat additions={totals.additions} deletions={totals.deletions} />
+    </span>
+  )
+}
 
 /** Where the explorer should land: a file, and optionally a comment inside it to scroll to. */
 export interface ExplorerFocus {
@@ -34,6 +46,7 @@ export function DiffExplorer({
   mode,
   focus,
   commit,
+  treeMeta,
   treeFooter,
   className
 }: {
@@ -45,6 +58,8 @@ export function DiffExplorer({
   focus?: ExplorerFocus
   /** Present only in the commit panel: checkboxes, mouse selection and the right-click menu. */
   commit?: CommitSelection
+  /** Beside the tree's label; the file count and line totals unless the caller says more. */
+  treeMeta?: React.ReactNode
   /** The commit box, pinned under the tree. */
   treeFooter?: React.ReactNode
   className?: string
@@ -93,6 +108,7 @@ export function DiffExplorer({
       treeLabel="Changed files"
       overlayHeader={selectedPath ? <FileDiffPath path={selectedPath} className="min-w-0 flex-1 font-mono text-xs" /> : null}
       tree={tree}
+      treeMeta={treeMeta ?? <FilesSummary files={files} />}
       treeFooter={treeFooter}
       content={content}
     />
