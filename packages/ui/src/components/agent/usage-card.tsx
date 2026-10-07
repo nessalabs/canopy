@@ -87,7 +87,7 @@ function Ranking({ icon, label, shares, className }: { icon: React.ReactNode; la
 
 function PeriodCard({ period }: { period: UsagePeriod }): React.JSX.Element {
   return (
-    <section className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-surface-sunken p-3" aria-label={period.label}>
+    <section className="flex min-w-0 flex-col gap-3 rounded-lg border border-border bg-background/50 p-3" aria-label={period.label}>
       <div className="flex flex-col gap-0.5">
         <span className="nessa-text-3 font-medium text-foreground">{period.label}</span>
         <span className="font-mono nessa-text-1 tabular-nums text-muted-foreground">

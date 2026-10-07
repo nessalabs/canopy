@@ -87,7 +87,7 @@ export function AddProjectDialog({ open, onOpenChange }: { open: boolean; onOpen
           <DirectoryPicker open={browsing} onOpenChange={setBrowsing} initialPath={path} onPick={pick} />
           <ErrorNote error={scan.error} />
           {result ? (
-            <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-surface-sunken p-3">
+            <div className="flex flex-col gap-2.5 rounded-lg border border-border bg-muted/40 p-3">
               <p className="flex items-center gap-1.5 text-sm">
                 {result.canopyYaml.present ? (
                   <>

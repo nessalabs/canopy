@@ -139,7 +139,7 @@ export function SessionSheetBody({ session, capabilities, openInTerminal }: {
         ) : null}
       </AgentDetails>
       {openInTerminal ? (
-        <p className="m-0 rounded-lg border border-border bg-surface-sunken px-3 py-2 nessa-text-2 text-muted-foreground">
+        <p className="m-0 rounded-lg border border-border bg-muted/40 px-3 py-2 nessa-text-2 text-muted-foreground">
           A terminal has this session open. Turns sent from here run against it, but that terminal will not show them until it resumes.
         </p>
       ) : null}

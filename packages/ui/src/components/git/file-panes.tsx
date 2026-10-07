@@ -64,7 +64,7 @@ function Pane({ pane, worktreeId, trail, onTrail }: { pane: PaneNode; worktreeId
   if (path === undefined) {
     return (
       <div className="flex h-full min-h-0 flex-col bg-card">
-        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-surface-panel px-3 py-2">
+        <div className="flex shrink-0 items-center gap-3 border-b border-border bg-muted/30 px-3 py-2">
           <AppShellPaneDragHandle paneId={pane.id} className="flex min-w-0 flex-1 items-center gap-1.5" title="Drag this pane onto another to swap them">
             <GripVertical aria-hidden className="size-3 shrink-0 text-muted-foreground/60" />
             <span className="min-w-0 flex-1 font-mono text-xs text-muted-foreground">Empty</span>
