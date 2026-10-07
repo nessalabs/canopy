@@ -48,7 +48,7 @@ export function CommentsPanel({ worktreeId, comments, onJump, className }: { wor
         </p>
         {groups.map(([file, list]) => (
           <section key={file} className="overflow-hidden rounded-lg border border-border">
-            <h3 className="flex items-center gap-2 bg-muted/30 px-3 py-2 font-mono text-xs">
+            <h3 className="flex items-center gap-2 bg-surface-panel px-3 py-2 font-mono text-xs">
               <FileDiffPath path={file} className="min-w-0 flex-1" />
               <span className="text-[10px] text-muted-foreground">{plural(list.length, 'comment')}</span>
             </h3>

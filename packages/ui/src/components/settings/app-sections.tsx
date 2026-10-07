@@ -104,7 +104,7 @@ export function AppearanceSection(): React.JSX.Element {
           onChange={(code) => setFonts((current) => ({ ...current, code }))}
         />
         <pre
-          className="mt-2 max-w-lg overflow-x-auto rounded-md border bg-muted/40 px-3 py-2 text-xs"
+          className="mt-2 max-w-lg overflow-x-auto rounded-md border bg-surface-sunken px-3 py-2 text-xs"
           style={{ fontFamily: codeFontStack(fonts), fontFeatureSettings: codeFontFeatures(fonts) }}
         >
           {CODE_SAMPLE}

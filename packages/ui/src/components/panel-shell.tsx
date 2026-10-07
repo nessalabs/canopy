@@ -56,8 +56,8 @@ function Pane({ pane, content }: { pane: PaneNode; content: PaneContent }): Reac
   const accepts = (event: React.DragEvent): boolean => event.dataTransfer.types.includes(VIEW_DRAG_TYPE)
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
-      <div className="flex h-8 shrink-0 items-center gap-0.5 overflow-hidden border-b border-border bg-muted/40 pe-1">
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex h-8 shrink-0 items-center gap-0.5 overflow-hidden border-b border-border bg-surface-panel pe-1">
         <AppShellPaneDragHandle
           paneId={pane.id}
           className="flex h-full min-w-0 flex-1 cursor-grab items-center gap-1.5 ps-2"

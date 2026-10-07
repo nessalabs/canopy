@@ -29,7 +29,7 @@ export function SidePanel({ id, worktreeId, full, onToggleFull, onClose }: {
   const { label, Body } = SIDE_PANELS[id]
   const fullLabel = full ? 'Exit full screen' : `${label} full screen`
   return (
-    <div className="flex h-full min-h-0 flex-col bg-card">
+    <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
         <span className="text-xs font-medium">{label}</span>
         <span className="flex items-center gap-0.5">

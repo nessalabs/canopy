@@ -67,7 +67,7 @@ export function CommentCard({
             </Badge>
           )}
         </div>
-        {comment.code ? <pre className="mt-1 truncate rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{comment.code.trim()}</pre> : null}
+        {comment.code ? <pre className="mt-1 truncate rounded bg-surface-sunken px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">{comment.code.trim()}</pre> : null}
         <p className="mt-0.5 whitespace-pre-wrap text-foreground">{comment.text}</p>
       </div>
       {onJump && showAnchor ? (

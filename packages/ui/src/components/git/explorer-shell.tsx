@@ -24,7 +24,7 @@ const SPLIT: Record<Exclude<Arrangement, 'overlay'>, SplitViewOrientation> = {
 
 /** The strip above the file when the tree is not on screen: one control, then the path. */
 const CollapsedBar = ({ children, header }: { children: React.ReactNode; header?: React.ReactNode }): React.JSX.Element => (
-  <div className="flex shrink-0 items-center gap-1 border-b border-border bg-muted/30 px-2 py-1">
+  <div className="flex shrink-0 items-center gap-1 border-b border-border bg-surface-panel px-2 py-1">
     {children}
     {header}
   </div>

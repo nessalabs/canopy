@@ -168,7 +168,7 @@ function TopBar(): React.JSX.Element {
   return (
     <header
       className={cn(
-        '@container grid h-10 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border px-2',
+        '@container grid h-10 shrink-0 grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 border-b border-border bg-surface-panel px-2',
         titleBarInset && 'h-12 pt-2 [-webkit-app-region:drag]',
         // With the sidebar away the traffic lights sit over the bar's left edge.
         titleBarInset && !open && 'pl-20'

@@ -103,7 +103,7 @@ export function StatusBar({ filesOpen, filesDisabled, onToggleFiles }: { filesOp
   const [location, navigate] = useLocation()
   const pressed = 'bg-accent text-foreground'
   return (
-    <footer className="flex h-8 shrink-0 items-center gap-0.5 border-t border-border bg-sidebar px-1.5 font-mono text-xs text-muted-foreground">
+    <footer className="flex h-8 shrink-0 items-center gap-0.5 border-t border-border bg-surface-panel px-1.5 font-mono text-xs text-muted-foreground">
       <IconAction label="Sidebar  [" pressed={sidebarOpen} className={cn('w-7', sidebarOpen && pressed)} onClick={toggleSidebar}>
         <PanelLeft className="size-3.5" />
       </IconAction>
