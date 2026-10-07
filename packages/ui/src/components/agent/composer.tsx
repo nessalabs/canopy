@@ -91,8 +91,8 @@ export function AgentComposer({
   agent: WorktreeAgent
   changedFiles: ChangedFile[]
   placeholder: string
-  /** The changes panel: how many files the newest turn wrote, whether the panel is open, and the toggle. */
-  latestChanges: { count: number; shown: boolean; onToggle: () => void }
+  /** The changes panel: how many files the newest turn wrote, whether the panel is open, and the toggle. Absent where there is no panel to toggle. */
+  latestChanges?: { count: number; shown: boolean; onToggle: () => void }
   /** Transcript text to stage as context. `id` changes per request, so the same text can be quoted twice. */
   quote?: { id: number; text: string }
   /** Fires once the quote is a chip, so the owner can drop it rather than hand it over again. */
@@ -293,6 +293,7 @@ export function AgentComposer({
           <ComposerAccessMode value={AUTONOMY_TO_ACCESS[agent.autonomy]} onValueChange={(value) => agent.setAutonomy(ACCESS_TO_AUTONOMY[value])} aria-label="Agent access mode" />
         </ChatComposerActions>
         <ChatComposerActions className="justify-end">
+          {latestChanges ? (
           <Tooltip>
             <TooltipTrigger asChild>
               <ChatComposerAction aria-label={latestChanges.shown ? 'Hide code changes' : 'Show code changes'} aria-pressed={latestChanges.shown} className={latestChanges.shown ? 'bg-accent text-foreground' : undefined} onClick={latestChanges.onToggle}>
@@ -303,6 +304,7 @@ export function AgentComposer({
               {latestChanges.shown ? 'Hide the changes panel' : latestChanges.count === 0 ? 'Changes panel (no turn has changed files yet)' : `Show changes · latest turn wrote ${plural(latestChanges.count, 'file')}`}
             </TooltipContent>
           </Tooltip>
+          ) : null}
           <ContextMeter usage={context} model={agent.history.data?.model} />
           <ModelPicker
             groups={[modelGroupFor(provider, agent.model, capabilities?.models)]}

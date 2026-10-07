@@ -13,8 +13,11 @@ const sameRef = (a: SessionRef | undefined, b: SessionRef | undefined): boolean 
  * The agent conversation attached to a worktree: which session (pinned, else the most
  * recent one that ran in this checkout) and the live turn state. Lifted above the tabs
  * so "Send comments for review" on the diff drives the same conversation the Agent tab shows.
+ *
+ * `fixed` holds the conversation to one session — a pane opened beside the main one — which
+ * neither follows nor moves the worktree's pin.
  */
-export function useWorktreeAgent(worktree: Worktree) {
+export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef) {
   const sessions = useAgentSessions(worktree.id)
   const pin = usePinSession(worktree.id)
   const [chosen, setChosen] = useState<SessionRef>()
@@ -33,9 +36,10 @@ export function useWorktreeAgent(worktree: Worktree) {
   const pinned = sessions.data?.pinned
   const selected = useMemo(() => {
     if (fresh) return undefined
+    if (fixed) return all.find((s) => sameRef(s, fixed))
     const preferred = chosen ?? pinned
     return all.find((s) => sameRef(s, preferred)) ?? list[0]
-  }, [chosen, fresh, pinned, all, list])
+  }, [fixed?.provider, fixed?.sessionId, chosen, fresh, pinned, all, list])
 
   useEffect(() => {
     if (chosen && !all.some((s) => sameRef(s, chosen))) setChosen(undefined)
@@ -46,7 +50,7 @@ export function useWorktreeAgent(worktree: Worktree) {
     setChosen(ref)
     setModel(undefined)
     setEffort(undefined)
-    pin.mutate(ref)
+    if (!fixed) pin.mutate(ref)
   }
 
   const startSession = (provider: AgentProvider): void => {

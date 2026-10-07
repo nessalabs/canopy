@@ -10,6 +10,7 @@ import {
   useAppShell
 } from '@/components/composites/app-shell'
 import { ErrorBoundary } from '@/components/error-boundary'
+import { ShellSlot } from '@/components/shell-slots'
 import { IconAction } from '@/components/icon-action'
 import { PaneSplitDirection, closePane as closePaneOp, collectPanes, splitPane, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
 import { placementOf, reinsertPane, type Placement } from '@/lib/panel-placement'
@@ -30,12 +31,29 @@ export interface PanelDef {
   render: () => React.ReactNode
 }
 
-function Pane({ pane, panels }: { pane: PaneNode; panels: PanelDef[] }): React.JSX.Element {
-  const { closePane, layout, maximizePane, restorePane, splitPane } = useAppShell()
+/** The drag payload type a panel id travels under, from outside the grid into one of its panes. */
+export const VIEW_DRAG_TYPE = 'application/x-canopy-view'
+
+/** How a pane resolves its view and what it shows with none — shared by every pane of one shell. */
+interface PaneContent {
+  panelFor: (viewId: string) => PanelDef | undefined
+  renderEmpty?: (place: (viewId: string) => void) => React.ReactNode
+}
+
+function Pane({ pane, content }: { pane: PaneNode; content: PaneContent }): React.JSX.Element {
+  const { closePane, layout, maximizePane, openView, restorePane, splitPane } = useAppShell()
+  const [dropping, setDropping] = useState(false)
   const maximized = layout.workspace.maximizedPaneId === pane.id
-  const paneCount = collectPanes(layout.workspace.root).length
-  const panel = panels.find((entry) => entry.id === pane.activeViewId)
+  const panes = collectPanes(layout.workspace.root)
+  const panel = pane.activeViewId ? content.panelFor(pane.activeViewId) : undefined
   const Icon = panel?.icon
+  // A view already on screen stays where it is; an empty pane takes it, a full one splits for it.
+  const place = (viewId: string): void => {
+    if (panes.some((other) => other.activeViewId === viewId)) return
+    if (pane.activeViewId) splitPane({ paneId: pane.id, direction: PaneSplitDirection.Right, views: [viewId] })
+    else openView({ paneId: pane.id, viewId })
+  }
+  const accepts = (event: React.DragEvent): boolean => event.dataTransfer.types.includes(VIEW_DRAG_TYPE)
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
@@ -67,21 +85,34 @@ function Pane({ pane, panels }: { pane: PaneNode; panels: PanelDef[] }): React.J
         >
           {maximized ? <Minimize2 aria-hidden className="size-3" /> : <Maximize2 aria-hidden className="size-3" />}
         </IconAction>
-        {paneCount > 1 ? (
+        {panes.length > 1 ? (
           <IconAction label="Close panel" onClick={() => closePane({ paneId: pane.id })}>
             <X aria-hidden className="size-3" />
           </IconAction>
         ) : null}
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div
+        className={cn('min-h-0 flex-1 overflow-y-auto', dropping && 'bg-accent/40 ring-2 ring-ring/40 ring-inset')}
+        onDragOver={(event) => {
+          if (!accepts(event)) return
+          event.preventDefault()
+          setDropping(true)
+        }}
+        onDragLeave={() => setDropping(false)}
+        onDrop={(event) => {
+          setDropping(false)
+          const viewId = event.dataTransfer.getData(VIEW_DRAG_TYPE)
+          if (!viewId) return
+          event.preventDefault()
+          place(viewId)
+        }}
+      >
         {panel ? (
           <ErrorBoundary label={panel.title} resetKey={pane.activeViewId}>
             {panel.render()}
           </ErrorBoundary>
         ) : (
-          <p className="p-4 text-xs text-muted-foreground">
-            Empty panel — drag another panel's grip here, or close it.
-          </p>
+          (content.renderEmpty?.(place) ?? <p className="p-4 text-xs text-muted-foreground">Empty panel — drag another panel's grip here, or close it.</p>)
         )}
       </div>
     </div>
@@ -101,13 +132,15 @@ function persist(storageKey: string, layout: AppShellLayout): void {
  * split, resize from separators, swap by dragging their grips, maximize,
  * and close — and the arrangement persists per `storageKey`.
  *
- * Its own toolbar row carries the reopen chips for closed panels and the
- * reset, so a host never has to spend a second row on layout controls.
+ * The reopen chips for closed panels and the reset go to the top bar's tools
+ * slot, so the grid starts at its first panel rather than at a toolbar.
  */
 export function PanelShell({
   storageKey,
   buildDefaultLayout,
   panels,
+  resolvePanel,
+  renderEmpty,
   onVisibleChange,
   request,
   className
@@ -115,6 +148,10 @@ export function PanelShell({
   storageKey: string
   buildDefaultLayout: () => AppShellLayout
   panels: PanelDef[]
+  /** Panels made on demand rather than listed — a view id `panels` does not name is asked here. */
+  resolvePanel?: (viewId: string) => PanelDef | undefined
+  /** What an empty pane offers instead of the default hint; `place` puts a view into that pane. */
+  renderEmpty?: (place: (viewId: string) => void) => React.ReactNode
   /** Called with the ids of the panels currently on screen whenever the arrangement changes. */
   onVisibleChange?: (panelIds: string[]) => void
   /** A host request about one panel; each new `nonce` applies it once. */
@@ -199,35 +236,36 @@ export function PanelShell({
   }, [request?.id, request?.action, request?.nonce])
 
   const handleChange = useCallback((next: AppShellLayout) => apply(() => next), [apply])
+  const content: PaneContent = { panelFor: (viewId) => panels.find((panel) => panel.id === viewId) ?? resolvePanel?.(viewId), renderEmpty }
 
   return (
     <div className={cn('flex flex-col overflow-hidden rounded-xl border border-border', className)}>
-      <div className="flex items-center gap-1 border-b border-border bg-muted/30 px-2 py-1 text-xs text-muted-foreground">
+      <ShellSlot name="tools">
         {hidden.length > 0 ? (
-          <div className="flex min-w-0 flex-wrap items-center gap-1">
+          <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
             <span className="me-1">Hidden:</span>
             {hidden.map((panel) => (
-              <Button key={panel.id} variant="outline" size="sm" className="h-6 gap-1 px-2 text-xs" onClick={() => openPanel(panel.id)}>
+              <Button key={panel.id} variant="outline" size="sm" className="h-6 gap-1 rounded-full px-2 text-xs" onClick={() => openPanel(panel.id)}>
                 {panel.icon ? <panel.icon className="size-3" /> : null}
                 {panel.title}
               </Button>
             ))}
-          </div>
+          </span>
         ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="sm" className="ms-auto h-6 shrink-0 gap-1 px-2 text-xs text-muted-foreground" onClick={resetLayout}>
+            <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1 px-2 text-xs text-muted-foreground" onClick={resetLayout}>
               <RotateCcw className="size-3" />
               Reset layout
             </Button>
           </TooltipTrigger>
           <TooltipContent>Panels resize from their separators and move by dragging their grips — this puts everything back.</TooltipContent>
         </Tooltip>
-      </div>
+      </ShellSlot>
       <AppShell layout={layout} onLayoutChange={handleChange} className="min-h-0 flex-1">
         <AppShellBody>
           <AppShellMain>
-            <AppShellWorkspace renderPane={(pane) => <Pane pane={pane} panels={panels} />} />
+            <AppShellWorkspace renderPane={(pane) => <Pane pane={pane} content={content} />} />
           </AppShellMain>
         </AppShellBody>
       </AppShell>

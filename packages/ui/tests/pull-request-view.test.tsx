@@ -167,14 +167,14 @@ describe('PullRequestView', () => {
     expect(pickers).toEqual(['Edit reviewers', 'Edit assignees', 'Edit labels', 'Edit milestone'])
   })
 
-  it('lists the PR commits with the chosen one diffed, and its whole diff under Files changed', async () => {
+  it('lists the PR commits with the chosen one diffed, and its whole diff under Files', async () => {
     await render()
     await click('Commits · 2')
     expect(host.textContent).toContain('Second change')
     expect(host.textContent).toContain('First change')
     expect(host.textContent).toContain('roles.py')
 
-    await click('Files changed')
+    await click('Files · ')
     expect(host.textContent).toContain('auth.py')
   })
 

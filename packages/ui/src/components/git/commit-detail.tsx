@@ -6,25 +6,18 @@ import { useDiffFiles } from '@/lib/api-hooks'
 import { absoluteTime } from '@/lib/format'
 
 import { DiffExplorer, type ExplorerFocus } from './diff-explorer'
-import { ReviewToolbar } from './review-toolbar'
 
 export function CommitDetail({
   worktreeId,
   sha,
   comments,
   mode,
-  onModeChange,
-  onSendForReview,
-  sending,
   focus
 }: {
   worktreeId: string
   sha: string
   comments: ReviewComment[]
   mode: DiffMode
-  onModeChange: (mode: DiffMode) => void
-  onSendForReview: () => void
-  sending: boolean
   focus?: ExplorerFocus
 }): React.JSX.Element {
   const spec = { kind: 'commit', sha } as const
@@ -36,8 +29,8 @@ export function CommitDetail({
   if (detail.error || !data) return <p className="p-4 text-xs text-destructive">{detail.error?.message ?? 'Commit not found'}</p>
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 p-3">
-      <div className="flex flex-col gap-1">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex flex-col gap-1 border-b border-border px-4 py-3">
         <h3 className="text-sm font-medium">{data.commit.subject}</h3>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono text-[11px] text-muted-foreground">
           <span>{data.commit.author}</span>
@@ -50,8 +43,7 @@ export function CommitDetail({
           ))}
         </p>
       </div>
-      <ReviewToolbar files={data.files} comments={forCommit} mode={mode} onModeChange={onModeChange} onSendForReview={onSendForReview} sending={sending} />
-      <DiffExplorer worktreeId={worktreeId} spec={spec} files={data.files} comments={forCommit} mode={mode} focus={focus} className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border" />
+      <DiffExplorer worktreeId={worktreeId} spec={spec} files={data.files} comments={forCommit} mode={mode} focus={focus} className="min-h-0 flex-1 overflow-hidden" />
     </div>
   )
 }

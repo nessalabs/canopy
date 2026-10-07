@@ -1,4 +1,4 @@
-import { FolderTree, Maximize2, Minimize2, X } from 'lucide-react'
+import { Maximize2, Minimize2, X } from 'lucide-react'
 
 import { FileBrowser } from '@/components/file-browser'
 import { Button } from '@/components/ui/button'
@@ -9,31 +9,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
  * terminal or browser later is one more row here; the chrome and the split are shared.
  */
 export const SIDE_PANELS = {
-  files: { label: 'Files', Icon: FolderTree, Body: FileBrowser }
+  files: { label: 'Files', Body: FileBrowser }
 } as const
 
 export type SidePanelId = keyof typeof SIDE_PANELS
-
-/** The header icons: one per panel, lit while open. */
-export function SidePanelButtons({ open, onToggle, disabled }: { open?: SidePanelId; onToggle: (id: SidePanelId) => void; disabled: boolean }): React.JSX.Element {
-  return (
-    <>
-      {(Object.keys(SIDE_PANELS) as SidePanelId[]).map((id) => {
-        const { label, Icon } = SIDE_PANELS[id]
-        return (
-          <Tooltip key={id}>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" aria-label={label} aria-pressed={open === id} disabled={disabled} className={open === id ? 'bg-accent' : undefined} onClick={() => onToggle(id)}>
-                <Icon />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{disabled ? `${label} — open a worktree first` : label}</TooltipContent>
-          </Tooltip>
-        )
-      })}
-    </>
-  )
-}
 
 /**
  * The docked panel itself: title bar with full-screen and close, then the tool for the current

@@ -29,6 +29,9 @@ function initialLayout(worktreeId: string): AppShellLayout {
   return createAppShellLayout({ initialPaneId: 'file-pane', openDocks: [] })
 }
 
+/** Whether any pane is showing a file; until one is, the panel is the tree alone. */
+const anyOpen = (layout: AppShellLayout): boolean => collectPanes(layout.workspace.root).some((pane) => pane.activeViewId)
+
 /** The file the pane the tree opens into is showing, so the tree can mark it. */
 function activePath(layout: AppShellLayout): string | undefined {
   const { activePaneId, root } = layout.workspace
@@ -64,15 +67,23 @@ export function FileBrowser({ worktreeId }: { worktreeId: string }): React.JSX.E
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  const tree = <WorktreeTree worktreeId={worktreeId} selected={selected} onSelect={open} className="h-full" />
+  // The panel is first of all the worktree's file system: the tree fills it until a file is
+  // opened, and then stays on screen above the file however narrow the panel is.
   return (
     <>
-      <ExplorerShell
-        className="h-full"
-        treeLabel="Worktree files"
-        overlayHeader={selected ? <FileDiffPath path={selected} className="min-w-0 flex-1 font-mono text-xs" /> : null}
-        tree={<WorktreeTree worktreeId={worktreeId} selected={selected} onSelect={open} className="h-full" />}
-        content={<FilePanes worktreeId={worktreeId} layout={layout} onLayoutChange={setLayout} />}
-      />
+      {anyOpen(layout) ? (
+        <ExplorerShell
+          className="h-full"
+          treeLabel="Worktree files"
+          overlayHeader={selected ? <FileDiffPath path={selected} className="min-w-0 flex-1 font-mono text-xs" /> : null}
+          tree={tree}
+          content={<FilePanes worktreeId={worktreeId} layout={layout} onLayoutChange={setLayout} />}
+          overlayBelow={0}
+        />
+      ) : (
+        tree
+      )}
       <FileOpenDialog worktreeId={worktreeId} open={opening} onOpenChange={setOpening} onOpen={open} />
     </>
   )

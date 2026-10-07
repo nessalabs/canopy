@@ -43,6 +43,22 @@ item lands, delete it here.
   so nessa's own barrels are dropped and `index.ts` there is Canopy's. `VENDORED.md` records the
   nessa commit. Replace with the npm package once it is published.
 
+## Shell layout (top bar + status bar, 2026-10-07)
+
+The Claude Design "Canopy Prototype" shell landed on `feat/canopy-layout-redesign`: one 40px top
+bar (screen tabs | section switcher | tools + primary action, filled through `shell-slots.tsx`)
+and a status bar (panel toggles, worktree branch/sync/changes, logs, health, theme). Left out:
+
+- **Files mini rail.** The prototype collapses the Files panel to a 44px rail with recent files;
+  here `\` and the status-bar button open or close the existing resizable side panel.
+- **Embedded terminal and "Ask the agent" popovers.** The status bar's terminal button opens the
+  configured external terminal and the sparkle button switches to the Agent section; neither
+  is a popover with its own prompt yet (no in-app terminal exists).
+- **Fetch / Pull.** The prototype's sync menu and History CTA offer fetch and pull; the daemon
+  has push and PR-fetch only, so the sync popover offers Push and History has no CTA.
+- **View dropdown when narrow.** Below ~860px the prototype swaps Git's tabs (and Agent's
+  sessions) for one dropdown; here the tab strip scrolls inside its column instead.
+
 ## Agent tab
 
 - The transcript is a conversation: the agent's work between two messages collapses into one
