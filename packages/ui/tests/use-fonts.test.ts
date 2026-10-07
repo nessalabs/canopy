@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { DEFAULT_FONTS, codeFontFeatures, codeFontStack, customFamily, parseFonts, uiFontStack } from '../src/lib/use-fonts'
 
 describe('font stacks', () => {
-  it('defaults to JetBrains Mono for code and Geist for the interface, as globals.css does', () => {
-    expect(codeFontStack(DEFAULT_FONTS)).toBe('"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace')
+  it('defaults to Ioskeley Mono for code and Geist for the interface, as globals.css does', () => {
+    expect(codeFontStack(DEFAULT_FONTS)).toBe('"Ioskeley Mono", ui-monospace, monospace')
     expect(uiFontStack(DEFAULT_FONTS)).toBe('"Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif')
   })
 

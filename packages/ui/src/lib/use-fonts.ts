@@ -10,7 +10,7 @@ import { useSyncExternalStore } from 'react'
  * editor cannot read a css variable, so `CodeEditor` subscribes here and hands it the literal stack.
  */
 
-export type CodeFontId = 'jetbrains-mono' | 'geist-mono' | 'sf-mono' | 'menlo' | 'custom'
+export type CodeFontId = 'ioskeley-mono' | 'jetbrains-mono' | 'geist-mono' | 'sf-mono' | 'menlo' | 'custom'
 export type UiFontId = 'geist' | 'system' | 'custom'
 
 export interface FontChoice<Id extends string> {
@@ -31,6 +31,7 @@ const UI_FALLBACK = 'ui-sans-serif, system-ui, sans-serif'
 
 /** Bundled fonts first: they look the same on every machine. */
 export const CODE_FONTS: Record<Exclude<CodeFontId, 'custom'>, { label: string; family: string; bundled: boolean }> = {
+  'ioskeley-mono': { label: 'Ioskeley Mono', family: '"Ioskeley Mono"', bundled: true },
   'jetbrains-mono': { label: 'JetBrains Mono', family: '"JetBrains Mono Variable", "JetBrains Mono"', bundled: true },
   'geist-mono': { label: 'Geist Mono', family: '"Geist Mono Variable", "Geist Mono"', bundled: true },
   'sf-mono': { label: 'SF Mono', family: '"SF Mono", SFMono-Regular', bundled: false },
@@ -43,7 +44,7 @@ export const UI_FONTS: Record<Exclude<UiFontId, 'custom'>, { label: string; fami
 }
 
 export const DEFAULT_FONTS: FontPreferences = {
-  code: { id: 'jetbrains-mono', custom: '' },
+  code: { id: 'ioskeley-mono', custom: '' },
   ui: { id: 'geist', custom: '' },
   ligatures: false
 }

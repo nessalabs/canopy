@@ -122,6 +122,53 @@
 }
 
 /*
+ * Ioskeley Mono (github.com/ahatem/IoskeleyMono, OFL-1.1) has no fontsource package, so its woff2
+ * files ship in src/fonts — only the weights the UI uses.
+ */
+@font-face {
+    font-family: "Ioskeley Mono";
+    src: url("../fonts/ioskeley-mono/IoskeleyMono-Regular.woff2") format("woff2");
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Ioskeley Mono";
+    src: url("../fonts/ioskeley-mono/IoskeleyMono-Italic.woff2") format("woff2");
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Ioskeley Mono";
+    src: url("../fonts/ioskeley-mono/IoskeleyMono-Medium.woff2") format("woff2");
+    font-weight: 500;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Ioskeley Mono";
+    src: url("../fonts/ioskeley-mono/IoskeleyMono-SemiBold.woff2") format("woff2");
+    font-weight: 600;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Ioskeley Mono";
+    src: url("../fonts/ioskeley-mono/IoskeleyMono-Bold.woff2") format("woff2");
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: "Ioskeley Mono";
+    src: url("../fonts/ioskeley-mono/IoskeleyMono-BoldItalic.woff2") format("woff2");
+    font-weight: 700;
+    font-style: italic;
+    font-display: swap;
+}
+
+/*
  * The fonts, as variables on the document so Preferences → Appearance can swap them at runtime
  * (lib/use-fonts.ts writes them as inline styles, which win over these defaults). Diffs and code
  * blocks render inside @pierre/diffs's shadow root; custom properties inherit into it, so the
@@ -129,7 +176,7 @@
  */
 :root {
     --canopy-font-ui: "Geist Variable", "Geist", ui-sans-serif, system-ui, sans-serif;
-    --canopy-font-code: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, monospace;
+    --canopy-font-code: "Ioskeley Mono", ui-monospace, monospace;
     --canopy-font-code-features: "liga" 0, "calt" 0;
     --diffs-font-family: var(--canopy-font-code);
     --diffs-font-features: var(--canopy-font-code-features);
