@@ -196,7 +196,7 @@ export function WorktreeCreateScreen({ projectId }: { projectId: string }): Reac
           </label>
 
           {configured && summary.length > 0 ? (
-            <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-muted/40 p-3">
+            <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-surface-sunken p-3">
               {summary.map((label) => (
                 <Badge key={label} variant="outline" className="text-[10px]">
                   {label}
@@ -410,7 +410,7 @@ export function WorktreeCreateScreen({ projectId }: { projectId: string }): Reac
                     {(preview?.setup ?? []).length === 0 ? (
                       <p className="text-xs text-muted-foreground">canopy.yaml has no setup: steps.</p>
                     ) : (
-                      <ol className="flex flex-col gap-1 rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs text-muted-foreground">
+                      <ol className="flex flex-col gap-1 rounded-lg border border-border bg-surface-sunken p-3 font-mono text-xs text-muted-foreground">
                         {(preview?.setup ?? []).map((command, index) => (
                           <li key={`${command}-${index}`}>
                             {index + 1}. {command}
@@ -437,7 +437,7 @@ export function WorktreeCreateScreen({ projectId }: { projectId: string }): Reac
               </AccordionItem>
             </Accordion>
           ) : (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 p-3 text-xs">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-surface-sunken p-3 text-xs">
               <TriangleAlert className="size-4 shrink-0 text-muted-foreground" />
               <span className="text-muted-foreground">
                 {preview?.report.present ? 'This project’s canopy.yaml has errors, so nothing can be provisioned.' : 'No canopy.yaml yet — the worktree is created with git only.'}

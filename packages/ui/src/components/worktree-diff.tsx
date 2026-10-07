@@ -26,7 +26,7 @@ const SIDE_TO_PIERRE = { old: 'deletions', new: 'additions' } as const
 function CommentThread({ worktreeId, comments }: { worktreeId: string; comments: ReviewComment[] }): React.JSX.Element {
   const remove = useDeleteComment(worktreeId)
   return (
-    <div className="flex flex-col gap-1.5 border-y border-border/60 bg-muted/40 px-4 py-2 font-sans">
+    <div className="flex flex-col gap-1.5 border-y border-border/60 bg-surface-panel px-4 py-2 font-sans">
       {comments.map((comment) => (
         <div key={comment.id} data-comment-id={comment.id}>
           <CommentCard comment={comment} onDelete={(c) => remove.mutate(c.id)} />
@@ -39,7 +39,7 @@ function CommentThread({ worktreeId, comments }: { worktreeId: string; comments:
 function CommentComposer({ target, onSubmit, onDone }: { target: CommentTarget; onSubmit: (text: string) => void; onDone: () => void }): React.JSX.Element {
   const [text, setText] = useState('')
   return (
-    <div className="flex flex-col gap-2 border-y border-border/60 bg-muted/40 px-4 py-2 font-sans">
+    <div className="flex flex-col gap-2 border-y border-border/60 bg-surface-panel px-4 py-2 font-sans">
       <Textarea
         autoFocus
         value={text}

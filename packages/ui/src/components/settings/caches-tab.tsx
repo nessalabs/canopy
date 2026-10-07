@@ -173,7 +173,7 @@ export function CachesTab({ project, draft }: { project: Project; draft: Draft<P
         {setup.length === 0 ? (
           <p className="text-xs text-muted-foreground">{preview.isPending ? 'Reading canopy.yaml…' : 'No setup: steps in canopy.yaml.'}</p>
         ) : (
-          <ol className="flex flex-col gap-1 rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs text-muted-foreground">
+          <ol className="flex flex-col gap-1 rounded-lg border border-border bg-surface-sunken p-3 font-mono text-xs text-muted-foreground">
             {setup.map((command, index) => (
               <li key={`${command}-${index}`}>
                 {index + 1}. {command}

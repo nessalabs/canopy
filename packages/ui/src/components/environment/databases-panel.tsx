@@ -82,7 +82,7 @@ function DatabaseCard({ worktree, db }: { worktree: Worktree; db: DbInstanceInfo
       {db.connectionUrl ? (
         <button
           type="button"
-          className="flex cursor-pointer items-center justify-between gap-3 rounded-lg bg-muted/50 px-3 py-2 text-left"
+          className="flex cursor-pointer items-center justify-between gap-3 rounded-lg bg-surface-sunken px-3 py-2 text-left"
           aria-label={`Copy the ${db.name} connection URL`}
           onClick={copy}
         >
@@ -93,7 +93,7 @@ function DatabaseCard({ worktree, db }: { worktree: Worktree; db: DbInstanceInfo
           </span>
         </button>
       ) : (
-        <p className="rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs text-muted-foreground">no connection yet</p>
+        <p className="rounded-lg bg-surface-sunken px-3 py-2 font-mono text-xs text-muted-foreground">no connection yet</p>
       )}
       <div className="grid grid-cols-2 gap-2 xl:grid-cols-5">
         {DETAIL_KEYS.filter(([key]) => db.detail[key]).map(([key, label]) => (

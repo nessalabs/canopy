@@ -26,7 +26,7 @@ export function emptyMessage(agent: WorktreeAgent, worktree: Worktree): string {
 function OriginNote({ origin }: { origin: SessionOrigin }): React.JSX.Element {
   const where = origin.kind === 'main' ? 'the main checkout' : origin.name
   return (
-    <p className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+    <p className="rounded-lg border border-border bg-surface-sunken px-3 py-2 text-xs text-muted-foreground">
       {origin.kind === 'removed' ? (
         <>
           This session ran in <span className="font-mono">{origin.path}</span>, which has been removed. Its transcript is kept; a message continues it in{' '}
