@@ -115,7 +115,7 @@ export function YamlTab({ project }: { project: Project }): React.JSX.Element {
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
         <div className="flex min-w-0 flex-col gap-3">
           {missing ? (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-surface-sunken p-3 text-xs">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 p-3 text-xs">
               <span className="text-muted-foreground">
                 No <span className="font-mono text-foreground">canopy.yaml</span> in this repo yet. Worktrees still get created — they just have nothing to run.
               </span>
@@ -164,7 +164,7 @@ export function YamlTab({ project }: { project: Project }): React.JSX.Element {
           </div>
 
           {parsed.errors.length > 0 || parsed.warnings.length > 0 ? (
-            <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface-sunken p-3 font-mono text-xs">
+            <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/40 p-3 font-mono text-xs">
               {parsed.errors.map((message) => (
                 <span key={message} className="text-destructive">
                   ✗ {message}
@@ -224,7 +224,7 @@ export function YamlTab({ project }: { project: Project }): React.JSX.Element {
                 <AccordionTrigger className="font-mono text-xs">{entry.key}:</AccordionTrigger>
                 <AccordionContent>
                   <p className="text-xs text-muted-foreground">{entry.summary}</p>
-                  <pre className="mt-2 overflow-x-auto rounded-md bg-surface-sunken p-2 font-mono text-[10px] leading-relaxed">{entry.example}</pre>
+                  <pre className="mt-2 overflow-x-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">{entry.example}</pre>
                 </AccordionContent>
               </AccordionItem>
             ))}

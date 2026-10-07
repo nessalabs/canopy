@@ -33,7 +33,7 @@ export function Row({ label, hint, children, className }: { label: string; hint?
 
 /** A short "where does this live" strip at the top of a tab. */
 export function ScopeNote({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return <div className="rounded-lg border border-border bg-surface-sunken p-3 text-xs text-muted-foreground [&_code]:font-mono [&_code]:text-foreground">{children}</div>
+  return <div className="rounded-lg border border-border bg-muted/40 p-3 text-xs text-muted-foreground [&_code]:font-mono [&_code]:text-foreground">{children}</div>
 }
 
 const STATUS_TEXT: Record<SaveStatus, string> = { idle: '', saving: 'Saving…', saved: 'Saved', error: "Couldn't save" }

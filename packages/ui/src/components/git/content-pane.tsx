@@ -134,7 +134,7 @@ function OpenInWindow({ worktreeId, path, rev }: { worktreeId: string; path: str
 function PaneHeader({ path, dragPaneId, onBack, children }: { path: string; dragPaneId?: string; onBack?: () => void; children: React.ReactNode }): React.JSX.Element {
   const label = <FileDiffPath path={path} className="min-w-0 flex-1 font-mono text-xs" />
   return (
-    <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-surface-panel px-3 py-2">
+    <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-muted/30 px-3 py-2">
       {onBack ? (
         <Button variant="ghost" size="icon" className="size-6 shrink-0" aria-label="Back to the previous file" onClick={onBack}>
           <ArrowLeft className="size-3.5" />

@@ -15,7 +15,7 @@ const popoverSurfaceVariants = cva(
   {
     variants: {
       elevation: {
-        md: "shadow-overlay",
+        md: "shadow-md",
         xl: "shadow-xl",
       },
       radius: {

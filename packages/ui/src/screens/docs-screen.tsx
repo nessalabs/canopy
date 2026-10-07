@@ -43,7 +43,7 @@ export function DocsScreen(): React.JSX.Element {
       </div>
       <div className="overflow-x-auto rounded-xl border border-border">
         <table className="w-full text-left text-sm">
-          <thead className="bg-surface-sunken text-xs text-muted-foreground">
+          <thead className="bg-muted/40 text-xs text-muted-foreground">
             <tr>
               <th className="px-3 py-2 font-medium">Method</th>
               <th className="px-3 py-2 font-medium">Path</th>

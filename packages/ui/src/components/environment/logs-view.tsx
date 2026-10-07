@@ -72,7 +72,7 @@ export function LogsView({
         </Tooltip>
       </div>
       <ErrorNote error={logs.error} />
-      <ScrollArea ref={areaRef} className="min-h-24 flex-1 rounded-lg border border-border bg-surface-sunken">
+      <ScrollArea ref={areaRef} className="min-h-24 flex-1 rounded-lg border border-border bg-muted/30">
         <div className="p-2.5 font-mono text-[11px] leading-[1.6]">
           {logs.truncated ? <p className="pb-1 text-muted-foreground/60">older lines not shown</p> : null}
           {logs.lines.length === 0 ? (
