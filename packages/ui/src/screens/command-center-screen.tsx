@@ -353,6 +353,7 @@ function WorktreeRow({ row, selected, onSelect }: { row: Row; selected: boolean;
     <TableRow className="group cursor-pointer" data-state={selected ? 'selected' : undefined} onClick={() => navigate(href)}>
       <TableCell className="w-8 pr-0" onClick={(event) => event.stopPropagation()}>
         <Checkbox
+          className="size-3.5"
           checked={selected}
           disabled={!rowSelectable(row)}
           aria-label={`Select ${worktree.name}`}
@@ -596,6 +597,7 @@ function WorktreesPanel(): React.JSX.Element {
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-8 pr-0">
                 <Checkbox
+                  className="size-3.5"
                   checked={allVisibleSelected}
                   indeterminate={!allVisibleSelected && someVisibleSelected}
                   disabled={visibleSelectable.length === 0}
