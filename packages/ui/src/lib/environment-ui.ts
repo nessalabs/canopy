@@ -1,16 +1,19 @@
 /**
- * Pure presentation helpers behind the Environment and Resources tabs: uptime and log
+ * Pure presentation helpers behind the Environment tab and the Resources popover: uptime and log
  * timestamps, dotenv rendering, meter scales and the memory-bar math. No DOM, no hooks —
  * the components stay thin and this file is unit-tested.
  */
 import type { Against, DbInstanceInfo, EnvSource, EnvVar, HostSample } from '@canopy/shared'
 
-export type DashboardTab = 'environment' | 'git' | 'agent' | 'resources'
+export type DashboardTab = 'environment' | 'git' | 'agent'
 
-export const DASHBOARD_TABS: readonly DashboardTab[] = ['environment', 'git', 'agent', 'resources']
+export const DASHBOARD_TABS: readonly DashboardTab[] = ['environment', 'git', 'agent']
 
-/** Old tab names still found in bookmarks and open windows. */
-const TAB_ALIASES: Record<string, DashboardTab> = { gitdiff: 'git' }
+/**
+ * Old tab names still found in bookmarks and open windows. Resources moved to the status bar's
+ * popover, so a link to it opens Environment, its nearest neighbour.
+ */
+const TAB_ALIASES: Record<string, DashboardTab> = { gitdiff: 'git', resources: 'environment' }
 
 /** One query parameter out of a hash-router location, or a bare query string. */
 function hashParam(hash: string, name: string): string | null {
@@ -37,7 +40,7 @@ export function forgetLinkQuery(): void {
 }
 
 /**
- * Reads `?tab=` out of a hash-router location (`#/worktrees/x?tab=resources`). Accepts the
+ * Reads `?tab=` out of a hash-router location (`#/worktrees/x?tab=git`). Accepts the
  * raw `location.hash` or a bare query string; unknown tabs return undefined so the caller
  * keeps its own default.
  */

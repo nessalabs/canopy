@@ -10,7 +10,7 @@ const HOUR = 60 * MINUTE
 
 describe('tab deep links', () => {
   it('reads ?tab= out of a hash location', () => {
-    expect(parseTab('#/worktrees/abc?tab=resources')).toBe('resources')
+    expect(parseTab('#/worktrees/abc?tab=resources')).toBe('environment')
     expect(parseTab('#/worktrees/abc?foo=1&tab=agent')).toBe('agent')
     expect(parseTab('tab=environment')).toBe(undefined)
     expect(parseTab('?tab=environment')).toBe('environment')

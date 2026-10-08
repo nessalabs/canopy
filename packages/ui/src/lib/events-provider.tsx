@@ -1,7 +1,7 @@
 /**
  * One SSE subscription per app to the daemon's event stream. Environment events patch the
  * react-query cache in place (no refetch); resource/host samples land in a small external
- * store the Resources tab and Command Center read with useSyncExternalStore. Reconnects with
+ * store the Resources popover and Command Center read with useSyncExternalStore. Reconnects with
  * backoff and resumes from the last seq; a `reset` (buffer miss) invalidates everything.
  */
 import { useQueryClient, type QueryClient } from '@tanstack/react-query'
@@ -220,7 +220,7 @@ export function useHostSamples(): HostSample[] {
   return samples.hostSamples()
 }
 
-/** Lets the Resources tab merge a GET backfill into the live store. */
+/** Lets the Resources popover merge a GET backfill into the live store. */
 export function useSampleStore(): SampleStore {
   return useEvents().samples
 }

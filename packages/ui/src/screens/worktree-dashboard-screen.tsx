@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Activity, Boxes, FileDiff, Sparkles } from 'lucide-react'
+import { Boxes, FileDiff, Sparkles } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import type { GitHubNote, ReviewRequest, Worktree } from '@canopy/shared'
@@ -10,7 +10,6 @@ import { EnvironmentTab } from '@/components/environment/environment-tab'
 import { WorktreeActions } from '@/components/environment/worktree-actions'
 import { WorktreeStatus, WorktreeStatusTools } from '@/components/environment/worktree-status'
 import { GitTab } from '@/components/git/git-tab'
-import { ResourcesTab } from '@/components/resources/resources-tab'
 import { ShellSlot } from '@/components/shell-slots'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -25,15 +24,14 @@ import { cn } from '@/lib/utils'
 const TABS = [
   { value: 'environment', label: 'Environment', icon: Boxes },
   { value: 'git', label: 'Git', icon: FileDiff },
-  { value: 'agent', label: 'Agent', icon: Sparkles },
-  { value: 'resources', label: 'Resources', icon: Activity }
+  { value: 'agent', label: 'Agent', icon: Sparkles }
 ] as const satisfies readonly { value: DashboardTab; label: string; icon: React.ComponentType }[]
 
 /** Sections whose content is a padded page of panels, rather than a flush full-bleed view. */
-const PADDED: ReadonlySet<DashboardTab> = new Set(['environment', 'resources'])
+const PADDED: ReadonlySet<DashboardTab> = new Set(['environment'])
 
 /**
- * The worktree's four sections as one pill strip in the top bar's centre. The active one always
+ * The worktree's three sections as one pill strip in the top bar's centre. The active one always
  * keeps its label; the others drop to their icons on a narrow bar — a container query, since the
  * strip renders inside the bar.
  */
@@ -97,7 +95,7 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
         <WorktreeStatus worktree={worktree} projectName={projectName} onDestroy={() => setDestroyOpen(true)} onOpenChanges={openChanges} />
       </ShellSlot>
       <ShellSlot name="statusEnd">
-        <WorktreeStatusTools worktree={worktree} onOpenEnvironment={() => setTab('environment')} onOpenAgent={() => setTab('agent')} />
+        <WorktreeStatusTools worktree={worktree} onOpenAgent={() => setTab('agent')} />
       </ShellSlot>
       <TabsContent value="environment" className="flex min-h-0 flex-1 flex-col">
         <EnvironmentTab worktree={worktree} />
@@ -107,9 +105,6 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
       </TabsContent>
       <TabsContent value="agent" className="flex min-h-0 flex-1 flex-col">
         <AgentTab worktree={worktree} agent={agent} />
-      </TabsContent>
-      <TabsContent value="resources">
-        <ResourcesTab worktree={worktree} />
       </TabsContent>
       <DestroyWorktreeDialog worktree={worktree} open={destroyOpen} onOpenChange={setDestroyOpen} onDestroyed={() => navigate('/')} />
     </Tabs>
