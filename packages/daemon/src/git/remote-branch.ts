@@ -9,12 +9,14 @@ import { badRequest, conflict } from '../lib/errors'
 import type { GitRunner } from './exec'
 
 /**
- * A fetch must never sit on a prompt the daemon cannot answer: no terminal for a password, and
- * SSH in batch mode so a passphrase-locked key fails instead of hanging. A user's own
- * GIT_SSH_COMMAND wins, since they set it for a reason.
+ * A fetch must never sit on a prompt the daemon cannot answer: no terminal for a password, no
+ * askpass helper (an empty GIT_ASKPASS also disables core.askPass and SSH_ASKPASS, which could
+ * open a GUI prompt), and SSH in batch mode so a passphrase-locked key fails instead of hanging.
+ * A user's own GIT_SSH_COMMAND wins, since they set it for a reason.
  */
 const fetchEnv = (): Record<string, string> => ({
   GIT_TERMINAL_PROMPT: '0',
+  GIT_ASKPASS: '',
   ...(process.env.GIT_SSH_COMMAND ? {} : { GIT_SSH_COMMAND: 'ssh -o BatchMode=yes' })
 })
 
