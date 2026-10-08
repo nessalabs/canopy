@@ -4,6 +4,7 @@ import type { DiffSpec, SessionRef } from '@canopy/shared'
 export const keys = {
   projects: ['projects'] as const,
   branches: (projectId: string) => ['branches', projectId] as const,
+  remoteBranches: (projectId: string) => ['remote-branches', projectId] as const,
   worktrees: ['worktrees'] as const,
   worktree: (id: string) => ['worktree', id] as const,
   /** Destroy jobs running in the daemon and ones that finished recently; `destroy-job` events keep it current. */

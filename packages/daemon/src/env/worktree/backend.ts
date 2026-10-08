@@ -34,7 +34,8 @@ export interface WorktreeCreateInput {
   repoPath: string
   /** Absolute path Canopy wants the worktree at. */
   path: string
-  branch: BranchSpec
+  /** A remote branch is made local before this is called (see prepareRemoteBranch). */
+  branch: Exclude<BranchSpec, { mode: 'remote' }>
   /** Project setting; false forces the git fallback even when `canopyd` is installed. */
   useTool: boolean
   env?: Record<string, string>

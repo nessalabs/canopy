@@ -57,7 +57,13 @@ export const WORKTREE_NAME_PATTERN = /^[a-z0-9][a-z0-9._-]*$/
 
 export const BranchSpec = z.discriminatedUnion('mode', [
   z.object({ mode: z.literal('new'), name: z.string().min(1), base: z.string().min(1) }),
-  z.object({ mode: z.literal('existing'), name: z.string().min(1) })
+  z.object({ mode: z.literal('existing'), name: z.string().min(1) }),
+  /**
+   * A branch on a remote, checked out to test what was pushed. The daemon fetches it first, then
+   * makes a local tracking branch or fast-forwards the local one; it refuses when the local branch
+   * has commits the remote does not, rather than discard them.
+   */
+  z.object({ mode: z.literal('remote'), name: z.string().min(1), remote: z.string().min(1) })
 ])
 export type BranchSpec = z.infer<typeof BranchSpec>
 

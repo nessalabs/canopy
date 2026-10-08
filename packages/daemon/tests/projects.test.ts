@@ -44,6 +44,7 @@ describe('projects', () => {
     const updated = await server.call('PATCH', routes.project(id), { name: 'renamed' })
     expect(updated.body.project.name).toBe('renamed')
     expect((await server.call('GET', routes.branches(id))).body.branches.map((b: { name: string }) => b.name)).toEqual(['main'])
+    expect((await server.call('GET', routes.remoteBranches(id))).body).toEqual({ remote: null, branches: [], fetchError: null })
     expect((await server.call('DELETE', routes.project(id))).status).toBe(204)
     expect((await server.call('GET', routes.projects())).body.projects).toEqual([])
   })

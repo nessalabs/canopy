@@ -91,7 +91,7 @@ export function buildServices(deps: ServerDeps): Services {
   const git = deps.git ?? runGit
   const repo = createRepo(git)
   const diffs = createDiffReader(git, repo.untracked)
-  const projects = new ProjectsService(deps.db, repo, deps.config.home)
+  const projects = new ProjectsService(deps.db, repo, deps.config.home, git)
   const events = deps.events ?? createEventBus()
   // Every `canopyd` call files its ports in one registry for all of this daemon's projects, in
   // the daemon's range. Per-repository registries each keep their own numbers unique, but two
