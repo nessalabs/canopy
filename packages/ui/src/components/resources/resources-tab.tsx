@@ -73,9 +73,9 @@ export function ResourcesTab({ worktree }: { worktree: Worktree }): React.JSX.El
 
   if (running.length === 0) {
     return (
-      <div className="flex flex-col gap-4 font-mono">
+      <div className="@container flex flex-col gap-4 font-mono">
         <p className="rounded-xl border border-dashed border-border py-10 text-center text-sm text-muted-foreground">Start the worktree and its usage lands here.</p>
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 @3xl:grid-cols-2">
           <FramedBox title="cpu" annotation={`${cores} cores · host`} className="bg-card">
             <div className="px-3 pt-1 pb-3">
               <CoreGrid cores={latestHost?.cores ?? []} />
@@ -92,9 +92,9 @@ export function ResourcesTab({ worktree }: { worktree: Worktree }): React.JSX.El
   }
 
   return (
-    <div className="flex flex-col gap-4 font-mono">
-      <div className="grid gap-4 lg:grid-cols-5">
-        <div className="flex flex-col gap-4 lg:col-span-2">
+    <div className="@container flex flex-col gap-4 font-mono">
+      <div className="grid gap-4 @3xl:grid-cols-5">
+        <div className="flex flex-col gap-4 @3xl:col-span-2">
           <FramedBox title="cpu" annotation={`${cores} cores${up ? ` · up ${up}` : ''}`} className="bg-card">
             <div className="flex flex-col gap-1.5 px-3 pt-1 pb-3">
               <div className="flex items-center gap-2 text-xs">
@@ -138,7 +138,7 @@ export function ResourcesTab({ worktree }: { worktree: Worktree }): React.JSX.El
             </div>
           </FramedBox>
         </div>
-        <FramedBox title="proc" annotation={`${running.length} of ${active.length} services`} className="bg-card lg:col-span-3">
+        <FramedBox title="proc" annotation={`${running.length} of ${active.length} services`} className="bg-card @3xl:col-span-3">
           <div className="overflow-x-auto px-3 pt-1 pb-3">
             <div className="grid min-w-xl grid-cols-[5.5rem_5rem_1fr_3.5rem_6rem_5.5rem] gap-x-3 text-[11px]">
               <span className="text-muted-foreground">Pid:</span>
@@ -173,7 +173,7 @@ export function ResourcesTab({ worktree }: { worktree: Worktree }): React.JSX.El
         </FramedBox>
       </div>
       <FramedBox title="history" annotation={`${samples.length} samples`} className="bg-card">
-        <div className="grid gap-4 px-3 pt-2 pb-3 sm:grid-cols-2">
+        <div className="grid gap-4 px-3 pt-2 pb-3 @md:grid-cols-2">
           {samples.length === 0 ? (
             <p className="text-[11px] text-muted-foreground">Waiting for the first sample…</p>
           ) : (

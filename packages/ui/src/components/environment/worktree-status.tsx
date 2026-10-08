@@ -1,12 +1,12 @@
 import { useState } from 'react'
-import { ArrowDown, ArrowUp, Check, Copy, GitBranch, Maximize2, Minimize2, ScrollText, Sparkles, SquareTerminal, Upload } from 'lucide-react'
-import { Popover } from 'radix-ui'
+import { Activity, ArrowDown, ArrowUp, Check, Copy, GitBranch, Maximize2, Minimize2, Sparkles, SquareTerminal, Upload } from 'lucide-react'
 import { useLocation } from 'wouter'
 
-import { environmentDot, PROVISION_LOG, type Worktree } from '@canopy/shared'
+import { environmentDot, type Worktree } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
 import { IconAction } from '@/components/icon-action'
+import { ResourcesTab } from '@/components/resources/resources-tab'
 import { ShellSlot } from '@/components/shell-slots'
 import { StatusPopover, StatusRow } from '@/components/status-bar'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,6 @@ import { plural } from '@/lib/format'
 import { ENV_STATE_BADGE, mergedLabel, WORKTREE_DOT } from '@/lib/status'
 
 import { DestroyWorktreeDialog } from './destroy-worktree-dialog'
-import { LogsPanel } from './logs-panel'
 import { useToolLabels, useWorktreeControls, WorktreeMenuItems } from './worktree-actions'
 
 const TRIGGER = 'h-6 gap-1.5 px-1.5 font-mono text-xs font-normal text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground'
@@ -162,36 +161,33 @@ export function WorktreeStatus({
   )
 }
 
-/** The two sizes the logs popover comes in: a glance, and most of the window. */
-const LOG_SIZES = { compact: 'h-72 w-[min(92vw,30rem)]', large: 'h-[70vh] w-[min(92vw,64rem)]' } as const
+/** The two sizes the resources popover comes in: a glance, and most of the window. */
+const RESOURCE_SIZES = { compact: 'max-h-[70vh] w-[min(92vw,30rem)]', large: 'h-[80vh] w-[min(92vw,64rem)]' } as const
 
-/** The worktree's live logs, a step from wherever the reader is — larger on demand, or in full in Environment. */
-function LogsPopover({ worktree, onOpenEnvironment }: { worktree: Worktree; onOpenEnvironment: () => void }): React.JSX.Element {
-  const [service, setService] = useState(PROVISION_LOG)
-  const [size, setSize] = useState<keyof typeof LOG_SIZES>('compact')
+/**
+ * The worktree's CPU, memory and processes, a step from wherever the reader is. It lives here
+ * rather than as a section of its own; logs stay in Environment.
+ */
+function ResourcesPopover({ worktree }: { worktree: Worktree }): React.JSX.Element {
+  const [size, setSize] = useState<keyof typeof RESOURCE_SIZES>('compact')
   const large = size === 'large'
   return (
-    <StatusPopover label="Logs" align="end" className={`flex flex-col ${LOG_SIZES[size]}`} trigger={<ScrollText className="size-3.5" />}>
+    <StatusPopover label="Resources" align="end" className={`flex flex-col ${RESOURCE_SIZES[size]}`} trigger={<Activity className="size-3.5" />}>
       <div className="flex items-center gap-1 border-b border-border py-1 ps-3 pe-1 text-sm font-medium">
-        <span className="flex-1">Logs</span>
-        <Popover.Close asChild>
-          <Button variant="ghost" size="sm" className="h-6 text-xs font-normal text-muted-foreground" onClick={onOpenEnvironment}>
-            Open in Environment
-          </Button>
-        </Popover.Close>
+        <span className="flex-1">Resources</span>
         <IconAction label={large ? 'Smaller' : 'Larger'} onClick={() => setSize(large ? 'compact' : 'large')}>
           {large ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
         </IconAction>
       </div>
-      <div className="min-h-0 flex-1">
-        <LogsPanel worktree={worktree} service={service} onServiceChange={setService} />
+      <div className="min-h-0 flex-1 overflow-y-auto p-3">
+        <ResourcesTab worktree={worktree} />
       </div>
     </StatusPopover>
   )
 }
 
-/** The status bar's right-hand worktree tools: its logs, a terminal in it, and its agent. */
-export function WorktreeStatusTools({ worktree, onOpenEnvironment, onOpenAgent }: { worktree: Worktree; onOpenEnvironment: () => void; onOpenAgent: () => void }): React.JSX.Element {
+/** The status bar's right-hand worktree tools: a terminal in it, its resources, and its agent. */
+export function WorktreeStatusTools({ worktree, onOpenAgent }: { worktree: Worktree; onOpenAgent: () => void }): React.JSX.Element {
   const controls = useWorktreeControls(worktree)
   const { terminal } = useToolLabels()
   return (
@@ -199,7 +195,7 @@ export function WorktreeStatusTools({ worktree, onOpenEnvironment, onOpenAgent }
       <IconAction label={`Open in ${terminal}`} className="w-7" onClick={() => controls.openIn('terminal')}>
         <SquareTerminal className="size-3.5" />
       </IconAction>
-      <LogsPopover worktree={worktree} onOpenEnvironment={onOpenEnvironment} />
+      <ResourcesPopover worktree={worktree} />
       <IconAction label="Agent  3" className="w-7" onClick={onOpenAgent}>
         <Sparkles className="size-3.5" />
       </IconAction>
@@ -209,7 +205,7 @@ export function WorktreeStatusTools({ worktree, onOpenEnvironment, onOpenAgent }
 
 /**
  * The status bar away from a worktree — Preferences, the Command Center — keeps showing the last
- * worktree that was open, so its logs and terminal stay a click away. Anything that means a
+ * worktree that was open, so its resources and terminal stay a click away. Anything that means a
  * section of the worktree goes back to it, opened on that section.
  */
 export function RecentWorktreeStatus({ id }: { id: string }): React.JSX.Element | null {
@@ -225,7 +221,7 @@ export function RecentWorktreeStatus({ id }: { id: string }): React.JSX.Element 
         <WorktreeStatus worktree={worktree} projectName={projectName} onDestroy={() => setDestroyOpen(true)} onOpenChanges={go('tab=git&pane=changes')} />
       </ShellSlot>
       <ShellSlot name="statusEnd">
-        <WorktreeStatusTools worktree={worktree} onOpenEnvironment={go('tab=environment')} onOpenAgent={go('tab=agent')} />
+        <WorktreeStatusTools worktree={worktree} onOpenAgent={go('tab=agent')} />
       </ShellSlot>
       <DestroyWorktreeDialog worktree={worktree} open={destroyOpen} onOpenChange={setDestroyOpen} onDestroyed={() => navigate('/')} />
     </>
