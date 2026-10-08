@@ -49,7 +49,7 @@ function TreePopover({ tree, footer, label, header }: { tree: React.ReactNode; f
         </Popover.Trigger>
         <Popover.Portal>
           <Popover.Content asChild side="bottom" align="start" sideOffset={6} collisionPadding={8} onClick={(event) => isFilePick(event.target) && setOpen(false)}>
-            <PopoverSurface className="flex h-[60vh] w-[min(92vw,24rem)] flex-col overflow-hidden p-0">
+            <PopoverSurface className="z-50 flex h-[60vh] w-[min(92vw,24rem)] flex-col overflow-hidden p-0">
               <div className="min-h-0 flex-1">{tree}</div>
               {footer}
             </PopoverSurface>

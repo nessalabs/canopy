@@ -35,7 +35,7 @@ export function HiddenPaths({ worktreeId }: { worktreeId: string }): React.JSX.E
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content asChild side="top" align="start" sideOffset={6} collisionPadding={8}>
-          <PopoverSurface className="w-[min(92vw,26rem)] p-2">
+          <PopoverSurface className="z-50 w-[min(92vw,26rem)] p-2">
             <ul className="flex flex-col gap-0.5">
               {hidden.map((entry) => (
                 <li key={`${entry.how}:${entry.path}`} className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-accent/50">
