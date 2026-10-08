@@ -1,9 +1,11 @@
 import type { Database } from 'better-sqlite3'
 
-import { defaultProjectSettings, type AddProjectInput, type Branch, type ComposeInfo, type Ecosystem, type Project, type ScanResult, type UpdateProjectInput } from '@canopy/shared'
+import { defaultProjectSettings, type AddProjectInput, type Branch, type ComposeInfo, type Ecosystem, type Project, type RemoteBranchList, type ScanResult, type UpdateProjectInput } from '@canopy/shared'
 
 import { projectHome } from '../config'
 import { loadCanopyConfig } from '../env/config/load'
+import type { GitRunner } from '../git/exec'
+import { fetchRemote, hasRemote, listRemoteBranches } from '../git/remote-branch'
 import type { Repo } from '../git/repo'
 import { conflict, notFound } from '../lib/errors'
 import { newId, now } from '../lib/ids'
@@ -17,6 +19,17 @@ interface ProjectRow {
   config_yaml: string | null
   detected_json: string
   created_at: number
+}
+
+/** The remote the new-worktree screen lists. */
+const REMOTE = 'origin'
+/** A fetch this recent is good enough; reopening the tab should not hit the network every time. */
+const FETCH_FRESH_MS = 20_000
+
+interface FetchState {
+  at: number
+  error: string | null
+  running: Promise<void> | null
 }
 
 interface Detected {
@@ -46,8 +59,12 @@ export class ProjectsService {
     private readonly db: Database,
     private readonly repo: Repo,
     /** Canopy home; a project's canopy.yaml may live under `<home>/<project>/` instead of in the repo. */
-    private readonly home: string
+    private readonly home: string,
+    private readonly git: GitRunner
   ) {}
+
+  /** Last fetch per project. Nothing fetches until someone opens the remote tab. */
+  private readonly fetches = new Map<string, FetchState>()
 
   list(): Project[] {
     return (this.db.prepare('SELECT * FROM projects ORDER BY name').all() as ProjectRow[]).map((row) => toProject(row, this.home))
@@ -102,5 +119,32 @@ export class ProjectsService {
     const project = this.get(id)
     const branches = await this.repo.listBranches(project.path)
     return { branches, defaultBranch: project.defaultBase }
+  }
+
+  /**
+   * Branches on `origin`, after a fetch. Concurrent callers share one fetch, and one that ran in
+   * the last few seconds is reused. A failed fetch still answers, with what the last good fetch
+   * saw and the reason.
+   */
+  async remoteBranches(id: string): Promise<RemoteBranchList> {
+    const project = this.get(id)
+    if (!(await hasRemote(this.git, project.path, REMOTE))) return { remote: null, branches: [], fetchError: null }
+    const state = this.fetches.get(id) ?? { at: 0, error: null, running: null }
+    this.fetches.set(id, state)
+    if (!state.running && Date.now() - state.at > FETCH_FRESH_MS) {
+      state.running = fetchRemote(this.git, project.path, REMOTE).then(
+        () => {
+          state.error = null
+        },
+        (error: unknown) => {
+          state.error = error instanceof Error ? error.message : String(error)
+        }
+      ).finally(() => {
+        state.at = Date.now()
+        state.running = null
+      })
+    }
+    await state.running
+    return { remote: REMOTE, branches: await listRemoteBranches(this.git, project.path, REMOTE), fetchError: state.error }
   }
 }

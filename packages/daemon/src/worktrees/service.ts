@@ -304,7 +304,8 @@ export class WorktreesService {
     // Without an environment service (tests of the git layer alone) fall back to a synchronous git add.
     const path = join(this.deps.worktreeRoot, projectDirName(project.name), 'worktrees', input.name)
     if (existsSync(path)) throw conflict('worktree_exists', `${path} already exists`)
-    await this.deps.repo.worktreeAdd(project.path, path, input.branch)
+    // git's own guess (`worktree add <path> <name>`) turns a remote-only name into a tracking branch.
+    await this.deps.repo.worktreeAdd(project.path, path, input.branch.mode === 'remote' ? { mode: 'existing', name: input.branch.name } : input.branch)
     await this.sync(project)
     this.db
       .prepare('UPDATE worktrees SET name = ?, managed = 1, base_branch = ? WHERE path = ?')

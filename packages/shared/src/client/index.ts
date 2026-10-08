@@ -36,6 +36,7 @@ import type {
   AgentStreamEvent,
   Against,
   Branch,
+  RemoteBranchList,
   ChangesResponse,
   Commit,
   CommitInput,
@@ -171,6 +172,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
       request<{ project: Project }>('PATCH', routes.project(id), input).then((r) => r.project),
     removeProject: (id: string) => del(routes.project(id)),
     listBranches: (id: string) => get<{ branches: Branch[]; defaultBranch: string }>(routes.branches(id)),
+    listRemoteBranches: (id: string) => get<RemoteBranchList>(routes.remoteBranches(id)),
 
     createWorktree: (projectId: string, input: CreateWorktreeInput) =>
       post<{ worktree: Worktree }>(routes.projectWorktrees(projectId), input).then((r) => r.worktree),

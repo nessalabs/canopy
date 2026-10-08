@@ -10,6 +10,7 @@ import { execa } from 'execa'
 import { dbEnvKey as sharedDbEnvKey, normalizeSetupStep, type DbAdapterName, type DbInstanceInfo, type DbSource, type PortSpec } from '@canopy/shared'
 
 import type { GitRunner } from '../../git/exec'
+import { prepareRemoteBranch } from '../../git/remote-branch'
 import type { PortAllocator } from '../ports/allocator'
 import { resolveEnvironment, type ResolvedEnvironment } from '../config/resolve'
 import type { DbAdapter, DbContext, ProvisionContext, ProvisionStepImpl } from '../types'
@@ -93,15 +94,17 @@ export function createSteps(deps: StepDeps): ProvisionStepImpl[] {
     applies: (ctx) => (existsSync(ctx.worktreePath) ? { run: false, reason: 'worktree exists' } : ctx.branchSpec ? { run: true } : { run: false, reason: 'no branch to create from' }),
     async run(ctx) {
       const spec = ctx.branchSpec as NonNullable<ProvisionContext['branchSpec']>
+      // A remote branch becomes an ordinary local one first, so the backend only ever checks out.
+      const prepared = spec.mode === 'remote' ? await prepareRemoteBranch(deps.git, ctx.project.path, spec, (line) => ctx.logs.out(line)) : null
       const result = await deps.backend.create({
         repoPath: ctx.project.path,
         path: ctx.worktreePath,
-        branch: spec,
+        branch: spec.mode === 'remote' ? { mode: 'existing', name: spec.name } : spec,
         useTool: ctx.settings.worktree.tool,
         env: { CANOPY_WORKTREE_ID: ctx.worktreeId },
         onLine: (_stream, text) => ctx.logs.out(text)
       })
-      const verb = spec.mode === 'new' ? `${spec.name} from ${spec.base}` : spec.name
+      const verb = spec.mode === 'new' ? `${spec.name} from ${spec.base}` : prepared ? `${spec.name} (${prepared})` : spec.name
       return { detail: `${result.backend === 'canopyd' ? 'canopyd new' : 'git worktree add'} ${verb}` }
     }
   }

@@ -31,6 +31,8 @@ export function registerProjectRoutes(app: FastifyInstance, { projects, worktree
 
   app.get(routes.branches(':id'), async (request) => projects.branches(IdParams.parse(request.params).id))
 
+  app.get(routes.remoteBranches(':id'), async (request) => projects.remoteBranches(IdParams.parse(request.params).id))
+
   app.post(routes.projectWorktrees(':id'), async (request, reply) => {
     const project = projects.get(IdParams.parse(request.params).id)
     const worktree = await worktrees.create(project, CreateWorktreeInput.parse(request.body))

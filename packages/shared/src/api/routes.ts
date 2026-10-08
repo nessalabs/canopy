@@ -9,6 +9,8 @@ export const routes = {
   scanProject: () => `${API_PREFIX}/projects/scan`,
   project: (id: string) => `${API_PREFIX}/projects/${id}`,
   branches: (id: string) => `${API_PREFIX}/projects/${id}/branches`,
+  /** Branches on the project's `origin`, refreshed by a fetch that is throttled per project. */
+  remoteBranches: (id: string) => `${API_PREFIX}/projects/${id}/remote-branches`,
   projectWorktrees: (id: string) => `${API_PREFIX}/projects/${id}/worktrees`,
   projectTrash: (id: string) => `${API_PREFIX}/projects/${id}/trash`,
   /** Recent PRs across the project's repository, for the Command Center's list. */

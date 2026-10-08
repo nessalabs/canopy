@@ -63,6 +63,15 @@ export const useBranches = (projectId: string) => {
   return useQuery({ queryKey: keys.branches(projectId), queryFn: () => api.listBranches(projectId) })
 }
 
+/**
+ * Branches on origin. Each read makes the daemon fetch (throttled there), so this only runs while
+ * the Origin tab is showing and does not refetch on window focus.
+ */
+export const useRemoteBranches = (projectId: string, enabled: boolean) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.remoteBranches(projectId), queryFn: () => api.listRemoteBranches(projectId), enabled, staleTime: 30_000, refetchOnWindowFocus: false })
+}
+
 export const useWorktrees = () => {
   const api = useApi()
   return useQuery({ queryKey: keys.worktrees, queryFn: api.listWorktrees, refetchInterval: POLL_MS, refetchIntervalInBackground: false })

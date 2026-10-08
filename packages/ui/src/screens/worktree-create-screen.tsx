@@ -15,7 +15,8 @@ import { Input } from '@/components/ui/input'
 import { SearchableListbox } from '@/components/ui/searchable-listbox'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useBranches, useCreateWorktree, useHost, useProjectEnvironment, useProjectSettings, useProjects, useWorktrees } from '@/lib/api-hooks'
+import { useBranches, useCreateWorktree, useHost, useProjectEnvironment, useProjectSettings, useProjects, useRemoteBranches, useWorktrees } from '@/lib/api-hooks'
+import { relativeTime } from '@/lib/format'
 import { CACHE_DEFAULT, buildCreateInput, suggestWorktreeName, summaryBadges } from '@/lib/settings-ui'
 
 const CACHE_STRATEGIES: CacheStrategy[] = ['clone', 'copy', 'symlink', 'fresh']
@@ -35,6 +36,9 @@ export function WorktreeCreateScreen({ projectId }: { projectId: string }): Reac
   const [newBranch, setNewBranch] = useState('')
   const [base, setBase] = useState<string>()
   const [existing, setExisting] = useState<string>()
+  const [remoteBranch, setRemoteBranch] = useState<string>()
+  const remoteBranches = useRemoteBranches(projectId, mode === 'remote')
+  const remote = remoteBranches.data?.remote ?? 'origin'
   const [name, setName] = useState<string>()
   // `undefined` on these four means "still following the project default".
   const [picked, setPicked] = useState<string[]>()
@@ -52,11 +56,12 @@ export function WorktreeCreateScreen({ projectId }: { projectId: string }): Reac
   const prefix = settings?.defaults.branchPrefix ?? ''
   const baseBranch = base ?? branches.data?.defaultBranch ?? project?.defaultBase ?? 'main'
   const typed = newBranch.trim()
-  const branchName = mode === 'new' ? (typed === '' ? '' : `${prefix}${typed}`) : (existing ?? '')
+  const branchName = mode === 'new' ? (typed === '' ? '' : `${prefix}${typed}`) : mode === 'remote' ? (remoteBranch ?? '') : (existing ?? '')
   const effectiveName = name ?? suggestWorktreeName(branchName)
   const nameOk = WORKTREE_NAME_PATTERN.test(effectiveName)
   const valid = branchName !== '' && nameOk
-  const branch: BranchSpec = mode === 'new' ? { mode, name: branchName, base: baseBranch } : { mode, name: branchName }
+  const branch: BranchSpec =
+    mode === 'new' ? { mode, name: branchName, base: baseBranch } : mode === 'remote' ? { mode, name: branchName, remote } : { mode, name: branchName }
 
   const allServices = (preview?.services ?? []).map((service) => service.name)
   const selectedServices = picked ?? allServices
@@ -140,6 +145,7 @@ export function WorktreeCreateScreen({ projectId }: { projectId: string }): Reac
             <SegmentedControl value={mode} onValueChange={(value) => setMode(value as BranchSpec['mode'])} aria-label="Branch mode">
               <SegmentedControlOption value="new">New branch</SegmentedControlOption>
               <SegmentedControlOption value="existing">Existing branch</SegmentedControlOption>
+              <SegmentedControlOption value="remote">Origin</SegmentedControlOption>
             </SegmentedControl>
             {mode === 'new' ? (
               <div className="flex flex-col gap-2">
@@ -168,6 +174,43 @@ export function WorktreeCreateScreen({ projectId }: { projectId: string }): Reac
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
+            ) : mode === 'remote' ? (
+              <div className="flex flex-col gap-2">
+                <SearchableListbox
+                  items={remoteBranches.data?.branches ?? []}
+                  getItemId={(item) => item.name}
+                  getItemKeywords={(item) => [item.name]}
+                  renderItem={(item) => (
+                    <span className="flex min-w-0 flex-1 items-center gap-2">
+                      <span className="truncate font-mono text-sm">{item.name}</span>
+                      {item.hasLocal ? (
+                        <Badge variant="secondary" className="shrink-0 text-[10px]" title="A local branch of this name exists. Canopy fast-forwards it to origin, and never drops local commits.">
+                          local
+                        </Badge>
+                      ) : null}
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">{relativeTime(item.at)}</span>
+                    </span>
+                  )}
+                  value={remoteBranch}
+                  onValueChange={setRemoteBranch}
+                  listLabel={`Branches on ${remote}`}
+                  searchPlaceholder={`Search ${remote} branches`}
+                  loading={remoteBranches.isPending}
+                  loadingMessage={`Fetching ${remote}…`}
+                  emptyMessage={remoteBranches.data?.remote === null ? 'This repository has no origin remote.' : undefined}
+                  className="overflow-hidden rounded-lg border border-border"
+                  listClassName="max-h-60"
+                />
+                {remoteBranches.data?.fetchError ? (
+                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    <TriangleAlert className="size-3 shrink-0" />
+                    Could not reach {remote}; showing branches from the last fetch.
+                  </span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">Checks out what was pushed, so you can run it here.</span>
+                )}
+                {remoteBranches.isError ? <ErrorNote error={remoteBranches.error} /> : null}
               </div>
             ) : (
               <SearchableListbox
