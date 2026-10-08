@@ -224,7 +224,7 @@ function BranchPicker({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content asChild side="bottom" align="start" sideOffset={6} collisionPadding={8}>
-          <PopoverSurface className="w-[min(92vw,22rem)] p-0">
+          <PopoverSurface className="z-50 w-[min(92vw,22rem)] p-0">
             <SearchableListbox
               items={branches}
               getItemId={(branch) => branch}

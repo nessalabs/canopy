@@ -41,7 +41,8 @@ export function StatusPopover({
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content asChild side="top" align={align} sideOffset={6} collisionPadding={8}>
-          <PopoverSurface className={cn('p-0', className)}>{children}</PopoverSurface>
+          {/* z-50 like every other floating menu: without it a positioned split divider (z-10) paints through. */}
+          <PopoverSurface className={cn('z-50 p-0', className)}>{children}</PopoverSurface>
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
