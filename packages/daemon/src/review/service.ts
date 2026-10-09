@@ -142,7 +142,7 @@ export class ReviewService {
       ref,
       ids,
       cwd: row.path,
-      options: { autonomy: request.autonomy, model: request.model, effort: request.effort },
+      options: { autonomy: request.autonomy, model: request.model, effort: request.effort, instructions: request.instructions },
       prompt: formatReviewPrompt({ comments, github, branch: row.branch ?? undefined, note: request.note })
     }
   }

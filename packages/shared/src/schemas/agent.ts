@@ -20,6 +20,11 @@ export const TurnOptions = z.object({
   model: z.string().min(1).optional(),
   effort: Effort.optional(),
   /**
+   * Standing instructions from the surface the turn was sent from — the Git Agent's, say — added
+   * to the provider's own system prompt for this turn, never shown as part of the conversation.
+   */
+  instructions: z.string().min(1).optional(),
+  /**
    * Where the turn's event numbering starts: the `nextSeq` of the transcript the client already
    * holds, so live events extend that log instead of colliding with it. Defaults to 0.
    */
@@ -276,6 +281,11 @@ export const AgentCapabilities = z.object({
   /** Provider version, e.g. the Claude Code CLI's. */
   version: z.string().optional(),
   model: z.string().optional(),
+  /**
+   * The model a new session starts on when none is picked: the one the user's own settings name
+   * (`model` in Claude's settings, Codex's config.toml), else the provider's recommended default.
+   */
+  defaultModel: z.string().optional(),
   permissionMode: z.string().optional(),
   outputStyle: z.string().optional(),
   outputStyles: z.array(z.string()),

@@ -369,6 +369,8 @@ export class ClaudeAdapter implements AgentAdapter {
         ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : { canUseTool }),
         ...(options.model ? { model: options.model } : {}),
         ...(options.effort ? { effort: options.effort } : {}),
+        // Claude Code's own prompt stays whole; the surface's instructions are added after it.
+        ...(options.instructions ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: options.instructions } } : {}),
         // Every turn checkpoints what its file tools write, so "undo this turn" is answerable
         // later — from this query while it runs, and from a resumed one once it has ended.
         enableFileCheckpointing: true,
