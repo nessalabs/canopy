@@ -2,7 +2,7 @@ import { RotateCw, Sparkles } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 
-/** "Draft with Claude", for the commit box and the new-PR form. Spins while a draft is on its way. */
+/** "Draft with AI", for the commit box and the new-PR form. Spins while a draft is on its way. */
 export function DraftButton({
   running,
   blocked,
@@ -16,7 +16,7 @@ export function DraftButton({
   compact?: boolean
   onClick: () => void
 }): React.JSX.Element {
-  const label = running ? 'Drafting…' : 'Draft with Claude'
+  const label = running ? 'Drafting…' : 'Draft with AI'
   return (
     <Button
       type="button"

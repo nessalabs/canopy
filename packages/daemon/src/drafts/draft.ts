@@ -2,6 +2,10 @@
  * Drafting text with Claude: a commit message from what is staged, or a pull request's title and
  * body from what the branch adds over its base. Either way the answer only fills a form; nothing
  * is committed or opened until the user says so.
+ *
+ * A diff can be enormous (a regenerated lockfile, a vendored bundle), so its size is measured with
+ * `--numstat` before it is read. Past the budget the model works from the commit messages and the
+ * file list alone, which is what a pull request description is mostly built from anyway.
  */
 import type { DraftInput, DraftKind, DraftSettings, ProjectSettings, TextDraft } from '@canopy/shared'
 
@@ -9,8 +13,13 @@ import type { GitRunner } from '../git/exec'
 import { badRequest, conflict } from '../lib/errors'
 import type { WorktreesService } from '../worktrees/service'
 
-/** Enough for any reviewable change; past it the model gets the head of the diff and the file list. */
+/** Past this many changed lines the diff is left out and the commits and the file list carry the draft. */
+const MAX_DIFF_LINES = 3_000
+/** A guard for the lines `--numstat` cannot see: minified files, long generated lines. */
 const MAX_DIFF_CHARS = 120_000
+/** The file list and the commit list are bounded too; the most recent commits are the ones kept. */
+const MAX_STAT_FILES = 200
+const MAX_COMMITS = 200
 
 /** One prompt in, the model's text out. Production runs Claude through the Agent SDK. */
 export type TextGenerator = (prompt: string, cwd: string) => Promise<string>
@@ -22,17 +31,32 @@ interface Deps {
   generate: TextGenerator
 }
 
-/** Labelled blocks of context appended to the instructions; an empty diff means there is nothing to draft. */
+/** Labelled blocks of context appended to the instructions; `empty` means there is nothing to draft. */
 interface Context {
   sections: Array<[label: string, text: string]>
-  diff: string
+  empty: boolean
 }
 
 const DIFF_FLAGS = ['diff', '--no-color', '--no-ext-diff']
 
+/** Lines added plus removed, from `git diff --numstat`. Binary files (`-\t-`) count as none. */
+export function changedLines(numstat: string): number {
+  return numstat
+    .split('\n')
+    .map((line) => line.split('\t'))
+    .reduce((sum, [added = '', removed = '']) => sum + (Number(added) || 0) + (Number(removed) || 0), 0)
+}
+
+/** The file list always; the diff itself only when it is small enough to be worth reading. */
 async function diffContext(git: GitRunner, cwd: string, range: string[]): Promise<Context> {
-  const [stat, diff] = await Promise.all([git(cwd, [...DIFF_FLAGS, '--stat', ...range]), git(cwd, [...DIFF_FLAGS, ...range])])
-  return { sections: [['Files', stat]], diff }
+  const numstat = await git(cwd, [...DIFF_FLAGS, '--numstat', ...range])
+  const changed = changedLines(numstat)
+  const [stat, diff] = await Promise.all([
+    git(cwd, [...DIFF_FLAGS, `--stat-count=${MAX_STAT_FILES}`, '--stat', ...range]),
+    changed <= MAX_DIFF_LINES ? git(cwd, [...DIFF_FLAGS, ...range]) : `[${changed} changed lines, too many to include; work from the file list above]`
+  ])
+  const clipped = diff.length > MAX_DIFF_CHARS ? `${diff.slice(0, MAX_DIFF_CHARS)}\n[diff truncated; see the file list above]` : diff
+  return { sections: [['Files', stat], ['Diff', clipped]], empty: numstat.trim() === '' }
 }
 
 /** The remote-tracking copy of `base` when there is one — that is what GitHub compares against — else the local branch. */
@@ -58,15 +82,18 @@ const SOURCES: Record<DraftKind, Source> = {
     empty: 'this branch has no changes over its base',
     context: async (git, cwd, input) => {
       const from = await baseRef(git, cwd, input.kind === 'pullRequest' ? input.base : '')
-      const [log, diff] = await Promise.all([git(cwd, ['log', '--reverse', '--format=- %s%n%w(0,2,2)%b', `${from}..HEAD`]), diffContext(git, cwd, [`${from}...HEAD`])])
-      return { sections: [['Into', from], ['Commits', log], ...diff.sections], diff: diff.diff }
+      const [log, diff] = await Promise.all([
+        git(cwd, ['log', `--max-count=${MAX_COMMITS}`, '--format=- %s%n%w(0,2,2)%b', `${from}..HEAD`]),
+        diffContext(git, cwd, [`${from}...HEAD`])
+      ])
+      // Commits first: their messages are the main source for a PR description.
+      return { sections: [['Into', from], ['Commits (newest first)', log], ...diff.sections], empty: diff.empty }
     }
   }
 }
 
-export function draftPrompt(instructions: string, branch: string, { sections, diff }: Context): string {
-  const clipped = diff.length > MAX_DIFF_CHARS ? `${diff.slice(0, MAX_DIFF_CHARS)}\n[diff truncated; see the file list above]` : diff
-  const blocks: Context['sections'] = [['Branch', branch || '(detached HEAD)'], ...sections, ['Diff', clipped]]
+export function draftPrompt(instructions: string, branch: string, sections: Context['sections']): string {
+  const blocks: Context['sections'] = [['Branch', branch || '(detached HEAD)'], ...sections]
   return [instructions.trim(), ...blocks.map(([label, text]) => `${label}:\n${text.trimEnd()}`)].join('\n\n')
 }
 
@@ -84,9 +111,9 @@ export async function draftText({ git, worktrees, settings, generate }: Deps, wo
   const { path, projectId } = worktrees.location(worktreeId)
   const source = SOURCES[input.kind]
   const [context, branch] = await Promise.all([source.context(git, path, input), git(path, ['symbolic-ref', '-q', '--short', 'HEAD'], { okCodes: [0, 1] })])
-  if (context.diff.trim() === '') throw badRequest('nothing_to_draft', source.empty)
+  if (context.empty) throw badRequest('nothing_to_draft', source.empty)
 
-  const prompt = draftPrompt(settings(projectId).drafts[source.prompt], branch.trim(), context)
+  const prompt = draftPrompt(settings(projectId).drafts[source.prompt], branch.trim(), context.sections)
   const draft = parseDraft(await generate(prompt, path))
   if (draft.title === '') throw conflict('draft_failed', 'Claude returned an empty draft')
   return draft

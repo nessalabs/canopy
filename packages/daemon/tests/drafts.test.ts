@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { routes } from '@canopy/shared'
 
-import { parseDraft } from '../src/drafts/draft'
+import { changedLines, parseDraft } from '../src/drafts/draft'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 import { createTestServer, type TestServer } from './helpers/test-server'
 
@@ -17,6 +17,13 @@ describe('parseDraft', () => {
 
   it('keeps fences inside the body', () => {
     expect(parseDraft('Title\n\n```ts\nx\n```\nmore').body).toBe('```ts\nx\n```\nmore')
+  })
+})
+
+describe('changedLines', () => {
+  it('adds up additions and removals, counting binary files as none', () => {
+    expect(changedLines('3\t1\ta.txt\n-\t-\tlogo.png\n10\t0\tb.txt\n')).toBe(14)
+    expect(changedLines('')).toBe(0)
   })
 })
 
@@ -76,6 +83,19 @@ describe('draft route', () => {
     expect(prompt).toContain('- Rework a')
     expect(prompt).toContain('+a on feature')
     expect(prompt).not.toContain('uncommitted')
+  })
+
+  it('leaves a huge diff out and drafts from the commits and the file list', async () => {
+    await repo.branch('feature')
+    await repo.git('checkout', '-q', 'feature')
+    await repo.commit({ 'huge.txt': Array.from({ length: 5000 }, (_, i) => `line ${i}`).join('\n') }, 'Vendor a huge file')
+
+    expect((await server.call('POST', routes.draft(worktreeId), { kind: 'pullRequest', base: 'main' })).status).toBe(200)
+    const [prompt = ''] = prompts
+    expect(prompt).toContain('- Vendor a huge file')
+    expect(prompt).toContain('huge.txt')
+    expect(prompt).toContain('[5000 changed lines, too many to include')
+    expect(prompt).not.toContain('+line 42')
   })
 
   it('refuses when there is nothing to draft, without asking Claude', async () => {
