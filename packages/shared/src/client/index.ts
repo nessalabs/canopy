@@ -41,6 +41,8 @@ import type {
   Commit,
   CommitInput,
   DraftInput,
+  GroupInput,
+  GroupingBrief,
   TextDraft,
   MergeInput,
   MergeResult,
@@ -210,6 +212,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     commitChanges: (worktreeId: string, input: CommitInput) =>
       post<{ commit: Commit }>(routes.commitChanges(worktreeId), input).then((r) => r.commit),
     draft: (worktreeId: string, input: DraftInput) => post<TextDraft>(routes.draft(worktreeId), input),
+    groupBrief: (worktreeId: string, input: GroupInput) => post<GroupingBrief>(routes.groupBrief(worktreeId), input),
     mergeWorktree: (worktreeId: string, input: MergeInput) => post<MergeResult>(routes.merge(worktreeId), input),
     pullRequest: (worktreeId: string, fresh = false) => get<PullRequestResponse>(routes.pullRequest(worktreeId), fresh ? { fresh: '1' } : {}),
     projectPullRequests: (projectId: string) => get<ProjectPullRequests>(routes.projectPullRequests(projectId)),

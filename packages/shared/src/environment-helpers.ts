@@ -70,6 +70,23 @@ Reply with the summary on the first line, a blank line, then the description. No
 Reply with the title on the first line, a blank line, then the description. No code fences around the whole reply, no preamble.`
 }
 
+/**
+ * The stock instructions a grouping session opens with. The hunks themselves, and how the user
+ * asked for them to be grouped, are appended after it.
+ */
+export const DEFAULT_GROUP_PROMPT = `Split the change below into groups a reviewer can read one at a time; the Groups pane beside the chat draws your answers. The hunks below are usually enough; when one needs more context, read the code with your file-reading and search tools rather than shell commands, so nothing waits on the user's approval, and keep the reading to what the grouping needs. Do not change any files.
+
+- Group by feature: one group is one thing the change does, with its frontend, backend, database, tests and config parts together.
+- When a feature is large, split it into sub-features under "parts"; a small feature has none.
+- Order groups so a reviewer meets the foundations first (schemas, shared types, core logic) and what builds on them later.
+- Give each group a short title in plain words, a summary of one to three sentences on what it does and why, and the layers it touches (frontend, backend, database, tests, config, docs, build).
+- Every id below (h… for a hunk, f… for a whole file) goes in exactly one group or part. Keep a file's hunks apart when they belong to different features.
+- Under "links", note where one feature builds on another — uses its types, calls its code, renders its data — from the feature built on to the one building on it, by their numbers in "groups" (1 is the first), with a few words on what passes between them. Leave out features that stand alone.
+
+Reply with a fenced \`\`\`change-groups block holding JSON (no comments), then two or three sentences on how you grouped it. When asked to change the grouping later, reply with the whole updated block, using the same ids. The JSON is shaped like:
+{"groups": [{"title": "Refund flow", "summary": "…", "layers": ["backend", "database"], "ids": ["h1", "h4"], "parts": [{"title": "…", "summary": "…", "layers": ["frontend"], "ids": ["h2", "f1"]}]}],
+ "links": [{"from": 1, "to": 2, "label": "refund records"}]}`
+
 export function defaultProjectSettings(ecosystems: Ecosystem[] = []): ProjectSettings {
   return {
     autoFetch: true,
