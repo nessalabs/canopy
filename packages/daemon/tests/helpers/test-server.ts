@@ -10,6 +10,7 @@ import { createEventBus } from '../../src/env/events/bus'
 import type { DockerHelper, EventBus } from '../../src/env/types'
 import { createWorktreeBackend, type WorktreeBackend } from '../../src/env/worktree/backend'
 import { runGit } from '../../src/git/exec'
+import type { TextGenerator } from '../../src/drafts/draft'
 import { buildServer } from '../../src/server'
 import { FakeAgent } from './fake-agent'
 
@@ -42,7 +43,7 @@ export interface TestServer {
   close(): Promise<void>
 }
 
-export async function createTestServer(opts: { worktreeBackend?: WorktreeBackend; docker?: DockerHelper } = {}): Promise<TestServer> {
+export async function createTestServer(opts: { worktreeBackend?: WorktreeBackend; docker?: DockerHelper; generateText?: TextGenerator } = {}): Promise<TestServer> {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'canopy-home-')))
   const agent = new FakeAgent()
   const events = createEventBus()
@@ -55,6 +56,7 @@ export async function createTestServer(opts: { worktreeBackend?: WorktreeBackend
     // Never the real `~/.claude/projects`: a test must not find the developer's own sessions.
     claudeProjects: join(home, 'claude-projects'),
     docker: opts.docker ?? noDocker,
+    generateText: opts.generateText,
     // Tests exercise the git fallback unless one opts into the real `canopyd`.
     worktreeBackend: opts.worktreeBackend ?? createWorktreeBackend(runGit, { bin: 'canopyd-not-installed-for-tests' })
   })

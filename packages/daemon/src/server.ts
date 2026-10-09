@@ -15,6 +15,7 @@ import { ProjectCheckouts } from './agents/checkouts'
 import { createAgentRegistry, type AgentRegistry } from './agents/registry'
 import { createSessionLister } from './agents/sessions'
 import { CommitService } from './commit/service'
+import { claudeText, draftText, type TextGenerator } from './drafts/draft'
 import { registerAuth } from './auth'
 import type { DaemonConfig } from './config'
 import { createDbRegistry } from './env/databases/registry'
@@ -73,6 +74,8 @@ export interface ServerDeps {
   claudeProjects?: string
   /** Tests subscribe to the bus they hand in. */
   events?: EventBus
+  /** Drafts commit messages and PRs; tests script it, production asks Claude. */
+  generateText?: TextGenerator
   logger?: boolean
 }
 
@@ -144,6 +147,8 @@ export function buildServices(deps: ServerDeps): Services {
     worktrees,
     history,
     commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
+    draftText: (worktreeId, input) =>
+      draftText({ git, worktrees, settings: (projectId) => environment.settings(projectId), generate: deps.generateText ?? claudeText }, worktreeId, input),
     merges: new MergeService({ repo, git, worktrees, projects, events }),
     destroyJobs: new DestroyJobsService({ worktrees, events }),
     github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees, review }),

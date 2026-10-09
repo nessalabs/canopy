@@ -10,7 +10,7 @@ import type { BranchSpec, CacheSource, CacheStrategy, CreateWorktreeInput, DbSou
 // =====================================================================================
 
 /** Every section of the settings screen, in nav order (the last one is machine-level). */
-export const SETTINGS_TABS = ['general', 'worktree', 'yaml', 'caches', 'defaults', 'cleanup', 'trash', 'danger', 'app'] as const
+export const SETTINGS_TABS = ['general', 'worktree', 'yaml', 'caches', 'defaults', 'drafts', 'cleanup', 'trash', 'danger', 'app'] as const
 export type SettingsTabId = (typeof SETTINGS_TABS)[number]
 
 export const SETTINGS_TAB_LABEL: Record<SettingsTabId, string> = {
@@ -19,6 +19,7 @@ export const SETTINGS_TAB_LABEL: Record<SettingsTabId, string> = {
   yaml: 'canopy.yaml',
   caches: 'Provisioning & caches',
   defaults: 'Worktree defaults',
+  drafts: 'Claude drafts',
   cleanup: 'Cleanup',
   trash: 'Trash',
   danger: 'Danger zone',

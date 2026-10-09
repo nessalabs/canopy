@@ -6,6 +6,7 @@ import {
   DEFAULT_WORKTREE_OPTIONS,
   type AppSettings,
   type CacheRule,
+  type DraftSettings,
   type EnvState,
   type ProjectSettings,
   type ProjectSettingsPatch,
@@ -53,6 +54,22 @@ export const ECOSYSTEM_LOCKFILES: Record<Ecosystem, string[]> = {
   'docker-compose': []
 }
 
+/** The stock instructions for Claude's drafts; a project can replace either in settings. */
+export const DEFAULT_DRAFT_PROMPTS: DraftSettings = {
+  commitPrompt: `Write a git commit message for the staged changes below.
+
+- Summary: one line, imperative mood, at most 72 characters, no trailing period.
+- Description: a few short sentences or bullets on what changed and why. Leave it empty when the summary says it all.
+
+Reply with the summary on the first line, a blank line, then the description. No code fences, no preamble.`,
+  pullRequestPrompt: `Write a GitHub pull request title and description for the branch's commits and diff below.
+
+- Title: one line, at most 72 characters, no trailing period.
+- Description: Markdown. Open with a short paragraph on what the change does and why, then a bulleted list of the notable changes. Mention anything a reviewer should look at closely.
+
+Reply with the title on the first line, a blank line, then the description. No code fences around the whole reply, no preamble.`
+}
+
 export function defaultProjectSettings(ecosystems: Ecosystem[] = []): ProjectSettings {
   return {
     autoFetch: true,
@@ -72,7 +89,8 @@ export function defaultProjectSettings(ecosystems: Ecosystem[] = []): ProjectSet
       sharedStores: true
     },
     defaults: { autoStart: true, runtime: 'per-service', env: [], branchPrefix: '', dbSource: 'template' },
-    cleanup: { dirtyDestroy: 'prompt', deleteBranch: 'ask', staleGc: true, staleDays: 14 }
+    cleanup: { dirtyDestroy: 'prompt', deleteBranch: 'ask', staleGc: true, staleDays: 14 },
+    drafts: { ...DEFAULT_DRAFT_PROMPTS }
   }
 }
 
@@ -84,7 +102,8 @@ export function applySettingsPatch(current: ProjectSettings, patch: ProjectSetti
     copyFiles: patch.copyFiles ?? current.copyFiles,
     caches: { ...current.caches, ...(patch.caches ?? {}) },
     defaults: { ...current.defaults, ...(patch.defaults ?? {}) },
-    cleanup: { ...current.cleanup, ...(patch.cleanup ?? {}) }
+    cleanup: { ...current.cleanup, ...(patch.cleanup ?? {}) },
+    drafts: { ...current.drafts, ...(patch.drafts ?? {}) }
   }
 }
 

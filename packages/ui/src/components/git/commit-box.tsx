@@ -2,12 +2,15 @@ import { useRef, useState } from 'react'
 
 import type { ChangedFile, GitOperation } from '@canopy/shared'
 
+import { ErrorNote } from '@/components/error-note'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { useCommitChanges } from '@/lib/api-hooks'
+import { useDraftJob } from '@/lib/draft-jobs'
 import { plural } from '@/lib/format'
 
+import { DraftButton } from './draft-button'
 import { commitFormId } from './git-chrome'
 
 /** What a commit would carry: everything the index holds, whole files and part-staged alike. */
@@ -41,11 +44,16 @@ export function CommitBox({
   const [description, setDescription] = useState('')
   const [committed, setCommitted] = useState<string>()
   const summaryRef = useRef<HTMLInputElement>(null)
+  // Keeps running while the user is in another worktree; the result waits here for their return.
+  const drafting = useDraftJob(worktreeId, 'commit', (draft) => {
+    setSummary(draft.title)
+    setDescription(draft.body)
+  })
 
   const staged = stagedCount(files)
   const conflicted = files.filter((file) => file.conflicted).length
   const blocked = conflicted > 0 ? `Resolve ${plural(conflicted, 'conflict')} first` : staged === 0 ? 'Check at least one file' : undefined
-  const ready = blocked === undefined && summary.trim() !== '' && !commit.isPending
+  const ready = blocked === undefined && summary.trim() !== '' && !commit.isPending && !drafting.running
 
   const submit = (): void => {
     if (!ready) return
@@ -54,6 +62,7 @@ export function CommitBox({
       { summary: summary.trim(), description: description.trim() || undefined, noVerify: false },
       {
         onSuccess: (created) => {
+          drafting.dismiss()
           setSummary('')
           setDescription('')
           setCommitted(created.shortSha)
@@ -75,22 +84,27 @@ export function CommitBox({
       }}
     >
       {operation ? <p className="text-[11px] text-amber-600 dark:text-amber-500">{OPERATION_NOTE[operation]}</p> : null}
-      <Input
-        ref={summaryRef}
-        value={summary}
-        onChange={(event) => setSummary(event.target.value)}
-        placeholder="Summary (required)"
-        aria-label="Commit summary"
-        className="h-8 text-xs"
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter') return
-          // Plain Enter would submit the form; committing stays a deliberate ⌘/Ctrl+Enter.
-          event.preventDefault()
-          if (event.metaKey || event.ctrlKey) submit()
-        }}
-      />
+      <div className="flex gap-2">
+        <Input
+          ref={summaryRef}
+          value={summary}
+          disabled={drafting.running}
+          onChange={(event) => setSummary(event.target.value)}
+          placeholder={drafting.running ? 'Claude is drafting…' : 'Summary (required)'}
+          aria-label="Commit summary"
+          className="h-8 text-xs"
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return
+            // Plain Enter would submit the form; committing stays a deliberate ⌘/Ctrl+Enter.
+            event.preventDefault()
+            if (event.metaKey || event.ctrlKey) submit()
+          }}
+        />
+        <DraftButton compact running={drafting.running} blocked={blocked} onClick={() => drafting.start({ kind: 'commit' })} />
+      </div>
       <Textarea
         value={description}
+        disabled={drafting.running}
         onChange={(event) => setDescription(event.target.value)}
         placeholder="Description"
         aria-label="Commit description"
@@ -99,6 +113,7 @@ export function CommitBox({
           if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) submit()
         }}
       />
+      <ErrorNote error={drafting.error} />
       {commit.error ? <p className="max-h-24 overflow-auto whitespace-pre-wrap font-mono text-[11px] text-destructive">{commit.error.message}</p> : null}
       {committed ? <p className="font-mono text-[11px] text-muted-foreground">Committed {committed}.</p> : null}
       <Button type="submit" size="sm" className="h-8 w-full" disabled={!ready} title={blocked}>
