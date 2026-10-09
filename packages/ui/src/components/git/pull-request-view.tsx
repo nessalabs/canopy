@@ -13,10 +13,12 @@ import { PopoverSurface } from '@/components/ui/popover-surface'
 import { SearchableListbox } from '@/components/ui/searchable-listbox'
 import { Textarea } from '@/components/ui/textarea'
 import { useCreatePullRequest, usePullRequest, useRefreshPullRequest } from '@/lib/api-hooks'
+import { useDraftJob } from '@/lib/draft-jobs'
 import { plural } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { ExplorerFocus } from './diff-explorer'
+import { DraftButton } from './draft-button'
 import { PullRequestDetail } from './pull-request/detail'
 import { Empty, useExternalLink, type ReviewProps } from './pull-request/parts'
 
@@ -272,10 +274,18 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
     setBody(data.draft.body)
   }, [data.draft?.title, data.draft?.body])
 
+  // Claude's draft replaces the suggestion, and keeps running if the user goes elsewhere meanwhile.
+  const drafting = useDraftJob(worktree.id, 'pullRequest', (written) => {
+    setTouched(true)
+    setTitle(written.title)
+    setBody(written.body)
+  })
+
   const ahead = worktree.status?.ahead ?? null
   const dirty = worktree.status?.dirtyTotal ?? 0
   const needsPush = !data.upstream?.name || (data.upstream.ahead ?? 0) > 0
   const nothing = ahead === 0
+  const busy = create.isPending || drafting.running
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
@@ -283,14 +293,21 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
         className="mx-auto flex w-full max-w-2xl flex-col gap-4 rounded-xl border border-border p-5"
         onSubmit={(event) => {
           event.preventDefault()
-          create.mutate({ title, body, base: base.trim() || undefined, draft })
+          create.mutate({ title, body, base: base.trim() || undefined, draft }, { onSuccess: drafting.dismiss })
         }}
       >
         <div className="flex flex-col gap-1">
-          <h3 className="flex items-center gap-2 text-sm font-medium">
-            <GitPullRequest className="size-4 text-muted-foreground" />
-            Open a pull request
-          </h3>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-medium">
+              <GitPullRequest className="size-4 text-muted-foreground" />
+              Open a pull request
+            </h3>
+            <DraftButton
+              running={drafting.running}
+              blocked={nothing ? 'No commits to describe yet' : !base ? 'Pick a branch to merge into first' : undefined}
+              onClick={() => drafting.start({ kind: 'pullRequest', base })}
+            />
+          </div>
           <p className="text-sm text-muted-foreground">
             No pull request on GitHub for <span className="font-mono text-foreground">{data.branch}</span> yet.
             {needsPush ? ' The branch is pushed first, so GitHub has every commit.' : ''}
@@ -300,7 +317,8 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
           <span className="text-xs text-muted-foreground">Title</span>
           <Input
             value={title}
-            disabled={create.isPending}
+            disabled={busy}
+            placeholder={drafting.running ? 'Claude is drafting…' : undefined}
             onChange={(event) => {
               setTouched(true)
               setTitle(event.target.value)
@@ -312,7 +330,7 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
           <Textarea
             className="min-h-40 font-mono text-xs"
             value={body}
-            disabled={create.isPending}
+            disabled={busy}
             onChange={(event) => {
               setTouched(true)
               setBody(event.target.value)
@@ -340,8 +358,9 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
         </div>
         {dirty > 0 ? <p className="text-xs text-amber-600 dark:text-amber-500">{plural(dirty, 'uncommitted change')} here will not be part of it — only commits are pushed.</p> : null}
         {nothing ? <p className="text-xs text-muted-foreground">This branch has no commits that {data.baseBranch} lacks, so there is nothing to open a pull request for yet.</p> : null}
+        <ErrorNote error={drafting.error} />
         <ErrorNote error={create.error} />
-        <Button type="submit" size="sm" className="w-fit" disabled={create.isPending || nothing || title.trim().length === 0 || !base}>
+        <Button type="submit" size="sm" className="w-fit" disabled={busy || nothing || title.trim().length === 0 || !base}>
           {create.isPending ? <RotateCw className="animate-spin" /> : needsPush ? <Upload /> : <GitPullRequest />}
           {create.isPending ? (needsPush ? 'Pushing and opening…' : 'Opening…') : needsPush ? 'Push and open pull request' : 'Open pull request'}
         </Button>

@@ -40,6 +40,8 @@ import type {
   ChangesResponse,
   Commit,
   CommitInput,
+  DraftInput,
+  TextDraft,
   MergeInput,
   MergeResult,
   CreatePullRequestInput,
@@ -206,6 +208,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     stageHunks: (worktreeId: string, input: StageHunksInput) => post<ChangesResponse>(routes.stageHunks(worktreeId), input),
     commitChanges: (worktreeId: string, input: CommitInput) =>
       post<{ commit: Commit }>(routes.commitChanges(worktreeId), input).then((r) => r.commit),
+    draft: (worktreeId: string, input: DraftInput) => post<TextDraft>(routes.draft(worktreeId), input),
     mergeWorktree: (worktreeId: string, input: MergeInput) => post<MergeResult>(routes.merge(worktreeId), input),
     pullRequest: (worktreeId: string, fresh = false) => get<PullRequestResponse>(routes.pullRequest(worktreeId), fresh ? { fresh: '1' } : {}),
     projectPullRequests: (projectId: string) => get<ProjectPullRequests>(routes.projectPullRequests(projectId)),

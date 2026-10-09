@@ -168,6 +168,18 @@ export const CommitInput = z.object({
 })
 export type CommitInput = z.infer<typeof CommitInput>
 
+/** What Claude is asked to draft: a message for the staged changes, or a PR for the branch into `base`. */
+export const DraftInput = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('commit') }),
+  z.object({ kind: z.literal('pullRequest'), base: z.string().min(1) })
+])
+export type DraftInput = z.infer<typeof DraftInput>
+export type DraftKind = DraftInput['kind']
+
+/** A title (commit summary or PR title) and body Claude drafted, for the user to edit before using. */
+export const TextDraft = z.object({ title: z.string(), body: z.string() })
+export type TextDraft = z.infer<typeof TextDraft>
+
 /**
  * `exclude` writes `.git/info/exclude` (local, never committed, shared by the project's
  * worktrees), `gitignore` writes `.gitignore` (committed), `skipWorktree` hides local edits to a

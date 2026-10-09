@@ -250,6 +250,13 @@ export const CleanupSettings = z.object({
 })
 export type CleanupSettings = z.infer<typeof CleanupSettings>
 
+/** What Claude is told when drafting text; the branch and the relevant diff are appended. */
+export const DraftSettings = z.object({
+  commitPrompt: z.string(),
+  pullRequestPrompt: z.string()
+})
+export type DraftSettings = z.infer<typeof DraftSettings>
+
 export const ProjectSettings = z.object({
   autoFetch: z.boolean(),
   autoFetchInterval: z.enum(['5m', '15m', '1h']),
@@ -257,7 +264,8 @@ export const ProjectSettings = z.object({
   copyFiles: z.array(CopyFileRule),
   caches: CacheSettings,
   defaults: WorktreeDefaults,
-  cleanup: CleanupSettings
+  cleanup: CleanupSettings,
+  drafts: DraftSettings
 })
 export type ProjectSettings = z.infer<typeof ProjectSettings>
 
@@ -269,7 +277,8 @@ export const ProjectSettingsPatch = z.object({
   copyFiles: z.array(CopyFileRule).optional(),
   caches: CacheSettings.partial().optional(),
   defaults: WorktreeDefaults.partial().optional(),
-  cleanup: CleanupSettings.partial().optional()
+  cleanup: CleanupSettings.partial().optional(),
+  drafts: DraftSettings.partial().optional()
 })
 export type ProjectSettingsPatch = z.infer<typeof ProjectSettingsPatch>
 

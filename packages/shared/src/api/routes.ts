@@ -37,6 +37,8 @@ export const routes = {
   /** Replace what is staged for one file with a chosen set of its hunks; GET reports the set. */
   stageHunks: (id: string) => `${API_PREFIX}/worktrees/${id}/stage/hunks`,
   commitChanges: (id: string) => `${API_PREFIX}/worktrees/${id}/commit`,
+  /** Ask Claude to draft a commit message or a pull request's title and body. */
+  draft: (id: string) => `${API_PREFIX}/worktrees/${id}/draft`,
   /** Land the worktree's branch on its base branch. */
   merge: (id: string) => `${API_PREFIX}/worktrees/${id}/merge`,
   /** Keep a path out of commits: .git/info/exclude, .gitignore, skip-worktree or rm --cached. */

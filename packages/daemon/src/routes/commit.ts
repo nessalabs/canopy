@@ -1,12 +1,12 @@
 import type { FastifyInstance } from 'fastify'
 
-import { CommitInput, ExcludeInput, StageHunksInput, StageInput, UnhideInput, routes } from '@canopy/shared'
+import { CommitInput, DraftInput, ExcludeInput, StageHunksInput, StageInput, UnhideInput, routes } from '@canopy/shared'
 
 import type { Services } from './context'
 import { IdParams, PathQuery } from './params'
 
 /** The commit panel: staging is the index, so every route here reads or writes it. */
-export function registerCommitRoutes(app: FastifyInstance, { commits }: Services): void {
+export function registerCommitRoutes(app: FastifyInstance, { commits, draftText }: Services): void {
   app.post(routes.stage(':id'), async (request) => commits.stage(IdParams.parse(request.params).id, StageInput.parse(request.body)))
 
   app.get(routes.stageHunks(':id'), async (request) =>
@@ -21,6 +21,9 @@ export function registerCommitRoutes(app: FastifyInstance, { commits }: Services
     const commit = await commits.commit(IdParams.parse(request.params).id, CommitInput.parse(request.body))
     return reply.code(201).send({ commit })
   })
+
+  // Claude's commit message and PR drafts; it reads the same index and branch the rest of this file does.
+  app.post(routes.draft(':id'), async (request) => draftText(IdParams.parse(request.params).id, DraftInput.parse(request.body)))
 
   app.get(routes.hidden(':id'), async (request) => ({ hidden: await commits.hidden(IdParams.parse(request.params).id) }))
 
