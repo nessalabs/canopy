@@ -55,6 +55,8 @@ const frame = (raw: RawFrame): CodexAppServerFrame => raw as unknown as CodexApp
 
 export class CodexAdapter implements AgentAdapter {
   readonly provider = 'codex' as const
+  /** Threads with a turn running now, and how to stop each — what `interrupt` reaches. */
+  private readonly running = new Map<string, () => void>()
 
   available(): Promise<boolean> {
     return codexAppServer().probe()
@@ -161,6 +163,7 @@ export class CodexAdapter implements AgentAdapter {
       void server.request('turn/interrupt', { threadId: sessionId }).catch(() => undefined)
     }
     options.signal?.addEventListener('abort', abort, { once: true })
+    this.running.set(sessionId, abort)
 
     try {
       yield { type: 'session', provider: this.provider, sessionId }
@@ -189,6 +192,14 @@ export class CodexAdapter implements AgentAdapter {
       offNotify()
       offRequest()
       options.signal?.removeEventListener('abort', abort)
+      if (this.running.get(sessionId) === abort) this.running.delete(sessionId)
     }
+  }
+
+  /** Asks the thread's running turn to stop; it still ends with `turn/completed`, so the stream finishes cleanly. */
+  async interrupt(sessionId: string): Promise<boolean> {
+    const abort = this.running.get(sessionId)
+    abort?.()
+    return abort !== undefined
   }
 }

@@ -60,6 +60,8 @@ export const AgentSessionSummary = z.object({
    * has it open and is waiting for input. Absent when nothing is watching it.
    */
   status: z.enum(['busy', 'idle']).optional(),
+  /** A turn Canopy started is running in this session now; `liveTurn` follows it. */
+  running: z.boolean().optional(),
   /**
    * The worktree this listing is for is not the session's own cwd: the session works here from
    * another checkout, and its hooks said so.

@@ -17,6 +17,7 @@ describe('parseDraft', () => {
 
   it('keeps fences inside the body', () => {
     expect(parseDraft('Title\n\n```ts\nx\n```\nmore').body).toBe('```ts\nx\n```\nmore')
+    expect(parseDraft('Title\n\n```ts\ncode\n```').body).toBe('```ts\ncode\n```')
   })
 })
 
@@ -68,6 +69,15 @@ describe('draft route', () => {
     expect(prompt).not.toContain('b changed')
   })
 
+  it('drafts a commit-all from every uncommitted change, staged or not, new files included', async () => {
+    repo.write({ 'a.txt': 'a changed\n', 'fresh.txt': 'new\n' })
+
+    expect((await server.call('POST', routes.draft(worktreeId), { kind: 'commitAll' })).status).toBe(200)
+    const [prompt = ''] = prompts
+    expect(prompt).toContain('+a changed')
+    expect(prompt).toContain('New files:\nfresh.txt')
+  })
+
   it('drafts a pull request from the commits and diff the branch adds over its base', async () => {
     await repo.branch('feature')
     await repo.git('checkout', '-q', 'feature')
@@ -96,6 +106,15 @@ describe('draft route', () => {
     expect(prompt).toContain('huge.txt')
     expect(prompt).toContain('[5000 changed lines, too many to include')
     expect(prompt).not.toContain('+line 42')
+  })
+
+  it('turns away requests without the token, and malformed ones', async () => {
+    const anonymous = await server.app.inject({ method: 'POST', url: routes.draft(worktreeId), payload: { kind: 'commit' } })
+    expect(anonymous.statusCode).toBe(401)
+    for (const body of [{ kind: 'pullRequest' }, { kind: 'pullRequest', base: '--output=/tmp/x' }, { kind: 'poem' }]) {
+      expect((await server.call('POST', routes.draft(worktreeId), body)).status).toBe(400)
+    }
+    expect(prompts).toHaveLength(0)
   })
 
   it('refuses when there is nothing to draft, without asking Claude', async () => {

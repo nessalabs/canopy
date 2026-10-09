@@ -9,7 +9,7 @@ import { Row, TabHeader } from './settings-chrome'
 import type { Draft } from './use-draft-settings'
 
 const PROMPTS: Array<{ key: keyof DraftSettings; label: string; hint: string }> = [
-  { key: 'commitPrompt', label: 'Commit message', hint: 'Sent with the branch name, the staged file list and, when it is small enough, the staged diff. The reply’s first line becomes the summary, the rest the description.' },
+  { key: 'commitPrompt', label: 'Commit message', hint: 'Sent with the branch name, the files being committed and, when it is small enough, their diff. The reply’s first line becomes the summary, the rest the description.' },
   {
     key: 'pullRequestPrompt',
     label: 'Pull request',

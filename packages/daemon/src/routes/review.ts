@@ -6,7 +6,7 @@ import { streamSse } from '../lib/sse'
 import type { Services } from './context'
 import { CommentParams, IdParams } from './params'
 
-export function registerReviewRoutes(app: FastifyInstance, { review }: Services): void {
+export function registerReviewRoutes(app: FastifyInstance, { review, turns }: Services): void {
   app.get(routes.comments(':id'), async (request) => ({ comments: review.list(IdParams.parse(request.params).id) }))
 
   app.post(routes.comments(':id'), async (request, reply) => {
@@ -23,6 +23,7 @@ export function registerReviewRoutes(app: FastifyInstance, { review }: Services)
   app.post(routes.review(':id'), async (request, reply) => {
     const { id } = IdParams.parse(request.params)
     const turn = review.prepare(id, ReviewRequest.parse(request.body))
-    await streamSse(request, reply, (signal) => review.stream(turn, signal))
+    const running = turns.start(turn.ref.provider, turn.ref.sessionId, review.stream(turn))
+    await streamSse(request, reply, (signal) => running.follow(signal))
   })
 }

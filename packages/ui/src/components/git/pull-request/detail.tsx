@@ -13,15 +13,19 @@ import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmen
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useCommitAllAndPush, useDiffFiles, useFetchPullRequest, usePullRequestAction, usePushBranch } from '@/lib/api-hooks'
+import { useDraftJob } from '@/lib/draft-jobs'
 import { absoluteTime, plural, relativeTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { CommitDetail } from '../commit-detail'
 import { CommitList } from '../commit-list'
 import { DiffExplorer, type ExplorerFocus } from '../diff-explorer'
+import { DraftButton } from '../draft-button'
+import { SendToAgentButton } from '../send-to-agent'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
 import { SidePicker } from './pickers'
 import { CHECK_ICON, Empty, GitHubAvatar, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
+import { eventAsNote } from './threads'
 
 type View = 'overview' | 'commits' | 'files'
 
@@ -239,6 +243,12 @@ function LocalWork({ worktree, pr, data, onOpenChanges }: { worktree: Worktree; 
   const fetch = useFetchPullRequest(worktree.id)
   const commit = useCommitAllAndPush(worktree.id)
   const [summary, setSummary] = useState('')
+  const [description, setDescription] = useState('')
+  // Runs on in the background like every draft; the message waits here if the user went elsewhere.
+  const drafting = useDraftJob(worktree.id, 'commitAll', (draft) => {
+    setSummary(draft.title)
+    setDescription(draft.body)
+  })
   const unpushed = data.upstream?.ahead ?? 0
   const behind = data.upstream?.behind ?? 0
   const conflicted = files.some((file) => file.conflicted)
@@ -265,19 +275,39 @@ function LocalWork({ worktree, pr, data, onOpenChanges }: { worktree: Worktree; 
             {files.length > 8 ? <li>… {files.length - 8} more</li> : null}
           </ul>
           <form
-            className="flex items-center gap-2"
+            className="flex flex-col gap-2"
             onSubmit={(event) => {
               event.preventDefault()
               if (!summary.trim()) return
-              commit.mutate({ paths: files.map((file) => file.path), summary: summary.trim() }, { onSuccess: () => setSummary('') })
+              const done = (): void => {
+                setSummary('')
+                setDescription('')
+                drafting.dismiss()
+              }
+              commit.mutate({ paths: files.map((file) => file.path), summary: summary.trim(), description: description.trim() || undefined }, { onSuccess: done })
             }}
           >
-            <Input className="h-8 flex-1 text-sm" placeholder="Commit message" aria-label="Commit message" value={summary} disabled={commit.isPending} onChange={(event) => setSummary(event.target.value)} />
-            <Button type="submit" size="sm" className="h-8" disabled={commit.isPending || conflicted || summary.trim() === ''}>
-              {commit.isPending ? <RotateCw className="animate-spin" /> : <Send />}
-              {commit.isPending ? 'Committing…' : 'Commit all and push'}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                className="h-8 min-w-48 flex-1 text-sm"
+                placeholder={drafting.running ? 'Drafting…' : 'Commit message'}
+                aria-label="Commit message"
+                value={summary}
+                disabled={commit.isPending || drafting.running}
+                onChange={(event) => setSummary(event.target.value)}
+              />
+              <DraftButton running={drafting.running} blocked={conflicted ? 'Resolve the conflicts first' : undefined} onClick={() => drafting.start({ kind: 'commitAll' })} />
+              <Button type="submit" size="sm" className="h-8" disabled={commit.isPending || drafting.running || conflicted || summary.trim() === ''}>
+                {commit.isPending ? <RotateCw className="animate-spin" /> : <Send />}
+                {commit.isPending ? 'Committing…' : 'Commit all and push'}
+              </Button>
+            </div>
+            {/* A drafted message usually has a body; it is shown, editable, once there is one. */}
+            {description ? (
+              <Textarea className="min-h-16 text-xs" aria-label="Commit description" value={description} disabled={commit.isPending} onChange={(event) => setDescription(event.target.value)} />
+            ) : null}
           </form>
+          <ErrorNote error={drafting.error} />
           {conflicted ? <p className="text-xs text-destructive">Resolve the conflicts in Changes first.</p> : null}
           <ErrorNote error={commit.error} />
         </div>
@@ -406,6 +436,7 @@ function Conversation({ pr, host }: { pr: PullRequest; host: string | null }): R
                 </TooltipTrigger>
                 <TooltipContent>{absoluteTime(at(event.at))}</TooltipContent>
               </Tooltip>
+              {event.body.trim() ? <SendToAgentButton note={() => eventAsNote(event, pr.url)} className="ml-auto" /> : null}
             </p>
             {event.body.trim() ? (
               <div className="rounded-lg border border-border px-3 py-2">

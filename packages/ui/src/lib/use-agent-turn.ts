@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useCallback, useEffect, useReducer, useRef } from 'react'
 
+import { ApiError } from '@canopy/shared'
 import type { AgentProvider, AgentStreamEvent, LiveControlsInput, PermissionDecisionInput, ReviewRequest, SessionRef, TranscriptResponse, TurnAttachment, TurnExtras, TurnImage, TurnOptions } from '@canopy/shared'
 import type { AgentEvent, AgentEventPayload } from '@canopy/shared/agent-stream'
 
@@ -54,7 +55,8 @@ type Action =
   | { type: 'reset' }
   /** Everything this turn held is in the session file now — keep only what still has to be shown. */
   | { type: 'settle' }
-  | { type: 'start'; pending: PendingPrompt }
+  /** `pending` is null when rejoining a turn: its prompt comes back with the replayed events. */
+  | { type: 'start'; pending: PendingPrompt | null }
   | { type: 'queue'; pending: PendingPrompt }
   | { type: 'unqueue'; pending: PendingPrompt; error?: string }
   | { type: 'event'; event: AgentStreamEvent }
@@ -151,17 +153,37 @@ function reducer(state: TurnState, action: Action): TurnState {
   }
 }
 
+/** A followed turn that ended before we got there answers 404: nothing to follow, not an error. */
+async function* untilGone(source: AsyncIterable<AgentStreamEvent>): AsyncGenerator<AgentStreamEvent> {
+  try {
+    yield* source
+  } catch (error) {
+    if (!(error instanceof ApiError && error.status === 404)) throw error
+  }
+}
+
 /**
  * Drives one agent session from the UI: free-text messages and review bundles both go through
  * `run`, which shows the prompt immediately and streams the reply as agent-stream events. With no
  * `ref` and a `fresh` provider, the first message starts a new session.
  */
-export function useAgentTurn(worktreeId: string, ref: SessionRef | undefined, fresh: AgentProvider | undefined, cwd: string, options: TurnOptions) {
+export function useAgentTurn(
+  worktreeId: string,
+  ref: SessionRef | undefined,
+  fresh: AgentProvider | undefined,
+  cwd: string,
+  options: TurnOptions,
+  /** The daemon says a turn is running in `ref` — one this page did not start, or started and then left. */
+  running = false
+) {
   const api = useApi()
   const queryClient = useQueryClient()
   const [state, dispatch] = useReducer(reducer, initialTurnState)
   const abortRef = useRef<AbortController | null>(null)
+  /** The session whose current run this page already follows or saw end, so it is not rejoined. */
+  const rejoined = useRef<string | null>(null)
 
+  // Leaving only stops *following*: the daemon runs the turn to the end, and `running` brings us back to it.
   useEffect(() => () => abortRef.current?.abort(), [])
 
   // A different session is a different conversation: drop this one's local turn.
@@ -178,13 +200,16 @@ export function useAgentTurn(worktreeId: string, ref: SessionRef | undefined, fr
   )
 
   const run = useCallback(
-    async (pending: PendingPrompt, stream: (signal: AbortSignal) => AsyncIterable<AgentStreamEvent>) => {
+    async (pending: PendingPrompt | null, stream: (signal: AbortSignal) => AsyncIterable<AgentStreamEvent>) => {
       abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
       dispatch({ type: 'start', pending })
       try {
-        for await (const event of stream(controller.signal)) dispatch({ type: 'event', event })
+        for await (const event of stream(controller.signal)) {
+          if (event.type === 'session') rejoined.current = `${event.provider}:${event.sessionId}`
+          dispatch({ type: 'event', event })
+        }
         dispatch({ type: 'finish' })
         // The session file now holds this exchange; re-read it and drop the local copy so the
         // transcript stays the single source and nothing renders twice.
@@ -231,12 +256,28 @@ export function useAgentTurn(worktreeId: string, ref: SessionRef | undefined, fr
   )
 
   /**
+   * Rejoins a turn the daemon is running in `ref`, once per run: the replay brings back its prompt
+   * and everything since, then it streams live as if this page had started it. A turn that ended in
+   * the meantime answers 404, which `run` reports as a plain finish once the listing catches up.
+   */
+  const refKey = ref ? `${ref.provider}:${ref.sessionId}` : null
+  useEffect(() => {
+    if (!running || !ref || !refKey) {
+      rejoined.current = null
+      return
+    }
+    if (state.busy || rejoined.current === refKey) return
+    rejoined.current = refKey
+    void run(null, (signal) => untilGone(api.followTurn(ref, signal)))
+  }, [running, refKey, state.busy])
+
+  /**
    * The session a control request goes to. A new session has no `ref` yet, but its id arrived in
    * the `session` frame before the agent could ask, queue or be interrupted.
    */
   const target = ref ?? (fresh && state.sessionId ? { provider: fresh, sessionId: state.sessionId } : undefined)
 
-  /** Drops the stream, which is what makes the daemon abort an agent no interrupt could reach. */
+  /** Stops following the turn here. The daemon's turn is untouched; only `stop`'s interrupt ends it. */
   const abort = useCallback((): void => {
     if (!abortRef.current || abortRef.current.signal.aborted) return
     abortRef.current.abort()

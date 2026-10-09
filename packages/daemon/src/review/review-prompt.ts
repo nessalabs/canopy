@@ -28,6 +28,9 @@ export interface ReviewBundle {
 const HEADER =
   'Code review on the changes you just made. Each note below is anchored to a line in the diff.'
 
+/** The heading for comments on the PR's conversation, which name no file. */
+const CONVERSATION = 'Pull request conversation'
+
 const FOOTER =
   'Address each note. Where you disagree, say so and explain instead of changing the code. ' +
   'Keep the changes scoped to these notes.'
@@ -57,11 +60,11 @@ export function formatReviewPrompt(bundle: ReviewBundle): string {
 
   if (github.length > 0) {
     const byFile = new Map<string, GitHubNote[]>()
-    for (const item of github) byFile.set(item.file, [...(byFile.get(item.file) ?? []), item])
+    for (const item of github) byFile.set(item.file ?? CONVERSATION, [...(byFile.get(item.file ?? CONVERSATION) ?? []), item])
     const parts: string[] = []
     for (const [file, notes] of byFile) {
       const lines = notes.map((item) => {
-        const anchor = item.line ? `${file}:${item.line}${item.side === 'old' ? ' (removed line)' : ''}` : `${file} (line no longer in the diff)`
+        const anchor = !item.file ? 'general comment' : item.line ? `${file}:${item.line}${item.side === 'old' ? ' (removed line)' : ''}` : `${file} (line no longer in the diff)`
         const state = item.resolved ? ' [resolved on GitHub]' : ''
         const body = item.body.trim().split('\n').join('\n    ')
         return `  - ${anchor}${state} — ${item.url}\n    ${body}`

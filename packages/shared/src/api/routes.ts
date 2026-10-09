@@ -72,6 +72,8 @@ export const routes = {
   /** What a session in this worktree can do: commands, skills, subagents, models, MCP servers, hooks. */
   agentCapabilities: (id: string) => `${API_PREFIX}/worktrees/${id}/agent/capabilities`,
   /** Stops the turn running in this session the way Esc does in a terminal; the stream then ends normally. */
+  /** Follows the turn running in a session: its events so far, then live. 404 when none is running. */
+  liveTurn: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/turn`,
   interrupt: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/interrupt`,
   /** Hands a prompt to the running turn, the way typing while the agent works does in a terminal. */
   queue: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/queue`,

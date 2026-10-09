@@ -14,6 +14,7 @@ import { PresenceService } from './agents/presence'
 import { ProjectCheckouts } from './agents/checkouts'
 import { createAgentRegistry, type AgentRegistry } from './agents/registry'
 import { createSessionLister } from './agents/sessions'
+import { TurnHub } from './agents/turn-hub'
 import { CommitService } from './commit/service'
 import { claudeText, draftText, type TextGenerator } from './drafts/draft'
 import { registerAuth } from './auth'
@@ -154,6 +155,7 @@ export function buildServices(deps: ServerDeps): Services {
     github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees, review }),
     review,
     agents,
+    turns: new TurnHub(),
     editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots: createSnapshots(git) }),
     presence,
     sessions: createSessionLister({

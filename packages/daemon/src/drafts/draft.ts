@@ -77,6 +77,16 @@ const SOURCES: Record<DraftKind, Source> = {
     empty: 'nothing is staged; check at least one file',
     context: (git, cwd) => diffContext(git, cwd, ['--cached'])
   },
+  commitAll: {
+    prompt: 'commitPrompt',
+    empty: 'there are no uncommitted changes',
+    context: async (git, cwd) => {
+      // New files are not in `git diff HEAD`; their names are enough to say they were added.
+      const [diff, untracked] = await Promise.all([diffContext(git, cwd, ['HEAD']), git(cwd, ['ls-files', '--others', '--exclude-standard'])])
+      const added: Context['sections'] = untracked.trim() ? [['New files', untracked]] : []
+      return { sections: [...added, ...diff.sections], empty: diff.empty && added.length === 0 }
+    }
+  },
   pullRequest: {
     prompt: 'pullRequestPrompt',
     empty: 'this branch has no changes over its base',
@@ -97,11 +107,13 @@ export function draftPrompt(instructions: string, branch: string, sections: Cont
   return [instructions.trim(), ...blocks.map(([label, text]) => `${label}:\n${text.trimEnd()}`)].join('\n\n')
 }
 
+/** A reply wrapped whole in one code fence; a fence that only closes the body's last block is left alone. */
+const WRAPPING_FENCE = /^```\w*\n([\s\S]*)\n```$/
+
 /** First non-blank line is the title, the rest the body. A fence around the whole reply is dropped. */
 export function parseDraft(text: string): TextDraft {
-  const lines = text
-    .trim()
-    .replace(/^```\w*\n|\n```$/g, '')
+  const trimmed = text.trim()
+  const lines = (WRAPPING_FENCE.exec(trimmed)?.[1] ?? trimmed)
     .trim()
     .split('\n')
   return { title: (lines[0] ?? '').trim(), body: lines.slice(1).join('\n').trim() }

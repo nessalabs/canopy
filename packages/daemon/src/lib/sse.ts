@@ -3,8 +3,9 @@ import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { AgentStreamEvent } from '@canopy/shared'
 
 /**
- * Streams AgentStreamEvents as server-sent events: one `data:` frame per event.
- * Closing the connection aborts the turn through the returned AbortSignal.
+ * Streams AgentStreamEvents as server-sent events: one `data:` frame per event. Closing the
+ * connection fires the signal handed to `run`, which stops *this client following*; a turn runs
+ * on in the `TurnHub` regardless, and only the interrupt route stops it.
  */
 export async function streamSse(
   _request: FastifyRequest,
@@ -13,7 +14,7 @@ export async function streamSse(
 ): Promise<void> {
   const controller = new AbortController()
   // The *response* closing means the client went away. (The request's own 'close' fires as
-  // soon as its body is consumed, which would abort every turn before it starts.)
+  // soon as its body is consumed, which would end every stream before it starts.)
   reply.raw.on('close', () => controller.abort())
 
   reply.hijack()

@@ -168,10 +168,15 @@ export const CommitInput = z.object({
 })
 export type CommitInput = z.infer<typeof CommitInput>
 
-/** What Claude is asked to draft: a message for the staged changes, or a PR for the branch into `base`. */
+/**
+ * What Claude is asked to draft: a message for the staged changes (`commit`) or for every
+ * uncommitted change (`commitAll`, the PR pane's commit-and-push), or a PR for the branch into `base`.
+ */
 export const DraftInput = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('commit') }),
-  z.object({ kind: z.literal('pullRequest'), base: z.string().min(1) })
+  z.object({ kind: z.literal('commitAll') }),
+  // A leading `-` would reach `git diff` as an option (`--output=<file>`), not a revision.
+  z.object({ kind: z.literal('pullRequest'), base: z.string().min(1).regex(/^[^-]/, 'a branch name cannot start with "-"') })
 ])
 export type DraftInput = z.infer<typeof DraftInput>
 export type DraftKind = DraftInput['kind']
