@@ -128,8 +128,8 @@ export class ClaudeCapabilities {
 
     // A hook listing that fails is a settings file this daemon could not read — not a reason to
     // withhold every command, model and subagent the session actually has.
-    const [hooks, onDisk] = await Promise.all([readHooks(module, cwd), entry.advertised?.skills.length ? Promise.resolve([]) : skillDirectories(cwd)])
-    return assemble(cwd, probed, entry.advertised, hooks, onDisk)
+    const [settings, onDisk] = await Promise.all([readSettings(module, cwd), entry.advertised?.skills.length ? Promise.resolve([]) : skillDirectories(cwd)])
+    return assemble(cwd, probed, entry.advertised, settings, onDisk)
   }
 
   private entryFor(cwd: string): Entry {
@@ -203,7 +203,7 @@ async function skillDirectories(cwd: string): Promise<string[]> {
   return [...new Set(found.flat())]
 }
 
-function assemble(cwd: string, probed: Probed, advertised: Advertised | undefined, hooks: AgentHook[], onDisk: string[] = []): AgentCapabilities {
+function assemble(cwd: string, probed: Probed, advertised: Advertised | undefined, { hooks, model }: Settings, onDisk: string[] = []): AgentCapabilities {
   const live = advertised ?? emptyAdvertisement()
   // A turn's init is authoritative; before one has run, the skill directories stand in.
   const skillNames = live.skills.length > 0 ? live.skills : onDisk.filter((name) => probed.commands.some((command) => command.name === name))
@@ -217,6 +217,8 @@ function assemble(cwd: string, probed: Probed, advertised: Advertised | undefine
     cwd,
     version: live.version,
     model: live.model,
+    // Settings name it; without one the CLI runs its recommended model, the row it calls `default`.
+    defaultModel: model ?? probed.models.find((row) => row.value === 'default')?.value,
     permissionMode: live.permissionMode,
     outputStyle: live.outputStyle ?? probed.outputStyle,
     outputStyles: probed.outputStyles,
@@ -274,14 +276,21 @@ interface HookMatcher {
   hooks?: Array<{ type?: string; command?: string; url?: string }>
 }
 
+/** What the settings cascade says that no probe can: the configured hooks, and the model a new session starts on. */
+interface Settings {
+  hooks: AgentHook[]
+  model?: string
+}
+
 /**
- * The configured hooks, flattened. `resolveSettings` merges the same cascade the CLI does without
- * starting one, so this costs a few file reads rather than another CLI.
+ * The configured hooks, flattened, and the settings' `model`. `resolveSettings` merges the same
+ * cascade the CLI does without starting one, so this costs a few file reads rather than another CLI.
  */
-async function readHooks(module: SdkModule, cwd: string): Promise<AgentHook[]> {
+async function readSettings(module: SdkModule, cwd: string): Promise<Settings> {
   try {
-    if (typeof module.resolveSettings !== 'function') return []
+    if (typeof module.resolveSettings !== 'function') return { hooks: [] }
     const resolved = await module.resolveSettings({ cwd })
+    const model = typeof resolved.effective?.model === 'string' ? resolved.effective.model : undefined
     const effective = (resolved.effective?.hooks ?? {}) as Record<string, HookMatcher[] | undefined>
     const sources = resolved.sources ?? []
     const fallback = resolved.provenance?.hooks?.source
@@ -297,12 +306,13 @@ async function readHooks(module: SdkModule, cwd: string): Promise<AgentHook[]> {
       return found
     }
 
-    return Object.entries(effective).flatMap(([event, matchers]) =>
+    const hooks = Object.entries(effective).flatMap(([event, matchers]) =>
       (matchers ?? []).flatMap((matcher) =>
         (matcher.hooks ?? []).map((hook) => ({ event, matcher: matcher.matcher, kind: hook.type ?? 'command', target: hook.command ?? hook.url, source: sourceOf(event) }))
       )
     )
+    return { hooks, model }
   } catch {
-    return []
+    return { hooks: [] }
   }
 }

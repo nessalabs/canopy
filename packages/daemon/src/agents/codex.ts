@@ -1,3 +1,4 @@
+import { messageTitle, type AgentCapabilities } from '@canopy/shared'
 import type { AgentEvent, CodexAppServerFrame } from '@canopy/shared/agent-stream'
 import { CodexAppServerMapper } from '@canopy/shared/agent-stream'
 
@@ -62,6 +63,29 @@ export class CodexAdapter implements AgentAdapter {
     return codexAppServer().probe()
   }
 
+  /**
+   * Codex advertises no commands, skills or models to pick from here yet (its turns take no model
+   * from Canopy); what it does say is the model its config.toml starts a session on.
+   */
+  async capabilities(cwd: string): Promise<AgentCapabilities> {
+    const { config } = await codexAppServer().request<{ config?: { model?: string | null } }>('config/read', { cwd })
+    return {
+      provider: 'codex',
+      cwd,
+      defaultModel: config?.model ?? undefined,
+      outputStyles: [],
+      commands: [],
+      skills: [],
+      agents: [],
+      models: [],
+      mcpServers: [],
+      tools: [],
+      plugins: [],
+      hooks: [],
+      readAt: Date.now()
+    }
+  }
+
   async listSessions(cwd: string, limit = 25): Promise<AgentSessionSummary[]> {
     const result = await codexAppServer().request<{ data?: ListThread[] }>('thread/list', {
       cwd: [cwd],
@@ -72,7 +96,7 @@ export class CodexAdapter implements AgentAdapter {
     return (result.data ?? []).map((thread) => ({
       provider: this.provider,
       sessionId: thread.id,
-      title: thread.name?.trim() || thread.preview?.slice(0, 80) || thread.id.slice(0, 8),
+      title: thread.name?.trim() || (thread.preview ? messageTitle(thread.preview).slice(0, 80) : '') || thread.id.slice(0, 8),
       cwd: thread.cwd,
       gitBranch: thread.gitInfo?.branch ?? undefined,
       createdAt: toMs(thread.createdAt),
@@ -103,9 +127,11 @@ export class CodexAdapter implements AgentAdapter {
   async *send(requested: string | null, text: string, options: SendOptions = {}): AsyncIterable<AgentStreamEvent> {
     const server = codexAppServer()
     // Same verb either way: resume the named thread, or start a fresh one in the worktree.
+    // A surface's standing instructions ride along as Codex's developer instructions.
+    const instructions = options.instructions ? { developerInstructions: options.instructions } : {}
     const started = requested
-      ? { id: requested, ...(await server.request<{ cwd?: string }>('thread/resume', { threadId: requested, ...(options.cwd ? { cwd: options.cwd } : {}) })) }
-      : (await server.request<{ thread: { id: string; cwd?: string } }>('thread/start', { cwd: options.cwd ?? process.cwd() })).thread
+      ? { id: requested, ...(await server.request<{ cwd?: string }>('thread/resume', { threadId: requested, ...(options.cwd ? { cwd: options.cwd } : {}), ...instructions })) }
+      : (await server.request<{ thread: { id: string; cwd?: string } }>('thread/start', { cwd: options.cwd ?? process.cwd(), ...instructions })).thread
     const sessionId = started.id
     const cwd = options.cwd ?? started.cwd ?? process.cwd()
 

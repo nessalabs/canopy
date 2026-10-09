@@ -404,6 +404,15 @@ describe('claude adapter autonomy', () => {
     expect(typeof edit.captured.options?.canUseTool).toBe('function')
     expect(edit.captured.options?.allowDangerouslySkipPermissions).toBeUndefined()
   })
+
+  it('adds the surface instructions after the Claude Code prompt, and leaves the prompt alone without them', async () => {
+    const withThem = oneShot()
+    await drain(new ClaudeAdapter({ loadSdk: async () => withThem.module }).send('sess-a', 'go', { instructions: 'Draw maps in chat.' }))
+    expect(withThem.captured.options?.systemPrompt).toEqual({ type: 'preset', preset: 'claude_code', append: 'Draw maps in chat.' })
+    const without = oneShot()
+    await drain(new ClaudeAdapter({ loadSdk: async () => without.module }).send('sess-a', 'go', {}))
+    expect(without.captured.options?.systemPrompt).toBeUndefined()
+  })
 })
 
 describe('permission route', () => {
