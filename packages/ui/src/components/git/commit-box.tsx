@@ -90,7 +90,7 @@ export function CommitBox({
           value={summary}
           disabled={drafting.running}
           onChange={(event) => setSummary(event.target.value)}
-          placeholder={drafting.running ? 'Claude is drafting…' : 'Summary (required)'}
+          placeholder={drafting.running ? 'Drafting…' : 'Summary (required)'}
           aria-label="Commit summary"
           className="h-8 text-xs"
           onKeyDown={(event) => {

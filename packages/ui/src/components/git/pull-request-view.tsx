@@ -318,7 +318,7 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
           <Input
             value={title}
             disabled={busy}
-            placeholder={drafting.running ? 'Claude is drafting…' : undefined}
+            placeholder={drafting.running ? 'Drafting…' : undefined}
             onChange={(event) => {
               setTouched(true)
               setTitle(event.target.value)

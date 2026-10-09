@@ -19,7 +19,7 @@ export const SETTINGS_TAB_LABEL: Record<SettingsTabId, string> = {
   yaml: 'canopy.yaml',
   caches: 'Provisioning & caches',
   defaults: 'Worktree defaults',
-  drafts: 'Claude drafts',
+  drafts: 'AI drafts',
   cleanup: 'Cleanup',
   trash: 'Trash',
   danger: 'Danger zone',

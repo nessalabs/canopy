@@ -9,11 +9,11 @@ import { Row, TabHeader } from './settings-chrome'
 import type { Draft } from './use-draft-settings'
 
 const PROMPTS: Array<{ key: keyof DraftSettings; label: string; hint: string }> = [
-  { key: 'commitPrompt', label: 'Commit message', hint: 'Sent with the branch name and the staged diff. Claude answers with the summary on the first line, then the description.' },
+  { key: 'commitPrompt', label: 'Commit message', hint: 'Sent with the branch name, the staged file list and, when it is small enough, the staged diff. The reply’s first line becomes the summary, the rest the description.' },
   {
     key: 'pullRequestPrompt',
     label: 'Pull request',
-    hint: 'Sent with the branch name, its commits and its diff against the base. Claude answers with the title on the first line, then the description.'
+    hint: 'Sent with the branch name, its commit messages, the changed file list and, when it is small enough, the diff against the base. The reply’s first line becomes the title, the rest the description.'
   }
 ]
 
@@ -23,7 +23,7 @@ export function DraftsTab({ draft }: { draft: Draft<ProjectSettings> }): React.J
 
   return (
     <div className="flex flex-col gap-5">
-      <TabHeader title="Claude drafts" description="What Claude is told when you press Draft with Claude in the commit box or the pull request form." status={draft.status} />
+      <TabHeader title="AI drafts" description="The instructions sent when you press Draft with AI in the commit box or the pull request form." status={draft.status} />
 
       {PROMPTS.map(({ key, label, hint }) => (
         <Row key={key} label={label} hint={hint}>

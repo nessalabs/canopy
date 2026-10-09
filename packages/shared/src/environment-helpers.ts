@@ -62,7 +62,7 @@ export const DEFAULT_DRAFT_PROMPTS: DraftSettings = {
 - Description: a few short sentences or bullets on what changed and why. Leave it empty when the summary says it all.
 
 Reply with the summary on the first line, a blank line, then the description. No code fences, no preamble.`,
-  pullRequestPrompt: `Write a GitHub pull request title and description for the branch's commits and diff below.
+  pullRequestPrompt: `Write a GitHub pull request title and description for the branch below. Work mainly from its commit messages; use the file list and the diff, when one is included, for detail.
 
 - Title: one line, at most 72 characters, no trailing period.
 - Description: Markdown. Open with a short paragraph on what the change does and why, then a bulleted list of the notable changes. Mention anything a reviewer should look at closely.
