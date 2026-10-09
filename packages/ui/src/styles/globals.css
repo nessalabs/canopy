@@ -119,6 +119,8 @@
     --color-nessa-activity-ring-1: var(--nessa-activity-ring-1);
     --color-nessa-notification-success: var(--nessa-notification-success);
     --color-nessa-notification-error: var(--nessa-notification-error);
+    --color-nessa-attention: var(--nessa-attention);
+    --color-nessa-diff-modification: var(--nessa-diff-modification);
 }
 
 /*
@@ -220,7 +222,9 @@
     --nessa-thinking-fill-highlight: oklch(0.86 0.11 214);
     --nessa-fast-mode-active: oklch(0.57 0.22 300);
     --nessa-diff-addition: oklch(0.5 0.137 150);
+    --nessa-attention: oklch(0.72 0.16 70);
     --nessa-diff-deletion: oklch(0.55 0.19 27);
+    --nessa-diff-modification: oklch(0.62 0.13 75);
     --nessa-font-size-1: 0.6875rem;
     --nessa-font-size-2: 0.75rem;
     --nessa-font-size-3: 0.8125rem;
@@ -319,7 +323,9 @@
     --nessa-thinking-fill-highlight: oklch(0.82 0.12 210);
     --nessa-fast-mode-active: oklch(0.72 0.185 306);
     --nessa-diff-addition: oklch(0.77 0.17 152);
+    --nessa-attention: oklch(0.82 0.16 80);
     --nessa-diff-deletion: oklch(0.7 0.19 25);
+    --nessa-diff-modification: oklch(0.8 0.13 80);
     --nessa-chart-series-1: oklch(0.3442 0.07 265);
     --nessa-chart-series-1-strong: oklch(0.56 0.1 265);
     --nessa-chart-series-2: oklch(0.3922 0.07 45);

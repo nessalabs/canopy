@@ -7,6 +7,7 @@ const statusDotVariants = cva("inline-block size-2 shrink-0 rounded-full", {
   variants: {
     status: {
       running: "bg-nessa-thinking-fill-current animate-pulse",
+      attention: "bg-nessa-attention animate-pulse",
       success: "bg-nessa-diff-addition",
       error: "bg-destructive",
       idle: "bg-muted-foreground/50",

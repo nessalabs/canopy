@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import ReactMarkdown, { type Components } from "react-markdown"
+import ReactMarkdown, { type Components, type Options } from "react-markdown"
 import remarkGfm from "remark-gfm"
 import remarkMath from "remark-math"
 
@@ -16,6 +16,11 @@ export interface MessageMarkdownProps
   children: string
   /** Per-element renderer overrides forwarded to react-markdown. */
   components?: Components
+  /**
+   * Extra remark plugins, run after GFM and math — for a host that turns
+   * its own syntax (file references, mentions) into links or nodes.
+   */
+  remarkPlugins?: Options["remarkPlugins"]
   /**
    * While true, newly arrived prose fades in with the same animation
    * MessageStreamText uses, so streamed markdown and streamed plain text
@@ -256,6 +261,7 @@ const defaultComponents: Components = {
 function MessageMarkdown({
   children,
   components,
+  remarkPlugins,
   streaming = false,
   className,
   ...props
@@ -288,7 +294,7 @@ function MessageMarkdown({
       <MarkdownSourceContext.Provider value={children}>
         <MarkdownStreamingContext.Provider value={streaming}>
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath]}
+            remarkPlugins={[remarkGfm, remarkMath, ...(remarkPlugins ?? [])]}
             rehypePlugins={streaming ? streamingRehypePlugins : staticRehypePlugins}
             components={{ ...defaultComponents, ...components }}
           >

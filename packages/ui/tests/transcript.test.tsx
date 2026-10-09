@@ -182,10 +182,10 @@ describe('TranscriptView', () => {
       select(answer!.firstChild!)
       document.dispatchEvent(new Event('pointerup', { bubbles: true }))
     })
-    const ask = document.querySelector<HTMLButtonElement>(`${pill} [aria-label="Ask the agent about the selected text"]`)
+    const ask = document.querySelector<HTMLButtonElement>(`${pill} [aria-label="Ask agent about the selected text"]`)
     expect(ask).not.toBeNull()
     act(() => ask?.click())
-    expect(onQuote).toHaveBeenCalledWith('Found it.')
+    expect(onQuote.mock.calls[0]?.[0]).toBe('Found it.')
     // Acting on the selection puts the pill away.
     expect(document.querySelector(pill)).toBeNull()
   })

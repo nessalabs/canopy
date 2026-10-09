@@ -6,7 +6,7 @@ import { useAgentCapabilities, useAgentSessions, usePinSession, useTranscript } 
 import { modelAlias } from './models'
 import { useAgentTurn } from './use-agent-turn'
 
-const sameRef = (a: SessionRef | undefined, b: SessionRef | undefined): boolean =>
+export const sameRef = (a: SessionRef | undefined, b: SessionRef | undefined): boolean =>
   a?.provider === b?.provider && a?.sessionId === b?.sessionId
 
 /**
@@ -15,9 +15,11 @@ const sameRef = (a: SessionRef | undefined, b: SessionRef | undefined): boolean 
  * so "Send comments for review" on the diff drives the same conversation the Agent tab shows.
  *
  * `fixed` holds the conversation to one session — a pane opened beside the main one — which
- * neither follows nor moves the worktree's pin.
+ * neither follows nor moves the worktree's pin. `follow: false` keeps a conversation to the
+ * sessions picked in it — a Git Agent tab — starting from none and never moving the pin.
+ * `instructions` ride along with every turn, added to the provider's own system prompt.
  */
-export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef) {
+export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef, { follow = true, instructions }: { follow?: boolean; instructions?: string } = {}) {
   const sessions = useAgentSessions(worktree.id)
   const pin = usePinSession(worktree.id)
   const [chosen, setChosen] = useState<SessionRef>()
@@ -37,9 +39,9 @@ export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef) {
   const selected = useMemo(() => {
     if (fresh) return undefined
     if (fixed) return all.find((s) => sameRef(s, fixed))
-    const preferred = chosen ?? pinned
-    return all.find((s) => sameRef(s, preferred)) ?? list[0]
-  }, [fixed?.provider, fixed?.sessionId, chosen, fresh, pinned, all, list])
+    const preferred = chosen ?? (follow ? pinned : undefined)
+    return all.find((s) => sameRef(s, preferred)) ?? (follow ? list[0] : undefined)
+  }, [fixed?.provider, fixed?.sessionId, follow, chosen, fresh, pinned, all, list])
 
   useEffect(() => {
     if (chosen && !all.some((s) => sameRef(s, chosen))) setChosen(undefined)
@@ -50,7 +52,7 @@ export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef) {
     setChosen(ref)
     setModel(undefined)
     setEffort(undefined)
-    if (!fixed) pin.mutate(ref)
+    if (!fixed && follow) pin.mutate(ref)
   }
 
   const startSession = (provider: AgentProvider): void => {
@@ -69,14 +71,17 @@ export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef) {
   // The turn hook needs history (detected model); the poll needs the turn's busy flag. A ref breaks the cycle.
   const busyRef = useRef(false)
   const history = useTranscript(ref, transcriptCwd, () => busyRef.current)
-  const detected = { model: modelAlias(history.data?.model), effort: history.data?.effort }
-  const model = modelOverride ?? detected.model
-  const effort = effortOverride ?? detected.effort
-  const options = useMemo<TurnOptions>(() => ({ autonomy, model, effort }), [autonomy, model, effort])
-  const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options, selected?.running === true)
-  busyRef.current = turn.busy
   // What this provider can do in this checkout: the `/` and `@` menus, the model list, the details sheet.
   const capabilities = useAgentCapabilities(worktree.id, selected?.provider ?? fresh, selected?.sessionId)
+  const detected = { model: modelAlias(history.data?.model), effort: history.data?.effort }
+  const picked = modelOverride ?? detected.model
+  // A session with no model of its own runs on the one the provider is configured with. That is
+  // shown, not sent: the provider applies it anyway, and a later settings change should still win.
+  const model = picked ?? modelAlias(capabilities.data?.defaultModel)
+  const effort = effortOverride ?? detected.effort
+  const options = useMemo<TurnOptions>(() => ({ autonomy, model: picked, effort, instructions }), [autonomy, picked, effort, instructions])
+  const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options, selected?.running === true)
+  busyRef.current = turn.busy
 
   // A knob moved mid-turn is meant for the turn on screen, so it goes to the running one as well.
   const chooseModel = (next: string): void => {

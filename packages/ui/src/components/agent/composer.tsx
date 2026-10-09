@@ -26,6 +26,7 @@ import { ACCESS_TO_AUTONOMY, AUTONOMY_TO_ACCESS } from '@/lib/autonomy'
 import { agentMention, commandMenu, composeMessage, isNewSessionCommand, type Attachment, type CommandItem, type MentionItem } from '@/lib/compose'
 import { plural } from '@/lib/format'
 import { effortLevelsFor, modelGroupFor } from '@/lib/models'
+import type { StagedText } from '@/lib/use-staging'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
 import { ContextMeter } from './context-meter'
@@ -84,8 +85,8 @@ export function AgentComposer({
   changedFiles,
   placeholder,
   latestChanges,
-  quote,
-  onQuoteStaged,
+  staged,
+  onStaged,
   context = null
 }: {
   agent: WorktreeAgent
@@ -93,10 +94,9 @@ export function AgentComposer({
   placeholder: string
   /** The changes panel: how many files the newest turn wrote, whether the panel is open, and the toggle. Absent where there is no panel to toggle. */
   latestChanges?: { count: number; shown: boolean; onToggle: () => void }
-  /** Transcript text to stage as context. `id` changes per request, so the same text can be quoted twice. */
-  quote?: { id: number; text: string }
-  /** Fires once the quote is a chip, so the owner can drop it rather than hand it over again. */
-  onQuoteStaged?: () => void
+  /** Chips handed in from outside — quotes, dropped files, a PR. Each is staged once, then reported back as taken. */
+  staged?: StagedText[]
+  onStaged?: (ids: ReadonlySet<number>) => void
   /** How full the session's context window is, for the meter beside the model picker. */
   context?: ContextUsage | null
 }): React.JSX.Element {
@@ -128,16 +128,19 @@ export function AgentComposer({
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  // A quote from the transcript arrives as a chip, with the cursor left in the input to ask about it.
-  // The id guard covers a repeat effect run; the owner dropping the quote covers a remount.
-  const staged = useRef<number>(undefined)
+  // Context from outside arrives as chips, with the cursor left in the input to ask about them.
+  // The seen ids cover a repeat effect run; the owner dropping what was taken covers a remount.
+  const seen = useRef(new Set<number>())
   useEffect(() => {
-    if (!quote || staged.current === quote.id) return
-    staged.current = quote.id
-    add(attach('pasted-text', `Quoted from the transcript (${plural(quote.text.split('\n').length, 'line')})`, quote.text))
+    const incoming = (staged ?? []).filter((item) => !seen.current.has(item.id))
+    if (incoming.length === 0) return
+    for (const item of incoming) {
+      seen.current.add(item.id)
+      add(attach(item.kind ?? 'pasted-text', item.label ?? `Quoted from the transcript (${plural(item.text.split('\n').length, 'line')})`, item.text))
+    }
     inputRef.current?.focus()
-    onQuoteStaged?.()
-  }, [quote, onQuoteStaged])
+    onStaged?.(new Set(incoming.map((item) => item.id)))
+  }, [staged, onStaged])
 
   const clear = (): void => {
     setDraft('')

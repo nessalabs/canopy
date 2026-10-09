@@ -16,8 +16,8 @@ import { usePlatform } from '@/providers/platform'
 /** The id the Changes commit box's form carries, so the top bar's Commit can submit it from afar. */
 export const commitFormId = (worktreeId: string): string => `commit-box-${worktreeId}`
 
-/** Git's four views as underline tabs in the top bar's left slot; render inside Git's `<Tabs>`. */
-export function GitViewTabs({ dirty, comments, onPrefetchPr }: { dirty: number; comments: number; onPrefetchPr: () => void }): React.JSX.Element {
+/** Git's views as underline tabs in the top bar's left slot; render inside Git's `<Tabs>`. */
+export function GitViewTabs({ dirty, comments, unreviewed, onPrefetchPr }: { dirty: number; comments: number; unreviewed: number; onPrefetchPr: () => void }): React.JSX.Element {
   const badge = (count: number) => (count ? <span className="font-mono text-[11px] text-muted-foreground">{count}</span> : null)
   return (
     <ShellSlot name="view">
@@ -25,13 +25,16 @@ export function GitViewTabs({ dirty, comments, onPrefetchPr }: { dirty: number; 
         <TabsTrigger value="changes" title="Changes  ⇧1">
           Changes {badge(dirty)}
         </TabsTrigger>
-        <TabsTrigger value="history" title="History  ⇧2">
+        <TabsTrigger value="groups" title="Groups  ⇧2">
+          Groups {badge(unreviewed)}
+        </TabsTrigger>
+        <TabsTrigger value="history" title="History  ⇧3">
           History
         </TabsTrigger>
-        <TabsTrigger value="pr" title="Pull request  ⇧3" onPointerEnter={onPrefetchPr} onFocus={onPrefetchPr}>
+        <TabsTrigger value="pr" title="Pull request  ⇧4" onPointerEnter={onPrefetchPr} onFocus={onPrefetchPr}>
           Pull request
         </TabsTrigger>
-        <TabsTrigger value="comments" title="Comments  ⇧4">
+        <TabsTrigger value="comments" title="Comments  ⇧5">
           Comments {badge(comments)}
         </TabsTrigger>
       </TabsList>
@@ -100,11 +103,14 @@ export interface GitActionsProps {
   onMerge: () => void
   /** The branch's pull request on GitHub, once it has been read. */
   prUrl?: string
+  /** The Git Agent's switch, first in the bar's actions. */
+  agentToggle?: React.ReactNode
 }
 
 /** Each view's primary action: commit what is checked, open the PR, send the comments. */
 const CTA_FOR: Record<GitPane, (props: GitActionsProps, openExternal: (url: string) => void) => Cta | undefined> = {
   changes: ({ worktree, against }) => (against === 'head' ? { label: 'Commit', icon: GitCommitHorizontal, form: commitFormId(worktree.id) } : undefined),
+  groups: () => undefined,
   history: () => undefined,
   pr: ({ prUrl }, openExternal) => (prUrl ? { label: 'Open on GitHub', icon: ExternalLink, variant: 'outline', onClick: () => openExternal(prUrl) } : undefined),
   comments: ({ pendingReview, sending, onSendForReview }) => ({ label: 'Send for review', icon: Send, disabled: pendingReview === 0 || sending, onClick: onSendForReview })
@@ -116,7 +122,7 @@ const CTA_FOR: Record<GitPane, (props: GitActionsProps, openExternal: (url: stri
  * diff switches the tools slot may have had to drop.
  */
 export function GitActions(props: GitActionsProps): React.JSX.Element {
-  const { worktree, pane, onPaneChange, mode, onModeChange, against, onAgainstChange, pendingReview, sending, onSendForReview, onMerge, prUrl } = props
+  const { worktree, pane, onPaneChange, mode, onModeChange, against, onAgainstChange, pendingReview, sending, onSendForReview, onMerge, prUrl, agentToggle } = props
   const { openExternal } = usePlatform()
   const push = usePushBranch(worktree.id)
   const merge = mergeAffordance(worktree)
@@ -125,6 +131,7 @@ export function GitActions(props: GitActionsProps): React.JSX.Element {
 
   return (
     <ShellSlot name="actions">
+      {agentToggle}
       {cta ? (
         <Button size="sm" variant={cta.variant ?? 'default'} className="h-7 text-xs" type={cta.form ? 'submit' : 'button'} form={cta.form} disabled={cta.disabled} onClick={cta.onClick}>
           <cta.icon />

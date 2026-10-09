@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeft, Code2, Eye, GripVertical, SquareArrowOutUpRight } from 'lucide-react'
 
 import type { ChangedFile, DiffSpec, ReviewComment } from '@canopy/shared'
@@ -12,7 +12,9 @@ import { Button } from '@/components/ui/button'
 import { DiffStat, FileDiffPath } from '@/components/ui/file-diff-list'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useFilePatch } from '@/lib/api-hooks'
+import type { LineRange } from '@/lib/file-refs'
 import { isMarkdownPath } from '@/lib/language'
+import { lineAt, slicePatch } from '@/lib/patch'
 import { fileWindowHash } from '@/lib/pop-out'
 import { usePlatform } from '@/providers/platform'
 import { FILE_STATUS_LABEL } from '@/lib/status'
@@ -39,25 +41,29 @@ interface Props extends Navigation {
   comments: ReviewComment[]
   mode: DiffMode
   focusCommentId?: string
+  /** Lines to land on: highlighted in the diff, or found in the whole file when no hunk shows them. */
+  focusLines?: LineRange
   /** Offer hunk picking. Only the commit panel does: it is the only view with an index to stage into. */
   canPickHunks?: boolean
+  /** Only these hunks in the diff — one Groups section's share of the file. The whole-file view still shows every change. */
+  hunks?: number[]
 }
 
 /** Both diff views need the same patch and the same "there is nothing to show" answers. */
-function WithPatch({ worktreeId, spec, file, children }: Pick<Props, 'worktreeId' | 'spec' | 'file'> & { children: (patch: string) => React.JSX.Element }): React.JSX.Element {
+function WithPatch({ worktreeId, spec, file, hunks, children }: Pick<Props, 'worktreeId' | 'spec' | 'file' | 'hunks'> & { children: (patch: string) => React.JSX.Element }): React.JSX.Element {
   const patch = useFilePatch(worktreeId, spec, file.path, true)
   if (patch.isPending) return <p className="p-3 font-mono text-[11px] text-muted-foreground">Loading diff…</p>
   if (patch.error) return <p className="p-3 text-xs text-destructive">{patch.error.message}</p>
   if (!patch.data.patch) {
     return <p className="p-3 font-mono text-[11px] text-muted-foreground">{patch.data.binary ? 'Binary file.' : 'Diff too large to display (over 512 KiB).'}</p>
   }
-  return children(patch.data.patch)
+  return children(hunks ? slicePatch(patch.data.patch, hunks).patch : patch.data.patch)
 }
 
-function DiffBody({ worktreeId, spec, file, comments, mode, focusCommentId }: Props): React.JSX.Element {
+function DiffBody({ worktreeId, spec, file, hunks, comments, mode, focusCommentId, focusLines }: Props): React.JSX.Element {
   return (
-    <WithPatch worktreeId={worktreeId} spec={spec} file={file}>
-      {(patch) => <WorktreeDiff worktreeId={worktreeId} spec={spec} path={file.path} patch={patch} comments={comments} mode={mode} focusCommentId={focusCommentId} />}
+    <WithPatch worktreeId={worktreeId} spec={spec} file={file} hunks={hunks}>
+      {(patch) => <WorktreeDiff worktreeId={worktreeId} spec={spec} path={file.path} patch={patch} comments={comments} mode={mode} focusCommentId={focusCommentId} focusLines={focusLines} />}
     </WithPatch>
   )
 }
@@ -78,9 +84,9 @@ function HunksBody({ worktreeId, spec, file, comments, mode }: Props): React.JSX
 const revOf = (spec: DiffSpec): string | undefined => (spec.kind === 'commit' ? spec.sha : spec.kind === 'trees' ? spec.after : undefined)
 
 /** The rendered diff: the doc as prose, with the change marked on it. Markdown only. */
-function RenderedDiffBody({ worktreeId, spec, file, onOpenPath }: Props): React.JSX.Element {
+function RenderedDiffBody({ worktreeId, spec, file, hunks, onOpenPath }: Props): React.JSX.Element {
   return (
-    <WithPatch worktreeId={worktreeId} spec={spec} file={file}>
+    <WithPatch worktreeId={worktreeId} spec={spec} file={file} hunks={hunks}>
       {(patch) => <MarkdownDiff worktreeId={worktreeId} path={file.path} rev={revOf(spec)} patch={patch} onOpenPath={onOpenPath} />}
     </WithPatch>
   )
@@ -161,6 +167,13 @@ export function ContentPane(props: Props): React.JSX.Element {
   const canView = file.status !== 'D'
   // A binary file has no hunks, and a conflicted one must be resolved before any of it is staged.
   const canHunks = Boolean(canPickHunks) && !file.binary && !file.conflicted
+  // Lines handed in from outside show where they are: in the diff when a hunk holds them, else in the file.
+  const patch = useFilePatch(props.worktreeId, props.spec, file.path, props.focusLines !== undefined)
+  const patchText = patch.data?.patch
+  useEffect(() => {
+    if (!props.focusLines || patchText === undefined) return
+    setPicked(patchText && lineAt(patchText, 'new', props.focusLines.start) !== undefined ? 'diff' : 'file')
+  }, [props.focusLines, patchText])
   const view = picked ?? 'diff'
   const resolved: View = (view === 'hunks' && !canHunks) || (view === 'file' && !canView) ? 'diff' : view
   // A deleted file has no blob left to render, and hunk picking is line work by definition.
@@ -170,7 +183,8 @@ export function ContentPane(props: Props): React.JSX.Element {
   return (
     // A diagram in this file expands to fill the pane, not the window: the doc it belongs to
     // stays beside it, which is the whole reason to open the diagram at all.
-    <div data-diagram-surface className="relative flex h-full min-h-0 flex-col">
+    // `data-file-path` names the file for code selected or dragged out of it (see `snippetSource`).
+    <div data-diagram-surface data-file-path={file.path} className="relative flex h-full min-h-0 flex-col">
       <PaneHeader path={file.path} onBack={onBack}>
         <Badge variant="outline" className="text-[10px]">
           {FILE_STATUS_LABEL[file.status]}
@@ -213,7 +227,7 @@ export function FilePane({ worktreeId, path, rev, badge, actions, className, dra
   const rendered = markdown && !raw
 
   return (
-    <div data-diagram-surface className={cn('relative flex h-full min-h-0 flex-col', className)}>
+    <div data-diagram-surface data-file-path={path} className={cn('relative flex h-full min-h-0 flex-col', className)}>
       <PaneHeader path={path} dragPaneId={dragPaneId} onBack={onBack}>
         {badge ? (
           <Badge variant="outline" className="text-[10px]">

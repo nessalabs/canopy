@@ -50,9 +50,9 @@ export function parseTab(hash: string): DashboardTab | undefined {
   return DASHBOARD_TABS.includes(requested as DashboardTab) ? (requested as DashboardTab) : undefined
 }
 
-export type GitPane = 'changes' | 'history' | 'pr' | 'comments'
+export type GitPane = 'changes' | 'groups' | 'history' | 'pr' | 'comments'
 
-export const GIT_PANES: readonly GitPane[] = ['changes', 'history', 'pr', 'comments']
+export const GIT_PANES: readonly GitPane[] = ['changes', 'groups', 'history', 'pr', 'comments']
 
 /**
  * Where a link into the Git tab lands: the pane, what Changes compares against, and the commit

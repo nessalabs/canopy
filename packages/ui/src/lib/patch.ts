@@ -1,4 +1,4 @@
-import type { CommentSide } from '@canopy/shared'
+import { splitPatch, type CommentSide } from '@canopy/shared'
 
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 
@@ -28,3 +28,17 @@ export function lineAt(patch: string, side: CommentSide, line: number): string |
   }
   return undefined
 }
+
+/**
+ * One file's patch cut down to the chosen hunks — header kept, since the diff renderer needs it to
+ * know the file and its language — with what those hunks add and remove.
+ */
+export function slicePatch(patch: string, hunks?: number[]): { patch: string; additions: number; deletions: number } {
+  const split = splitPatch(patch)
+  const chosen = hunks ? split.hunks.filter((hunk) => hunks.includes(hunk.index)) : split.hunks
+  if (!hunks) return { patch, additions: sum(chosen, 'additions'), deletions: sum(chosen, 'deletions') }
+  const body = chosen.flatMap((hunk) => [hunk.header, ...hunk.lines])
+  return { patch: `${split.header}\n${body.join('\n')}\n`, additions: sum(chosen, 'additions'), deletions: sum(chosen, 'deletions') }
+}
+
+const sum = (hunks: Array<{ additions: number; deletions: number }>, key: 'additions' | 'deletions'): number => hunks.reduce((total, hunk) => total + hunk[key], 0)

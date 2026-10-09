@@ -9,11 +9,14 @@ import { DiffStat } from '@/components/ui/file-diff-list'
 import { FileIcon } from '@/components/ui/file-icon'
 import { TreeView, type TreeViewNode } from '@/components/ui/tree-view'
 import { usePrefetchFileContents, useTrees, useWorktreeFiles } from '@/lib/api-hooks'
+import { CONTEXT_MIME, type AgentContext } from '@/lib/agent-context'
 import type { CheckState } from '@/lib/commit-selection'
 import { defaultOpenDirs, dirTotals, emptyDir, flattenTree, toggled, treeFromPaths, withListing, type FlatRow, type TreeDir } from '@/lib/file-tree'
 import { useHoverPrefetch } from '@/lib/use-hover-prefetch'
 import { readStored, writeStored } from '@/lib/local-store'
 import { plural } from '@/lib/format'
+
+import { setDragChip } from './git-agent/drag-chip'
 
 interface TreeProps {
   selected?: string
@@ -60,13 +63,36 @@ function useExpanded(initial: () => Iterable<string>, storageKey?: string) {
   return { expanded, toggle: (path: string) => setExpanded((current) => toggled(current, path)) }
 }
 
-/** Icon plus name, the way editors draw a file row. */
-const RowLabel = ({ row }: { row: FlatRow }): React.JSX.Element => (
+/**
+ * Icon plus name, the way editors draw a file row. `handle` makes the icon alone the drag grip —
+ * for the commit panel, where pressing and moving across the rest of the row sweeps a highlight.
+ */
+const RowLabel = ({ row, handle }: { row: FlatRow; handle: boolean }): React.JSX.Element => (
   <span className="flex min-w-0 items-center gap-1.5">
-    <FileIcon name={row.name} kind={row.kind} expanded={row.expanded} className="size-3.5" />
+    {handle ? (
+      <span data-drag-handle="" draggable onDragStart={dragRow(row)} title="Drag to the Git Agent" className="flex cursor-grab active:cursor-grabbing">
+        <FileIcon name={row.name} kind={row.kind} expanded={row.expanded} className="size-3.5" />
+      </span>
+    ) : (
+      <FileIcon name={row.name} kind={row.kind} expanded={row.expanded} className="size-3.5" />
+    )}
     <span className="truncate">{row.name}</span>
   </span>
 )
+
+/**
+ * Drags a row out as context for an agent: the whole row, or in the commit panel only its icon,
+ * since there a press-and-move across the row sweeps a highlight and a drag would take it over.
+ */
+function dragRow(row: FlatRow): (event: React.DragEvent) => void {
+  return (event) => {
+    const context: AgentContext = { kind: 'path', path: row.id, dir: row.kind === 'dir' }
+    event.dataTransfer.setData(CONTEXT_MIME, JSON.stringify(context))
+    event.dataTransfer.setData('text/plain', row.id)
+    event.dataTransfer.effectAllowed = 'copy'
+    setDragChip(event.dataTransfer, context)
+  }
+}
 
 /**
  * The checkbox on a commit-panel row. It carries `data-checkbox` because the pointer handling
@@ -131,6 +157,8 @@ function useRowPointers(rows: readonly FlatRow[], commit: CommitSelection | unde
       if (event.button !== 0) return
       const row = rowAt(event.currentTarget, event.clientY)
       if (!row) return
+      // The icon's grip starts a drag out to the agent, which a highlight sweep must not claim.
+      if ((event.target as HTMLElement).closest('[data-drag-handle]')) return
       if ((event.target as HTMLElement).closest('[data-checkbox]')) {
         // Staging a file is not the same act as reading it: the box must not also move the
         // content pane, which would fetch and highlight a diff nobody asked for. The click
@@ -210,6 +238,8 @@ function Tree({ root, expanded, toggle, meta, label, selected, onSelect, onHover
         ...row,
         label: (
           <span
+            draggable={!commit}
+            onDragStart={commit ? undefined : dragRow(row)}
             className={
               commit?.highlighted.has(row.id)
                 ? 'flex min-w-0 flex-1 items-center rounded-sm bg-primary/8'
@@ -217,7 +247,7 @@ function Tree({ root, expanded, toggle, meta, label, selected, onSelect, onHover
             }
           >
             {commit ? <RowCheckbox state={commit.stateOf(row)} disabled={commit.disabled} /> : null}
-            <RowLabel row={row} />
+            <RowLabel row={row} handle={Boolean(commit)} />
           </span>
         ),
         meta: meta?.(row)
