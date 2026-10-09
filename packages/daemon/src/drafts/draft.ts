@@ -83,7 +83,11 @@ const SOURCES: Record<DraftKind, Source> = {
     context: async (git, cwd) => {
       // New files are not in `git diff HEAD`; their names are enough to say they were added.
       const [diff, untracked] = await Promise.all([diffContext(git, cwd, ['HEAD']), git(cwd, ['ls-files', '--others', '--exclude-standard'])])
-      const added: Context['sections'] = untracked.trim() ? [['New files', untracked]] : []
+      // Bounded like the diff's own file list, so a tree full of build output cannot swamp the prompt.
+      const names = untracked.split('\n').filter(Boolean)
+      const listed = names.slice(0, MAX_STAT_FILES).join('\n')
+      const more = names.length > MAX_STAT_FILES ? `\n[${names.length - MAX_STAT_FILES} more new files not listed]` : ''
+      const added: Context['sections'] = names.length ? [['New files', listed + more]] : []
       return { sections: [...added, ...diff.sections], empty: diff.empty && added.length === 0 }
     }
   },

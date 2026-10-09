@@ -78,6 +78,16 @@ describe('draft route', () => {
     expect(prompt).toContain('New files:\nfresh.txt')
   })
 
+  it('caps the new-file list and says how many it left out', async () => {
+    repo.write(Object.fromEntries(Array.from({ length: 205 }, (_, i) => [`new-${String(i).padStart(3, '0')}.txt`, 'x\n'])))
+
+    expect((await server.call('POST', routes.draft(worktreeId), { kind: 'commitAll' })).status).toBe(200)
+    const [prompt = ''] = prompts
+    expect(prompt).toContain('new-199.txt')
+    expect(prompt).not.toContain('new-200.txt')
+    expect(prompt).toContain('[5 more new files not listed]')
+  })
+
   it('drafts a pull request from the commits and diff the branch adds over its base', async () => {
     await repo.branch('feature')
     await repo.git('checkout', '-q', 'feature')
