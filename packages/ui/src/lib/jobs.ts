@@ -20,6 +20,8 @@ export interface JobStore<T> {
 
 export function createJobStore<T>(): JobStore<T> {
   const jobs = new Map<string, Job<T>>()
+  /** The run each key currently belongs to; a run dismissed or replaced lands nowhere. */
+  const current = new Map<string, symbol>()
   const listeners = new Set<() => void>()
   const set = (key: string, job: Job<T> | undefined): void => {
     if (job) jobs.set(key, job)
@@ -29,10 +31,17 @@ export function createJobStore<T>(): JobStore<T> {
   return {
     start(key, run) {
       if (jobs.get(key)?.status === 'running') return
+      const id = Symbol(key)
+      current.set(key, id)
       set(key, { status: 'running' })
+      const settle = (job: Job<T>): void => {
+        if (current.get(key) !== id) return
+        current.delete(key)
+        set(key, job)
+      }
       run().then(
-        (result) => set(key, { status: 'done', result }),
-        (error: unknown) => set(key, { status: 'error', error })
+        (result) => settle({ status: 'done', result }),
+        (error: unknown) => settle({ status: 'error', error })
       )
     },
     take(key) {
@@ -41,7 +50,10 @@ export function createJobStore<T>(): JobStore<T> {
       set(key, undefined)
       return job.result
     },
-    dismiss: (key) => set(key, undefined),
+    dismiss(key) {
+      current.delete(key)
+      set(key, undefined)
+    },
     get: (key) => jobs.get(key),
     subscribe(listener) {
       listeners.add(listener)
