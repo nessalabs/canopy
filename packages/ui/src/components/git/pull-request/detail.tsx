@@ -302,10 +302,15 @@ function LocalWork({ worktree, pr, data, onOpenChanges }: { worktree: Worktree; 
                 {commit.isPending ? 'Committing…' : 'Commit all and push'}
               </Button>
             </div>
-            {/* A drafted message usually has a body; it is shown, editable, once there is one. */}
-            {description ? (
-              <Textarea className="min-h-16 text-xs" aria-label="Commit description" value={description} disabled={commit.isPending} onChange={(event) => setDescription(event.target.value)} />
-            ) : null}
+            {/* Always there, so a description can be written by hand or cleared and rewritten. */}
+            <Textarea
+              className="min-h-16 text-xs"
+              placeholder="Description (optional)"
+              aria-label="Commit description"
+              value={description}
+              disabled={commit.isPending || drafting.running}
+              onChange={(event) => setDescription(event.target.value)}
+            />
           </form>
           <ErrorNote error={drafting.error} />
           {conflicted ? <p className="text-xs text-destructive">Resolve the conflicts in Changes first.</p> : null}
