@@ -4,7 +4,7 @@ import { diffFingerprint, type ChangeGroup, type ChangedFile } from '@canopy/sha
 
 import type { AgentEvent } from '@canopy/shared/agent-stream'
 
-import { featureCards, isStale, latestGrouping, reviewedKey, reviewSections, sectionFiles } from '../src/lib/change-groups'
+import { featureCards, groupingTitle, isStale, latestGrouping, pickGrouping, reviewedKey, reviewSections, sectionFiles } from '../src/lib/change-groups'
 import { slicePatch } from '../src/lib/patch'
 
 const group = (id: string, title: string, refs: ChangeGroup['refs'], parts: ChangeGroup['parts'] = []): ChangeGroup => ({ id, title, summary: `${title} summary`, layers: [], refs, parts })
@@ -96,5 +96,21 @@ describe('latestGrouping', () => {
 
   it('has nothing before the agent has answered with a grouping', () => {
     expect(latestGrouping([said('Reading the diff…')], ids, 'fp')).toBeUndefined()
+  })
+})
+
+describe('picking a grouping', () => {
+  const groupings = [{ id: 'new' }, { id: 'old' }]
+
+  it('shows the picked one, else the newest', () => {
+    expect(pickGrouping(groupings, 'old')?.id).toBe('old')
+    expect(pickGrouping(groupings, 'deleted')?.id).toBe('new')
+    expect(pickGrouping(groupings, undefined)?.id).toBe('new')
+    expect(pickGrouping([], 'old')).toBeUndefined()
+  })
+
+  it('names a grouping by how it was asked for', () => {
+    expect(groupingTitle({ instructions: 'by layer' })).toBe('by layer')
+    expect(groupingTitle({ instructions: '' })).toBe('By feature')
   })
 })

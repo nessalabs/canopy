@@ -184,6 +184,16 @@ export const useAgentSessions = (worktreeId: string) => {
   return useQuery({ queryKey: keys.sessions(worktreeId), queryFn: () => api.agentSessions(worktreeId), refetchInterval: POLL_MS, refetchIntervalInBackground: false })
 }
 
+export const useGitAgentSessions = (worktreeId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.gitAgentSessions(worktreeId), queryFn: () => api.gitAgentSessions(worktreeId) })
+}
+
+export const useGroupings = (worktreeId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.groupings(worktreeId), queryFn: () => api.groupings(worktreeId) })
+}
+
 /**
  * Sessions keep growing while a terminal agent works in them, so this polls — every few seconds
  * when a terminal has the session open — except while

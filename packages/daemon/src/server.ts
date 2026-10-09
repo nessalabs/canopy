@@ -17,7 +17,8 @@ import { createSessionLister } from './agents/sessions'
 import { TurnHub } from './agents/turn-hub'
 import { CommitService } from './commit/service'
 import { claudeText, draftText, type TextGenerator } from './drafts/draft'
-import { groupBrief } from './drafts/groups'
+import { startGrouping } from './drafts/groups'
+import { GitAgentStore } from './git-agent/store'
 import { registerAuth } from './auth'
 import type { DaemonConfig } from './config'
 import { createDbRegistry } from './env/databases/registry'
@@ -47,6 +48,7 @@ import { registerCommitRoutes } from './routes/commit'
 import type { Services } from './routes/context'
 import { registerEnvironmentRoutes } from './routes/environment'
 import { registerFsRoutes } from './routes/fs'
+import { registerGitAgentRoutes } from './routes/git-agent'
 import { registerGitHubRoutes } from './routes/github'
 import { registerProjectRoutes } from './routes/projects'
 import { registerReviewRoutes } from './routes/review'
@@ -138,7 +140,9 @@ export function buildServices(deps: ServerDeps): Services {
   })
   environmentRef.current = environment
   worktrees.attachEnvironment(environment)
-  const history = new HistoryService({ repo, diffs, worktrees })
+  const snapshots = createSnapshots(git)
+  const history = new HistoryService({ repo, diffs, worktrees, snapshots })
+  const gitAgent = new GitAgentStore({ db: deps.db, worktrees })
   const review = new ReviewService({ db: deps.db, worktrees, agents })
   return {
     watch: new WatchService({ worktrees, projects, repo, events }),
@@ -151,14 +155,15 @@ export function buildServices(deps: ServerDeps): Services {
     commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
     draftText: (worktreeId, input) =>
       draftText({ git, worktrees, settings: (projectId) => environment.settings(projectId), generate: deps.generateText ?? claudeText }, worktreeId, input),
-    groupBrief: (worktreeId, input) => groupBrief({ history }, worktreeId, input),
+    startGrouping: (worktreeId, input) => startGrouping({ history, store: gitAgent }, worktreeId, input),
+    gitAgent,
     merges: new MergeService({ repo, git, worktrees, projects, events }),
     destroyJobs: new DestroyJobsService({ worktrees, events }),
     github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees, review }),
     review,
     agents,
     turns: new TurnHub(),
-    editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots: createSnapshots(git) }),
+    editDiffs: new EditDiffsService({ db: deps.db, worktrees, snapshots }),
     presence,
     sessions: createSessionLister({
       agents,
@@ -197,6 +202,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   registerCommitRoutes(app, services)
   registerGitHubRoutes(app, services)
   registerReviewRoutes(app, services)
+  registerGitAgentRoutes(app, services)
   registerAgentRoutes(app, services)
   registerEnvironmentRoutes(app, services)
   registerFsRoutes(app)

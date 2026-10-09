@@ -49,13 +49,17 @@ interface Props extends Navigation {
   hunks?: number[]
 }
 
+/** Why a patch has no text to show: binary, past the cap, or — once the change is committed — no difference left. */
+const emptyPatchNote = ({ binary, truncated }: { binary: boolean; truncated: boolean }): string =>
+  binary ? 'Binary file.' : truncated ? 'Diff too large to display (over 512 KiB).' : 'No changes to this file.'
+
 /** Both diff views need the same patch and the same "there is nothing to show" answers. */
 function WithPatch({ worktreeId, spec, file, hunks, children }: Pick<Props, 'worktreeId' | 'spec' | 'file' | 'hunks'> & { children: (patch: string) => React.JSX.Element }): React.JSX.Element {
   const patch = useFilePatch(worktreeId, spec, file.path, true)
   if (patch.isPending) return <p className="p-3 font-mono text-[11px] text-muted-foreground">Loading diff…</p>
   if (patch.error) return <p className="p-3 text-xs text-destructive">{patch.error.message}</p>
   if (!patch.data.patch) {
-    return <p className="p-3 font-mono text-[11px] text-muted-foreground">{patch.data.binary ? 'Binary file.' : 'Diff too large to display (over 512 KiB).'}</p>
+    return <p className="p-3 font-mono text-[11px] text-muted-foreground">{emptyPatchNote(patch.data)}</p>
   }
   return children(hunks ? slicePatch(patch.data.patch, hunks).patch : patch.data.patch)
 }

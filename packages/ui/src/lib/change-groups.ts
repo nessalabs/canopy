@@ -1,4 +1,4 @@
-import { diffFingerprint, groupsFromAnswer, type ChangeGroup, type ChangeGroups, type ChangedFile, type HunkIds, type HunkRef } from '@canopy/shared'
+import { diffFingerprint, groupsFromAnswer, type ChangeGroup, type ChangeGrouping, type ChangeGroups, type ChangedFile, type HunkIds, type HunkRef } from '@canopy/shared'
 import { AgentEventType, isEvent, isMainThread, type AgentEvent } from '@canopy/shared/agent-stream'
 
 /**
@@ -62,6 +62,13 @@ export function sectionFiles(refs: HunkRef[]): Array<{ path: string; hunks?: num
 
 /** What a tick is kept under: the hunks it covers, so regrouping the same hunks keeps it and changing them drops it. */
 export const reviewedKey = (refs: HunkRef[]): string => refs.map(({ path, hunk }) => `${path}#${hunk ?? '*'}`).join('\n')
+
+/** What a grouping is called in the picker: how it was asked to group, or the stock way. */
+export const groupingTitle = (grouping: Pick<ChangeGrouping, 'instructions'>): string => grouping.instructions || 'By feature'
+
+/** The grouping a picked id names, or the newest when it names none of them (it was deleted, or nothing was picked yet). */
+export const pickGrouping = <T extends Pick<ChangeGrouping, 'id'>>(groupings: T[], picked: string | undefined): T | undefined =>
+  groupings.find((grouping) => grouping.id === picked) ?? groupings[0]
 
 /** Groups made from a diff that has since changed shape. */
 export const isStale = (result: ChangeGroups, files: ChangedFile[]): boolean => result.fingerprint !== diffFingerprint(files)

@@ -5,8 +5,9 @@
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, normalize } from 'node:path'
 
-import type { ChangesResponse, CommitResponse, DiffSpec, FileContents, FilePatch, LogResponse, TreeResponse, TreesResponse } from '@canopy/shared'
+import type { Against, ChangesResponse, CommitResponse, DiffSpec, FileContents, FilePatch, LogResponse, TreeResponse, TreesResponse } from '@canopy/shared'
 
+import type { Snapshots } from '../agents/edit-diffs/snapshots'
 import { worktreeChanges } from '../commit/status'
 import { toFileContents, type DiffReader, type ResolvedDiffSpec } from '../git/diff'
 import { childrenOf } from '../git/parse'
@@ -31,6 +32,7 @@ interface Deps {
   repo: Repo
   diffs: DiffReader
   worktrees: WorktreesService
+  snapshots: Pick<Snapshots, 'take' | 'pin'>
 }
 
 export class HistoryService {
@@ -45,6 +47,16 @@ export class HistoryService {
     // A repo with no commits has no HEAD to diff against; the empty tree makes every file "added".
     const rev = (await this.deps.repo.resolveCommit(path, wanted)) ?? EMPTY_TREE
     return { cwd: path, resolved: { kind: 'worktree', rev }, baseBranch }
+  }
+
+  /**
+   * The working-tree change as two pinned trees — its base and the checkout as it stands — so a
+   * diff of it still reads after the change is committed, pushed or rebased away.
+   */
+  async snapshot(worktreeId: string, against: Against): Promise<Extract<DiffSpec, { kind: 'trees' }>> {
+    const { cwd, resolved } = await this.resolve(worktreeId, { kind: 'worktree', against })
+    const [before, after] = await Promise.all([this.deps.snapshots.pin(cwd, (resolved as { rev: string }).rev), this.deps.snapshots.take(cwd)])
+    return { kind: 'trees', before, after }
   }
 
   async changes(worktreeId: string, spec: Extract<DiffSpec, { kind: 'worktree' }>): Promise<ChangesResponse> {

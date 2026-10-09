@@ -192,7 +192,7 @@ export function GitTab({
                 <ChangesView worktree={worktree} focus={focusFor('changes')} against={against} {...shared} />
               </TabsContent>
               <TabsContent value="groups" className="flex min-h-0 flex-1 flex-col">
-                <GroupsView worktreeId={worktree.id} against={against} files={diff?.files ?? []} groups={changeGroups} comments={comments} mode={mode} onOpenRef={openRef} />
+                <GroupsView worktreeId={worktree.id} files={diff?.files ?? []} groups={changeGroups} comments={comments} mode={mode} onOpenRef={openRef} />
               </TabsContent>
               <TabsContent value="history" className="flex min-h-0 flex-1 flex-col">
                 <HistoryView worktreeId={worktree.id} focusCommit={jump?.commitSha ?? link.commit} focus={focusFor('history')} {...shared} />

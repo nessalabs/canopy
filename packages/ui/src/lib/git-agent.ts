@@ -43,6 +43,15 @@ export const bindSession = (state: AgentTabs, id: string, session: SessionRef): 
   tabs: state.tabs.map((tab) => (tab.id === id && !sameSession(tab.session, session) ? { ...tab, session } : tab))
 })
 
+/** The tab holding `session`, if one is open. */
+export const tabOf = (state: AgentTabs, session: SessionRef): AgentTab | undefined => state.tabs.find((tab) => sameSession(tab.session, session))
+
+/** A past conversation back on screen: its tab when one is open, else a new tab `id` bound to it. */
+export function reopen(state: AgentTabs, session: SessionRef, id: string): AgentTabs {
+  const open = tabOf(state, session)
+  return open ? activate(state, open.id) : openTab(state, { id, provider: session.provider, session })
+}
+
 /** What is worth keeping across a reload: tabs whose conversation exists. A half-composed one is not. */
 export function persisted(state: AgentTabs): AgentTabs {
   const tabs = state.tabs.filter((tab) => tab.session)

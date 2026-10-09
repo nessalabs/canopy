@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import { SessionRef } from './agent'
+import { Millis } from './common'
 import { Against, type ChangedFile } from './git'
 
 /**
@@ -34,18 +36,6 @@ export type ChangeGroupPart = z.infer<typeof ChangeGroupPart>
 export const ChangeGroup = ChangeGroupPart.extend({ parts: z.array(ChangeGroupPart) })
 export type ChangeGroup = z.infer<typeof ChangeGroup>
 
-/**
- * What a grouping session starts from: the message to send the agent — the stock instructions,
- * the user's wording and every hunk under a short id — and those ids, so its answers can be read
- * back into groups.
- */
-export const GroupingBrief = z.object({
-  prompt: z.string(),
-  ids: z.record(z.string(), HunkRef),
-  fingerprint: z.string()
-})
-export type GroupingBrief = z.infer<typeof GroupingBrief>
-
 /** One feature building on another: `from` is the one built on, `to` the one building on it. */
 export const GroupLink = z.object({ from: z.string(), to: z.string(), label: z.string().optional() })
 export type GroupLink = z.infer<typeof GroupLink>
@@ -58,6 +48,36 @@ export const ChangeGroups = z.object({
   fingerprint: z.string()
 })
 export type ChangeGroups = z.infer<typeof ChangeGroups>
+
+/**
+ * One grouping of a worktree's change, kept by the daemon so a worktree can hold several and they
+ * outlive a commit. It is pinned to the two snapshot trees it was made from — the base and the
+ * working tree at the time — so its hunks still read once the change is committed and pushed. The
+ * conversation that answers it is `session` once it exists; `result` is its newest answer, kept so
+ * the groups read even after the session's transcript is gone.
+ */
+export const ChangeGrouping = z.object({
+  id: z.string(),
+  against: Against,
+  instructions: z.string(),
+  before: z.string(),
+  after: z.string(),
+  /** The short ids the brief named hunks by, which the agent's answers use. */
+  ids: z.record(z.string(), HunkRef),
+  fingerprint: z.string(),
+  session: SessionRef.optional(),
+  result: ChangeGroups.optional(),
+  createdAt: Millis
+})
+export type ChangeGrouping = z.infer<typeof ChangeGrouping>
+
+/** A grouping just made, and the brief its conversation opens with: stock instructions, the user's wording and every hunk under its id. */
+export const GroupingStarted = z.object({ grouping: ChangeGrouping, prompt: z.string() })
+export type GroupingStarted = z.infer<typeof GroupingStarted>
+
+/** What the UI learns about a grouping after making it: its conversation, then each newer answer. */
+export const GroupingPatch = z.object({ session: SessionRef.optional(), result: ChangeGroups.optional() })
+export type GroupingPatch = z.infer<typeof GroupingPatch>
 
 /**
  * What Claude replies with: groups naming hunks by the short ids the prompt gave them (`h12`,

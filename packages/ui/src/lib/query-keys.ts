@@ -27,6 +27,10 @@ export const keys = {
   pullRequestOptions: (worktreeId: string) => ['pull-request-options', worktreeId] as const,
   pullRequestThreads: (worktreeId: string) => ['pull-request-threads', worktreeId] as const,
   sessions: (worktreeId: string) => ['agent-sessions', worktreeId] as const,
+  /** The Git Agent's past conversations on a worktree, for its history. */
+  gitAgentSessions: (worktreeId: string) => ['git-agent-sessions', worktreeId] as const,
+  /** A worktree's groupings of its change, newest first. */
+  groupings: (worktreeId: string) => ['groupings', worktreeId] as const,
   transcript: (ref: SessionRef) => ['transcript', ref.provider, ref.sessionId] as const,
   edits: (ref: SessionRef) => ['agent-edits', ref.provider, ref.sessionId] as const,
   /** What a provider advertises for this checkout: commands, skills, subagents, models, hooks. */
