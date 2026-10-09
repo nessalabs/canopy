@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest'
 import { parseChangeMap, partRef } from '../src/lib/change-map'
 
 describe('parseChangeMap', () => {
-  it('reads what an agent writes, forgiving a numeric line and a missing edge list', () => {
-    const spec = parseChangeMap('{"nodes":[{"id":"a","label":"A","path":"a.ts","lines":42,"status":"modified","extra":1}]}')
-    expect(spec).toEqual({ nodes: [{ id: 'a', label: 'A', path: 'a.ts', lines: '42', status: 'modified' }], edges: [] })
+  it('reads what an agent writes, forgiving a numeric line or badge and a missing edge list', () => {
+    const spec = parseChangeMap('{"nodes":[{"id":"a","label":"A","path":"a.ts","lines":42,"status":"modified","badge":3,"extra":1}]}')
+    expect(spec).toEqual({ nodes: [{ id: 'a', label: 'A', path: 'a.ts', lines: '42', status: 'modified', badge: '3' }], edges: [] })
     expect(partRef(spec!.nodes[0]!)).toBe('a.ts:42')
   })
 

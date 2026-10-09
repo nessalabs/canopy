@@ -10,8 +10,11 @@ import { z } from 'zod'
 export const PartStatus = z.enum(['added', 'modified', 'deleted', 'affected', 'external'])
 export type PartStatus = z.infer<typeof PartStatus>
 
+/** Short text an agent may write as a bare number (`badge: 3`, `cardinality: 1`); read as a string. */
+export const ScalarText = z.union([z.string(), z.number()]).transform(String)
+
 /** `84-95` or `84`: where in a file the code sits. An agent may write a bare number. */
-export const LineSpan = z.union([z.string(), z.number()]).transform(String)
+export const LineSpan = ScalarText
 
 export const ChangeMapPart = z.object({
   id: z.string().min(1),
@@ -22,7 +25,7 @@ export const ChangeMapPart = z.object({
   lines: LineSpan.optional(),
   status: PartStatus,
   /** A short marker in the card's corner — a hunk count, a finding id. */
-  badge: z.string().optional()
+  badge: ScalarText.optional()
 })
 export type ChangeMapPart = z.infer<typeof ChangeMapPart>
 

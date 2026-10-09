@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { LineSpan, PartStatus } from './change-map'
+import { LineSpan, PartStatus, ScalarText } from './change-map'
 
 /**
  * The diagrams an agent draws besides the change map, each in a fenced block of its answer named
@@ -78,6 +78,6 @@ export const DataModelSpec = z.object({
       })
     )
     .min(1),
-  relations: z.array(Link.extend({ cardinality: z.string().optional() })).default([])
+  relations: z.array(Link.extend({ cardinality: ScalarText.optional() })).default([])
 })
 export type DataModelSpec = z.infer<typeof DataModelSpec>
