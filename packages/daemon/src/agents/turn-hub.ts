@@ -11,6 +11,8 @@
  */
 import type { AgentProvider, AgentStreamEvent } from '@canopy/shared'
 
+import { conflict } from '../lib/errors'
+
 export class RunningTurn {
   readonly events: AgentStreamEvent[] = []
   private ended = false
@@ -67,9 +69,11 @@ export class TurnHub {
 
   /**
    * Runs `source` to the end in the background. A turn that opens a new session has no id until
-   * its `session` event; from then on it can be found by it.
+   * its `session` event; from then on it can be found by it. A session runs one turn at a time:
+   * a second would replace the first in the registry and leave it running where no one can rejoin.
    */
   start(provider: AgentProvider, sessionId: string | null, source: AsyncIterable<AgentStreamEvent>): RunningTurn {
+    if (sessionId && this.isRunning(provider, sessionId)) throw conflict('turn_running', `a turn is already running in ${provider} session ${sessionId}`)
     const turn = new RunningTurn(provider, sessionId)
     if (sessionId) this.turns.set(keyOf(provider, sessionId), turn)
     void this.drain(turn, source)
@@ -81,7 +85,8 @@ export class TurnHub {
       for await (const event of source) {
         if (event.type === 'session' && turn.sessionId !== event.sessionId) {
           turn.sessionId = event.sessionId
-          this.turns.set(keyOf(turn.provider, event.sessionId), turn)
+          const key = keyOf(turn.provider, event.sessionId)
+          if (!this.turns.has(key)) this.turns.set(key, turn)
         }
         turn.push(event)
       }

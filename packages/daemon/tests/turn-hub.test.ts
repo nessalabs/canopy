@@ -62,6 +62,19 @@ describe('TurnHub', () => {
     expect(hub.isRunning('claude', 's9')).toBe(false)
   })
 
+  it('refuses a second turn on a session that is still running one, and keeps the first findable', async () => {
+    const hub = new TurnHub()
+    const feed = controlledSource()
+    const first = hub.start('claude', 's1', feed.source)
+
+    expect(() => hub.start('claude', 's1', controlledSource().source)).toThrow(/already running/)
+    expect(hub.find('claude', 's1')).toBe(first)
+
+    feed.close()
+    await collect(first.follow())
+    expect(hub.isRunning('claude', 's1')).toBe(false)
+  })
+
   it('turns a source that throws into an error event and still ends the turn', async () => {
     const hub = new TurnHub()
     async function* failing(): AsyncGenerator<AgentStreamEvent> {
