@@ -22,6 +22,8 @@ export interface TreeChange {
 export interface Snapshots {
   /** The tree sha of the worktree's current state; also pinned under `refs/canopy/snapshots/`. */
   take(cwd: string): Promise<string>
+  /** The tree of `rev` (a commit or a tree), pinned the same way so it outlives a rebase or an amend. */
+  pin(cwd: string, rev: string): Promise<string>
   /** Paths that differ between two trees. */
   changedPaths(cwd: string, before: string, after: string): Promise<string[]>
   /**
@@ -59,18 +61,24 @@ export function createSnapshots(run: GitRunner): Snapshots {
   const withPaths = (cwd: string, args: string[], paths: string[]): Promise<string> =>
     run(cwd, [...args, '--pathspec-from-file=-', '--pathspec-file-nul'], { input: `${paths.join('\0')}\0` })
 
+  const keep = async (cwd: string, tree: string): Promise<string> => {
+    await run(cwd, ['update-ref', SNAPSHOT_REF(tree), tree])
+    return tree
+  }
+
   return {
     async take(cwd) {
       const index = join(tmpdir(), `canopy-index-${newId()}`)
       const env = { GIT_INDEX_FILE: index }
       try {
         await run(cwd, ['add', '-A', '--', '.'], { env })
-        const tree = (await run(cwd, ['write-tree'], { env })).trim()
-        await run(cwd, ['update-ref', SNAPSHOT_REF(tree), tree])
-        return tree
+        return await keep(cwd, (await run(cwd, ['write-tree'], { env })).trim())
       } finally {
         await rm(index, { force: true })
       }
+    },
+    async pin(cwd, rev) {
+      return keep(cwd, (await run(cwd, ['rev-parse', '--verify', `${rev}^{tree}`])).trim())
     },
     async changedPaths(cwd, before, after) {
       if (before === after) return []

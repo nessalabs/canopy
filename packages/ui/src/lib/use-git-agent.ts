@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 
 import { taskMessage, type AgentProvider, type ReviewRequest, type SessionRef } from '@canopy/shared'
 
-import { useProviders } from './api-hooks'
-import { activate, bindSession, closeTab, gitAgentKey, mostPressing, NO_TABS, openTab, persisted, sameSession, type AgentStatus, type AgentTab, type AgentTabs } from './git-agent'
+import { useApi } from '../providers/api'
+import { useGitAgentSessions, useProviders } from './api-hooks'
+import { activate, bindSession, closeTab, gitAgentKey, mostPressing, NO_TABS, openTab, persisted, reopen, tabOf, type AgentStatus, type AgentTab, type AgentTabs } from './git-agent'
 import { readStored, writeStored } from './local-store'
+import { keys } from './query-keys'
 import type { ReviewTarget } from './use-agent-turn'
 import { useStagingBoard, type StagedText } from './use-staging'
 
@@ -29,7 +32,9 @@ const newId = (): string => `${Date.now().toString(36)}-${Math.random().toString
 /**
  * The Git Agent's state, owned by the Git tab so every pane can reach it: its tabs, whether it is
  * open, what is staged on each tab, reviews waiting to be sent, and how each tab is doing. Tabs
- * whose conversation exists outlive a reload; the rest are drafts and go with the page.
+ * whose conversation exists outlive a reload; the rest are drafts and go with the page. Every
+ * conversation a tab binds is remembered by the daemon, so its history can reopen it after the
+ * tab is closed, from any client.
  */
 export function useGitAgent(worktreeId: string) {
   const key = gitAgentKey(worktreeId)
@@ -44,6 +49,9 @@ export function useGitAgent(worktreeId: string) {
   const [outbox, setOutbox] = useState<Record<string, Outgoing>>({})
   const [statuses, setStatuses] = useState<Record<string, AgentStatus>>({})
   const providers = useProviders().data ?? []
+  const api = useApi()
+  const queryClient = useQueryClient()
+  const history = useGitAgentSessions(worktreeId).data ?? []
 
   const add = (tab: Omit<AgentTab, 'id'>): string => {
     const id = newId()
@@ -62,14 +70,24 @@ export function useGitAgent(worktreeId: string) {
     board.forKey(id).stage(item)
   }
 
+  /** A conversation on screen in its own tab — the open one, or a new tab for it — returning that tab. */
+  const show = (session: SessionRef): string => {
+    const id = tabOf(state, session)?.id ?? newId()
+    setState((current) => reopen(current, session, id))
+    setOpen(true)
+    return id
+  }
+
   /** A review goes to the tab already holding its session, or to a tab of its own. */
   const sendReview = (review: PendingReview): void => {
-    const ref: SessionRef | undefined = review.target.sessionId ? { provider: review.target.provider, sessionId: review.target.sessionId } : undefined
-    const existing = ref ? state.tabs.find((tab) => sameSession(tab.session, ref)) : undefined
-    const id = existing?.id ?? add({ provider: review.target.provider, session: ref })
-    if (existing) setState((current) => activate(current, existing.id))
-    setOpen(true)
+    const { provider, sessionId } = review.target
+    const id = sessionId ? show({ provider, sessionId }) : add({ provider })
     setOutbox((current) => ({ ...current, [id]: { kind: 'review', ...review } }))
+  }
+
+  const bind = (id: string, session: SessionRef): void => {
+    setState((current) => bindSession(current, id, session))
+    void api.rememberGitAgentSession(worktreeId, session).then(() => queryClient.invalidateQueries({ queryKey: keys.gitAgentSessions(worktreeId) }))
   }
 
   /**
@@ -91,7 +109,11 @@ export function useGitAgent(worktreeId: string) {
     newTab,
     activate: (id: string) => setState((current) => activate(current, id)),
     close: (id: string) => setState((current) => closeTab(current, id)),
-    bind: (id: string, session: SessionRef) => setState((current) => bindSession(current, id, session)),
+    bind,
+    /** Past conversations, newest first, whether or not a tab still shows them. */
+    history,
+    /** Opens a past conversation from the history. */
+    show,
     staging: board.forKey,
     ask,
     sendReview,

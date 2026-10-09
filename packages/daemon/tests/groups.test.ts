@@ -57,17 +57,72 @@ describe('group brief route', () => {
     repo.cleanup()
   })
 
+  const start = async (body: object) => server.call('POST', routes.groupings(worktreeId), body)
+
   it('numbers the working-tree hunks, new files included, and puts the user’s wording in the prompt', async () => {
     repo.write({ 'a.txt': 'a changed\n', 'c.txt': 'new\n' })
-    const res = await server.call('POST', routes.groupBrief(worktreeId), { against: 'head', instructions: 'by layer' })
+    const res = await start({ against: 'head', instructions: 'by layer' })
     expect(res.status).toBe(200)
-    expect(res.body.ids).toEqual({ h1: { path: 'a.txt', hunk: 0 }, h2: { path: 'c.txt', hunk: 0 } } satisfies Record<string, HunkRef>)
-    expect(res.body.fingerprint).toContain('a.txt:1:1')
+    expect(res.body.grouping.ids).toEqual({ h1: { path: 'a.txt', hunk: 0 }, h2: { path: 'c.txt', hunk: 0 } } satisfies Record<string, HunkRef>)
+    expect(res.body.grouping.fingerprint).toBe('a.txt:1:1|c.txt:1:0')
+    expect(res.body.grouping.instructions).toBe('by layer')
     expect(res.body.prompt).toContain('How the user wants it grouped:\nby layer')
     expect(res.body.prompt).toContain('h2 @@')
   })
 
   it('refuses when there is nothing to group', async () => {
-    expect((await server.call('POST', routes.groupBrief(worktreeId), { against: 'head' })).status).toBe(400)
+    expect((await start({ against: 'head' })).status).toBe(400)
+  })
+
+  it('keeps every grouping, and its hunks still read once the change is committed', async () => {
+    repo.write({ 'a.txt': 'a changed\n' })
+    const first = (await start({ against: 'head' })).body.grouping
+    repo.write({ 'b.txt': 'b changed\n' })
+    const second = (await start({ against: 'head', instructions: 'by layer' })).body.grouping
+    await repo.commit({}, 'land it')
+
+    const listed = (await server.call('GET', routes.groupings(worktreeId))).body.groupings
+    expect(listed.map((g: { id: string }) => g.id)).toEqual([second.id, first.id])
+    const patch = await server.call('GET', `${routes.treesFile(worktreeId, second.before, second.after)}?path=b.txt`)
+    expect(patch.body.patch).toContain('+b changed')
+  })
+
+  it('learns a grouping’s session and answer, and forgets it on delete', async () => {
+    repo.write({ 'a.txt': 'a changed\n' })
+    const { id, fingerprint } = (await start({ against: 'head' })).body.grouping
+    const session = { provider: 'claude', sessionId: 's1' }
+    const result = { groups: [{ id: '1', title: 'One', summary: '', layers: [], refs: [{ path: 'a.txt', hunk: 0 }], parts: [] }], links: [], fingerprint }
+    await server.call('PATCH', routes.grouping(worktreeId, id), { session })
+    const updated = (await server.call('PATCH', routes.grouping(worktreeId, id), { result })).body.grouping
+    expect(updated).toMatchObject({ session, result })
+
+    expect((await server.call('DELETE', routes.grouping(worktreeId, id))).status).toBe(204)
+    expect((await server.call('GET', routes.groupings(worktreeId))).body.groupings).toEqual([])
+  })
+})
+
+describe('git agent history route', () => {
+  let server: TestServer
+  let repo: FixtureRepo
+  let worktreeId: string
+
+  beforeEach(async () => {
+    server = await createTestServer()
+    repo = await createFixtureRepo()
+    await repo.commit({ 'a.txt': 'a\n' }, 'init')
+    const projectId = (await server.call('POST', routes.projects(), { path: repo.path, defaultBase: 'main' })).body.project.id
+    worktreeId = (await server.call('GET', routes.project(projectId))).body.worktrees[0].id
+  })
+  afterEach(async () => {
+    await server.close()
+    repo.cleanup()
+  })
+
+  it('remembers each conversation once, titled from the provider listing', async () => {
+    const ref = { provider: 'claude', sessionId: 's1' }
+    expect((await server.call('POST', routes.gitAgentSessions(worktreeId), ref)).status).toBe(204)
+    await server.call('POST', routes.gitAgentSessions(worktreeId), ref)
+    const sessions = (await server.call('GET', routes.gitAgentSessions(worktreeId))).body.sessions
+    expect(sessions).toEqual([{ ...ref, title: 'fixture session', createdAt: expect.any(Number), updatedAt: expect.any(Number) }])
   })
 })

@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils'
 
 import { GitAgentConversation, type TabMeta } from './conversation'
 import { DropZone, carriesContext, useDragAnywhere } from './drop-zone'
+import { HistoryMenu, RecentList } from './history'
 import { STATUS_LOOK } from './status'
 
 /** One tab in the strip: whose conversation it is, how it is doing, and a way to close it. */
@@ -64,21 +65,22 @@ function TabButton({ tab, meta, active, onSelect, onClose }: { tab: AgentTab; me
   )
 }
 
-/** No tab yet: one button per provider, so starting a conversation is the obvious thing to do. */
-function Empty({ seed, providers, onStart }: { seed: string; providers: GitAgent['providers']; onStart: GitAgent['newTab'] }): React.JSX.Element {
+/** No tab open: one button per provider, so starting a conversation is the obvious thing to do, and the last few to pick up again. */
+function Empty({ seed, agent }: { seed: string; agent: GitAgent }): React.JSX.Element {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
       <AgentAvatar seed={seed} className="size-12" />
       <p className="text-sm font-semibold">Ask the Git Agent</p>
       <p className="max-w-64 text-xs text-muted-foreground">About the diff, a commit or the pull request. Highlight code or drag files here to give it context; comments you send for review land here too.</p>
       <div className="flex flex-wrap justify-center gap-2">
-        {providers.map((provider) => (
-          <Button key={provider} size="sm" variant="outline" className="h-7 text-xs" onClick={() => onStart(provider)}>
+        {agent.providers.map((provider) => (
+          <Button key={provider} size="sm" variant="outline" className="h-7 text-xs" onClick={() => agent.newTab(provider)}>
             <ProviderIcon provider={provider} className="size-3.5" />
             New {provider === 'claude' ? 'Claude' : 'Codex'} session
           </Button>
         ))}
       </div>
+      <RecentList history={agent.history} onOpen={agent.show} />
     </div>
   )
 }
@@ -128,12 +130,13 @@ export function GitAgentPanel({ worktree, agent, seed, onOpenRef }: { worktree: 
             <TabButton key={tab.id} tab={tab} meta={metas[tab.id]} active={tab.id === active} onSelect={() => agent.activate(tab.id)} onClose={() => agent.close(tab.id)} />
           ))}
         </div>
+        <HistoryMenu history={agent.history} tabs={agent.tabs} onOpen={agent.show} />
         <NewSessionButton providers={agent.providers} onStart={agent.newTab} />
         <Button variant="ghost" size="icon" className="size-6" aria-label="Close Git Agent" onClick={() => agent.setOpen(false)}>
           <X className="size-3.5" />
         </Button>
       </div>
-      {agent.tabs.length === 0 ? <Empty seed={seed} providers={agent.providers} onStart={agent.newTab} /> : null}
+      {agent.tabs.length === 0 ? <Empty seed={seed} agent={agent} /> : null}
       <div className="min-h-0 flex-1 empty:hidden">
         {agent.tabs.map((tab) => (
           <GitAgentConversation

@@ -390,3 +390,11 @@ export const SessionsResponse = z.object({
   pinned: SessionRef.optional()
 })
 export type SessionsResponse = z.infer<typeof SessionsResponse>
+
+/**
+ * A conversation the Git Agent had about a worktree, kept so its history can open it again after
+ * its tab is closed. `title` and `updatedAt` come from the provider's own listing; a session it no
+ * longer lists keeps an empty title and the time it was first seen.
+ */
+export const GitAgentSession = SessionRef.extend({ title: z.string(), createdAt: Millis, updatedAt: Millis })
+export type GitAgentSession = z.infer<typeof GitAgentSession>

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { agentStatus, bindSession, closeTab, DIAGRAM_SPECS, diagramPrompt, mostPressing, NO_TABS, openTab, persisted, type AgentTabs } from '../src/lib/git-agent'
+import { agentStatus, bindSession, closeTab, DIAGRAM_SPECS, diagramPrompt, mostPressing, NO_TABS, openTab, persisted, reopen, type AgentTabs } from '../src/lib/git-agent'
 
 const three = (): AgentTabs => ['a', 'b', 'c'].reduce((state, id) => openTab(state, { id, provider: 'claude' }), NO_TABS)
 
@@ -17,6 +17,21 @@ describe('tabs', () => {
     const state = bindSession(three(), 'a', { provider: 'claude', sessionId: 's1' })
     expect(state.tabs[0]?.session).toEqual({ provider: 'claude', sessionId: 's1' })
     expect(persisted(state)).toEqual({ tabs: [state.tabs[0]], active: 'a' })
+  })
+})
+
+describe('reopen', () => {
+  const s1 = { provider: 'claude', sessionId: 's1' } as const
+
+  it('brings back the tab already showing a past conversation', () => {
+    const state = bindSession(three(), 'a', s1)
+    expect(reopen(state, s1, 'new')).toEqual({ ...state, active: 'a' })
+  })
+
+  it('opens a closed conversation in a new tab bound to it', () => {
+    const state = reopen(three(), { provider: 'codex', sessionId: 's2' }, 'd')
+    expect(state.tabs.at(-1)).toEqual({ id: 'd', provider: 'codex', session: { provider: 'codex', sessionId: 's2' } })
+    expect(state.active).toBe('d')
   })
 })
 

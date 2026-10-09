@@ -42,7 +42,10 @@ import type {
   CommitInput,
   DraftInput,
   GroupInput,
-  GroupingBrief,
+  ChangeGrouping,
+  GitAgentSession,
+  GroupingPatch,
+  GroupingStarted,
   TextDraft,
   MergeInput,
   MergeResult,
@@ -212,7 +215,11 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     commitChanges: (worktreeId: string, input: CommitInput) =>
       post<{ commit: Commit }>(routes.commitChanges(worktreeId), input).then((r) => r.commit),
     draft: (worktreeId: string, input: DraftInput) => post<TextDraft>(routes.draft(worktreeId), input),
-    groupBrief: (worktreeId: string, input: GroupInput) => post<GroupingBrief>(routes.groupBrief(worktreeId), input),
+    groupings: (worktreeId: string) => get<{ groupings: ChangeGrouping[] }>(routes.groupings(worktreeId)).then((r) => r.groupings),
+    startGrouping: (worktreeId: string, input: GroupInput) => post<GroupingStarted>(routes.groupings(worktreeId), input),
+    updateGrouping: (worktreeId: string, groupingId: string, patch: GroupingPatch) =>
+      request<{ grouping: ChangeGrouping }>('PATCH', routes.grouping(worktreeId, groupingId), patch).then((r) => r.grouping),
+    deleteGrouping: (worktreeId: string, groupingId: string) => del(routes.grouping(worktreeId, groupingId)),
     mergeWorktree: (worktreeId: string, input: MergeInput) => post<MergeResult>(routes.merge(worktreeId), input),
     pullRequest: (worktreeId: string, fresh = false) => get<PullRequestResponse>(routes.pullRequest(worktreeId), fresh ? { fresh: '1' } : {}),
     projectPullRequests: (projectId: string) => get<ProjectPullRequests>(routes.projectPullRequests(projectId)),
@@ -235,6 +242,8 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
 
     providers: () => get<{ providers: AgentProvider[] }>(routes.providers()).then((r) => r.providers),
     agentSessions: (worktreeId: string, limit = 25) => get<SessionsResponse>(routes.agentSessions(worktreeId), { limit }),
+    gitAgentSessions: (worktreeId: string) => get<{ sessions: GitAgentSession[] }>(routes.gitAgentSessions(worktreeId)).then((r) => r.sessions),
+    rememberGitAgentSession: (worktreeId: string, ref: SessionRef) => post<void>(routes.gitAgentSessions(worktreeId), ref),
     pinSession: (worktreeId: string, ref: SessionRef) => request<void>('PUT', routes.agentPin(worktreeId), ref),
     transcript: (ref: SessionRef, cwd?: string) => get<TranscriptResponse>(routes.transcript(ref.provider, ref.sessionId), { cwd }),
     /** Snapshot-backed edits recorded by hooks for a session. */

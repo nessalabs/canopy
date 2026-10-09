@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Check, ChevronDown, ChevronLeft, ChevronRight, MessageSquare } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, MessageSquare, Trash2 } from 'lucide-react'
 
-import type { AgentProvider, Against, ChangedFile, DiffSpec, ReviewComment } from '@canopy/shared'
+import type { AgentProvider, ChangedFile, ChangeGroups, DiffSpec, ReviewComment } from '@canopy/shared'
 
 import { FileRefLinks, LinkedMarkdown, type OpenFileRef } from '@/components/agent/answer-links'
 import { ErrorNote } from '@/components/error-note'
@@ -9,12 +9,13 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ChangeMap, type ChangeMapNode } from '@/components/ui/change-map'
 import { Checkbox } from '@/components/ui/checkbox'
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import type { DiffMode } from '@/components/worktree-diff'
-import { useFilePatches } from '@/lib/api-hooks'
-import { featureCards, isStale, reviewedKey, reviewSections, sectionFiles, type FeatureCard, type ReviewSection } from '@/lib/change-groups'
+import { useDiffFiles, useFilePatches } from '@/lib/api-hooks'
+import { featureCards, groupingTitle, isStale, reviewedKey, reviewSections, sectionFiles, type FeatureCard, type ReviewSection } from '@/lib/change-groups'
+import { plural, relativeTime } from '@/lib/format'
 import { slicePatch } from '@/lib/patch'
 import type { useChangeGroups } from '@/lib/use-change-groups'
 import { useHotkeys } from '@/lib/use-hotkeys'
@@ -27,15 +28,47 @@ type View = 'overview' | 'review'
 
 const PROVIDER_NAME = { claude: 'Claude', codex: 'Codex' } as const
 
+/** Which of the worktree's groupings is on screen, and the way to drop the one that is. */
+function GroupingPicker({ groups }: { groups: Groups }): React.JSX.Element | null {
+  const { grouping, groupings } = groups
+  if (!grouping) return null
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-8 max-w-56 min-w-0 gap-1.5 px-2 text-xs" title="Groupings of this change">
+          <span className="truncate">{groupingTitle(grouping)}</span>
+          <span className="shrink-0 text-muted-foreground">{relativeTime(grouping.createdAt)}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-96 w-80 overflow-y-auto">
+        <DropdownMenuLabel className="text-xs">Groupings of this change</DropdownMenuLabel>
+        {groupings.map((item) => (
+          <DropdownMenuItem key={item.id} onSelect={() => groups.pick(item.id)} className={cn('gap-2 text-xs', item.id === grouping.id && 'bg-accent')}>
+            <span className="min-w-0 flex-1 truncate">{groupingTitle(item)}</span>
+            <span className="shrink-0 text-muted-foreground">{item.result ? plural(item.result.groups.length, 'group') : 'no answer yet'}</span>
+            <span className="shrink-0 text-muted-foreground tabular-nums">{relativeTime(item.createdAt)}</span>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void groups.remove(grouping.id)} className="gap-2 text-xs text-muted-foreground">
+          <Trash2 className="size-3.5" />
+          Delete this grouping
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 /**
- * The bar over everything: how to group, which agent groups it, the button that starts the
+ * The bar over everything: which grouping is shown, how to group, which agent groups it, the button that starts the
  * grouping conversation and the way to it, and how far the review has got.
  */
 function GroupBar({ groups, done, total, stale }: { groups: Groups; done: number; total: number; stale: boolean }): React.JSX.Element {
   const [wording, setWording] = useState(groups.instructions)
   const [provider, setProvider] = useState<AgentProvider | undefined>(undefined)
   const chosen = provider ?? groups.providers[0]
-  const has = groups.result !== undefined
+  const has = groups.grouping !== undefined
   return (
     <form
       className="flex flex-wrap items-center gap-2 border-b border-border px-4 py-2.5"
@@ -44,6 +77,7 @@ function GroupBar({ groups, done, total, stale }: { groups: Groups; done: number
         if (chosen) void groups.group(wording, chosen)
       }}
     >
+      <GroupingPicker groups={groups} />
       <Input
         value={wording}
         onChange={(event) => setWording(event.target.value)}
@@ -61,7 +95,7 @@ function GroupBar({ groups, done, total, stale }: { groups: Groups; done: number
         </SegmentedControl>
       ) : null}
       <Button type="submit" size="sm" variant={has ? 'outline' : 'default'} disabled={groups.running || !chosen}>
-        {groups.running ? 'Grouping…' : has ? 'Regroup' : 'Group changes'}
+        {groups.running ? 'Grouping…' : has ? 'New grouping' : 'Group changes'}
       </Button>
       {groups.openChat ? (
         <Button type="button" size="sm" variant="ghost" className="gap-1.5" onClick={groups.openChat} title="The grouping conversation, in the Git Agent: ask it to merge, split or rename groups">
@@ -74,7 +108,9 @@ function GroupBar({ groups, done, total, stale }: { groups: Groups; done: number
           {done} of {total} reviewed
         </span>
       ) : null}
-      {stale && !groups.running ? <p className="basis-full text-xs text-muted-foreground">The diff has changed since these groups were made. Regroup to include the new work.</p> : null}
+      {stale && !groups.running ? (
+        <p className="basis-full text-xs text-muted-foreground">The working tree has changed since this grouping was made. It shows the change as it was then; make a new grouping to include the new work.</p>
+      ) : null}
     </form>
   )
 }
@@ -308,36 +344,30 @@ function SectionView({
 }
 
 /**
- * Groups: the change split by Claude into the features it is made of. The overview shows how they
- * fit together; reviewing goes one group at a time, one file at a time, each file showing only
- * that group's share of it — or the whole file, when the context is wanted.
+ * One grouping's sections, read against the snapshot it was made from rather than the working
+ * tree, so they still show once the change is committed: the overview of how its features fit
+ * together, or one group at a time.
  */
-export function GroupsView({
+function GroupingReview({
   worktreeId,
-  against,
-  files,
+  spec,
+  result,
   groups,
   comments,
-  mode,
-  onOpenRef
+  mode
 }: {
   worktreeId: string
-  against: Against
-  /** The diff as Changes lists it, to tell whether the groups are older than it. */
-  files: ChangedFile[]
+  spec: DiffSpec
+  result: ChangeGroups
   groups: Groups
   comments: ReviewComment[]
   mode: DiffMode
-  onOpenRef: OpenFileRef
 }): React.JSX.Element {
-  const spec: DiffSpec = useMemo(() => ({ kind: 'worktree', against }), [against])
-  const result = groups.result
-  const sections = useMemo(() => (result ? reviewSections(result.groups) : []), [result])
-  const uncommitted = useMemo(() => comments.filter((c) => !c.commitSha), [comments])
+  const snapshot = useDiffFiles(worktreeId, spec).data
+  const files = useMemo(() => (snapshot && 'files' in snapshot ? snapshot.files : []), [snapshot])
+  const sections = useMemo(() => reviewSections(result.groups), [result])
   const isReviewed = (section: ReviewSection): boolean => groups.reviewed.has(reviewedKey(section.refs))
-  const cards = useMemo(() => (result ? featureCards(result.groups, sections, files, groups.reviewed) : []), [result, sections, files, groups.reviewed])
-  const done = sections.filter(isReviewed).length
-  const stale = result !== undefined && files.length > 0 && isStale(result, files)
+  const cards = useMemo(() => featureCards(result.groups, sections, files, groups.reviewed), [result, sections, files, groups.reviewed])
 
   const [view, setView] = useState<View>('overview')
   const [current, setCurrent] = useState(0)
@@ -352,15 +382,80 @@ export function GroupsView({
   useHotkeys(view === 'review' ? { '[': () => go(at - 1), ']': () => go(at + 1) } : {})
 
   return (
+    <>
+      <Navigator view={view} onView={setView} sections={sections} current={at} onGo={go} isReviewed={isReviewed} />
+      {view === 'overview' ? (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <Overview
+            cards={cards}
+            links={result.links}
+            current={section ? cards.find((card) => section.number === card.number || section.number.startsWith(`${card.number}.`))?.id : undefined}
+            onOpen={(card) => {
+              go(card.first)
+              setView('review')
+            }}
+          />
+        </div>
+      ) : section ? (
+        <SectionView
+          key={section.id}
+          worktreeId={worktreeId}
+          spec={spec}
+          section={section}
+          total={result.groups.length}
+          files={files}
+          reviewed={isReviewed(section)}
+          onReviewed={(on) => groups.setReviewed(reviewedKey(section.refs), on)}
+          onPrev={at > 0 ? () => go(at - 1) : undefined}
+          onNext={at < sections.length - 1 ? () => go(at + 1) : undefined}
+          comments={comments}
+          mode={mode}
+        />
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * Groups: the change split by an agent into the features it is made of. A worktree keeps every
+ * grouping made of it; the overview shows how the picked one's features fit together, and
+ * reviewing goes one group at a time, one file at a time, each file showing only that group's
+ * share of it — or the whole file, when the context is wanted.
+ */
+export function GroupsView({
+  worktreeId,
+  files,
+  groups,
+  comments,
+  mode,
+  onOpenRef
+}: {
+  worktreeId: string
+  /** The working-tree diff as Changes lists it, to tell whether the picked grouping is older than it. */
+  files: ChangedFile[]
+  groups: Groups
+  comments: ReviewComment[]
+  mode: DiffMode
+  onOpenRef: OpenFileRef
+}): React.JSX.Element {
+  const { result, spec } = groups
+  const uncommitted = useMemo(() => comments.filter((c) => !c.commitSha), [comments])
+  const sections = useMemo(() => (result ? reviewSections(result.groups) : []), [result])
+  const done = sections.filter((section) => groups.reviewed.has(reviewedKey(section.refs))).length
+  const stale = result !== undefined && files.length > 0 && isStale(result, files)
+
+  return (
     <FileRefLinks onOpen={onOpenRef}>
       <div className="flex min-h-0 flex-1 flex-col">
-        <GroupBar key={`${worktreeId}:${against}`} groups={groups} done={done} total={sections.length} stale={stale} />
+        <GroupBar key={`${worktreeId}:${groups.grouping?.id ?? 'none'}`} groups={groups} done={done} total={sections.length} stale={stale} />
         {groups.error ? (
           <div className="px-4 pt-3">
             <ErrorNote error={groups.error} />
           </div>
         ) : null}
-        {sections.length === 0 ? (
+        {result && spec && sections.length > 0 ? (
+          <GroupingReview worktreeId={worktreeId} spec={spec} result={result} groups={groups} comments={uncommitted} mode={mode} />
+        ) : (
           <div className="mx-auto flex max-w-md flex-col gap-2 px-6 py-16 text-center text-sm text-muted-foreground">
             <p className="font-medium text-foreground">{groups.running ? 'The Git Agent is reading the change…' : 'Read this change one feature at a time'}</p>
             <p>
@@ -371,38 +466,6 @@ export function GroupsView({
                   : `An agent sorts the ${files.length} changed files into features, each with its frontend, backend and data parts together, and orders them so the foundations come first. It works in a Git Agent tab, where you can ask it to change the groups.`}
             </p>
           </div>
-        ) : (
-          <>
-            <Navigator view={view} onView={setView} sections={sections} current={at} onGo={go} isReviewed={isReviewed} />
-            {view === 'overview' ? (
-              <div className="min-h-0 flex-1 overflow-y-auto">
-                <Overview
-                  cards={cards}
-                  links={result?.links ?? []}
-                  current={section ? cards.find((card) => section.number === card.number || section.number.startsWith(`${card.number}.`))?.id : undefined}
-                  onOpen={(card) => {
-                    go(card.first)
-                    setView('review')
-                  }}
-                />
-              </div>
-            ) : section ? (
-              <SectionView
-                key={section.id}
-                worktreeId={worktreeId}
-                spec={spec}
-                section={section}
-                total={result?.groups.length ?? 0}
-                files={files}
-                reviewed={isReviewed(section)}
-                onReviewed={(on) => groups.setReviewed(reviewedKey(section.refs), on)}
-                onPrev={at > 0 ? () => go(at - 1) : undefined}
-                onNext={at < sections.length - 1 ? () => go(at + 1) : undefined}
-                comments={uncommitted}
-                mode={mode}
-              />
-            ) : null}
-          </>
         )}
       </div>
     </FileRefLinks>

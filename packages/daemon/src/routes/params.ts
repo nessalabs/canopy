@@ -8,6 +8,7 @@ export const TrashParams = z.object({ id: z.string(), entry: z.string() })
 export const CommitParams = z.object({ id: z.string(), sha: z.string() })
 export const TreesParams = z.object({ id: z.string(), before: z.string().regex(/^[0-9a-f]{40}$/), after: z.string().regex(/^[0-9a-f]{40}$/) })
 export const CommentParams = z.object({ id: z.string(), cid: z.string() })
+export const GroupingParams = z.object({ id: z.string(), gid: z.string() })
 export const SessionParams = z.object({ provider: z.string(), sid: z.string() })
 
 export const AgainstQuery = z.object({ against: Against.default('head') })
