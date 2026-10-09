@@ -39,7 +39,8 @@ export const ReviewComment = AddCommentInput.extend({
 /** A GitHub review thread handed to the agent alongside (or instead of) local comments. */
 export const GitHubNote = z.object({
   author: z.string(),
-  file: z.string(),
+  /** Missing for a comment on the PR's conversation rather than on a line of its diff. */
+  file: z.string().optional(),
   /** Missing for an outdated thread whose line is gone; the file still anchors it. */
   line: z.number().int().positive().optional(),
   side: CommentSide.optional(),

@@ -139,11 +139,12 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
   const post = <T>(path: string, body: unknown) => request<T>('POST', path, body)
   const del = <T = void>(path: string, query?: Query) => request<T>('DELETE', withQuery(path, query))
 
+  /** A turn's events: POST starts one with `body`; without a body it GETs (follows) one already running. */
   async function* stream(path: string, body: unknown, signal?: AbortSignal): AsyncGenerator<AgentStreamEvent> {
     const response = await fetchImpl(`${base}${path}`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { authorization: `Bearer ${token}`, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+      body: body === undefined ? undefined : JSON.stringify(body),
       signal
     })
     if (!response.ok) throw await toApiError(response)
@@ -242,6 +243,8 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
       stream(routes.agentSessions(worktreeId), input, signal),
     streamReview: (worktreeId: string, input: ReviewRequest, signal?: AbortSignal) =>
       stream(routes.review(worktreeId), input, signal),
+    /** Rejoins the turn running in `ref`: everything it produced so far, then live. 404 when none is. */
+    followTurn: (ref: SessionRef, signal?: AbortSignal) => stream(routes.liveTurn(ref.provider, ref.sessionId), undefined, signal),
     /** Answers a tool-permission ask (`permission_requested`) of the turn running in `ref`. */
     answerPermission: (ref: SessionRef, input: PermissionDecisionInput) => post<void>(routes.permissions(ref.provider, ref.sessionId), input),
     /** What a session of `provider` in this worktree can do; `sessionId` reads as of that session where supported. */

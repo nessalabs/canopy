@@ -46,6 +46,9 @@ describe('review prompt with GitHub threads', () => {
     expect(prompt).toContain('  - infra/app/ecs.tf (line no longer in the diff) [resolved on GitHub] — https://github.com/acme/app/pull/378#discussion_r1\n    sanzog03: check what needs to be secret.\n    rohit: agreed')
     expect(prompt).toContain('  - api/auth.py:12 — https://github.com/acme/app/pull/378#discussion_r2\n    pal: this can be None')
     expect(() => formatReviewPrompt({ comments: [], github: [] })).toThrow()
+
+    const general = formatReviewPrompt({ comments: [], github: [{ author: 'pal', body: 'pal: please add tests', url: 'https://github.com/acme/app/pull/378', resolved: false }] })
+    expect(general).toContain('Pull request conversation\n  - general comment — https://github.com/acme/app/pull/378\n    pal: please add tests')
   })
 })
 
@@ -85,7 +88,8 @@ describe('comments and review', () => {
     expect(events.map((e) => e.type)).toEqual(['session', 'event', 'done'])
     expect(server.agent.sent[0]?.text).toContain('a.txt:1')
     expect(server.agent.sent[0]?.options?.cwd).toBe(repo.path)
-    expect(server.agent.abortedEarly).toBe(false)
+    // The turn belongs to the daemon, not to the request: nothing about the HTTP call can stop it.
+    expect(server.agent.sent[0]?.options?.signal).toBeUndefined()
 
     const [comment] = (await server.call('GET', routes.comments(worktreeId))).body.comments
     expect(comment).toMatchObject({ sent: true, sentSessionId: 's1' })

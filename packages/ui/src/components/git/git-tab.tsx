@@ -19,6 +19,7 @@ import { MergeDialog } from './merge-dialog'
 import { PullRequestView } from './pull-request-view'
 import { GitHubThreadsPanel, threadAsNote, threadsAsComments } from './pull-request/threads'
 import { ReviewTargetDialog } from './review-target-dialog'
+import { SendToAgentProvider } from './send-to-agent'
 
 type Pane = GitPane
 
@@ -27,6 +28,15 @@ interface Jump {
   pane: Pane
   commitSha?: string
   focus: ExplorerFocus
+}
+
+/**
+ * What the session picker is about to send: from the toolbar, every unsent local comment plus the
+ * ticked GitHub threads; from one comment's own button, that comment and nothing else.
+ */
+interface SendRequest {
+  github: GitHubNote[]
+  local: boolean
 }
 
 const jumpFor = (comment: ReviewComment): Jump => ({
@@ -51,7 +61,7 @@ export function GitTab({
   agent: WorktreeAgent
   pane: Pane
   onPaneChange: (pane: Pane) => void
-  onSendForReview: (target: ReviewTarget, note: string | undefined, github?: GitHubNote[]) => void
+  onSendForReview: (target: ReviewTarget, note: string | undefined, github: GitHubNote[], local: boolean) => void
 }): React.JSX.Element {
   const comments = useComments(worktree.id).data ?? []
   const providers = useProviders().data ?? []
@@ -61,7 +71,7 @@ export function GitTab({
   const [link] = useState(() => parseGitLink(linkQuery()))
   const [against, setAgainst] = useState<Against>(link.against ?? 'head')
   const [jump, setJump] = useState<Jump>()
-  const [picking, setPicking] = useState(false)
+  const [request, setRequest] = useState<SendRequest>()
   const [merging, setMerging] = useState(false)
   useHotkeys(Object.fromEntries(GIT_PANES.map((id, index) => [`shift+${index + 1}`, () => onPaneChange(id)])))
   const unsent = comments.filter((c) => !c.sent)
@@ -93,11 +103,13 @@ export function GitTab({
       else next.delete(id)
       return next
     })
+  const sendPicked = (): void => setRequest({ github: threads.filter((thread) => pickedThreads.has(thread.id)).map(threadAsNote), local: true })
+  const sendOne = (note: GitHubNote): void => setRequest({ github: [note], local: false })
   const shared = { comments, mode }
   const focusFor = (target: Pane): ExplorerFocus | undefined => (jump?.pane === target ? jump.focus : undefined)
 
   return (
-    <>
+    <SendToAgentProvider value={sendOne}>
       <Tabs value={pane} onValueChange={(value) => onPaneChange(value as Pane)} className="flex min-h-0 flex-1 flex-col">
         <GitViewTabs dirty={worktree.status?.dirtyTotal ?? 0} comments={comments.length} onPrefetchPr={prefetchPr} />
         {pane === 'comments' ? null : <DiffTools mode={mode} onModeChange={setMode} against={pane === 'changes' ? against : undefined} onAgainstChange={setAgainst} baseBranch={worktree.baseBranch} />}
@@ -111,7 +123,7 @@ export function GitTab({
           onAgainstChange={setAgainst}
           pendingReview={unsent.length + pickedThreads.size}
           sending={agent.turn.busy}
-          onSendForReview={() => setPicking(true)}
+          onSendForReview={sendPicked}
           onMerge={() => setMerging(true)}
           prUrl={prQuery.data?.pr?.url}
         />
@@ -127,25 +139,25 @@ export function GitTab({
         <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-5">
           <CommentsPanel worktreeId={worktree.id} comments={comments} onJump={onJump} />
           {threadsQuery.data ? (
-            <GitHubThreadsPanel number={threadsQuery.data.number} threads={threads} host={host} picked={pickedThreads} onPick={pickThread} onJump={onJumpThread} onSend={() => setPicking(true)} sending={agent.turn.busy} />
+            <GitHubThreadsPanel number={threadsQuery.data.number} threads={threads} host={host} picked={pickedThreads} onPick={pickThread} onJump={onJumpThread} onSend={sendPicked} sending={agent.turn.busy} />
           ) : null}
         </TabsContent>
       </Tabs>
       <MergeDialog worktree={worktree} open={merging} onOpenChange={setMerging} />
       <ReviewTargetDialog
-        open={picking}
-        onOpenChange={setPicking}
+        open={request !== undefined}
+        onOpenChange={(open) => (open ? undefined : setRequest(undefined))}
         providers={providers}
         sessions={agent.sessions}
         initialTarget={agent.selected ? { provider: agent.selected.provider, sessionId: agent.selected.sessionId } : undefined}
-        count={unsent.length + pickedThreads.size}
+        count={(request?.local ? unsent.length : 0) + (request?.github.length ?? 0)}
         onSend={(target, note) => {
-          setPicking(false)
-          const notes = threads.filter((thread) => pickedThreads.has(thread.id)).map(threadAsNote)
-          setPickedThreads(new Set())
-          onSendForReview(target, note, notes)
+          if (!request) return
+          setRequest(undefined)
+          if (request.local) setPickedThreads(new Set())
+          onSendForReview(target, note, request.github, request.local)
         }}
       />
-    </>
+    </SendToAgentProvider>
   )
 }

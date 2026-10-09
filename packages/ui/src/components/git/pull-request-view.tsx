@@ -344,7 +344,8 @@ function CreatePullRequest({ worktree, data }: { worktree: Worktree; data: PullR
               branches={data.bases}
               value={base}
               suggested={data.suggestedBase}
-              disabled={create.isPending}
+              // A running draft describes the base it was asked about; changing it now would pair that text with another branch.
+              disabled={busy}
               onChange={(next) => {
                 setBasePicked(true)
                 setBase(next)

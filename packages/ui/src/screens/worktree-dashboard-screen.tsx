@@ -23,8 +23,8 @@ import { cn } from '@/lib/utils'
 
 const TABS = [
   { value: 'environment', label: 'Environment', icon: Boxes },
-  { value: 'git', label: 'Git', icon: FileDiff },
-  { value: 'agent', label: 'Agent', icon: Sparkles }
+  { value: 'agent', label: 'Agent', icon: Sparkles },
+  { value: 'git', label: 'Git', icon: FileDiff }
 ] as const satisfies readonly { value: DashboardTab; label: string; icon: React.ComponentType }[]
 
 /** Sections whose content is a padded page of panels, rather than a flush full-bleed view. */
@@ -67,12 +67,13 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
     void agent.turn.sendReview(pending.target, pending.request, pending.summary)
   }, [pending, ready])
 
-  const sendForReview = (target: ReviewTarget, note: string | undefined, github: GitHubNote[] = []): void => {
-    const unsent = comments.filter((comment) => !comment.sent)
+  /** `local` sends every unsent comment too; one GitHub comment sent on its own leaves them be. */
+  const sendForReview = (target: ReviewTarget, note: string | undefined, github: GitHubNote[], local: boolean): void => {
+    const unsent = local ? comments.filter((comment) => !comment.sent) : []
     if (target.sessionId) agent.select({ provider: target.provider, sessionId: target.sessionId })
     else agent.startSession(target.provider)
     setTab('agent')
-    const what = [unsent.length ? plural(unsent.length, 'comment') : '', github.length ? `${plural(github.length, 'GitHub thread')}` : ''].filter(Boolean).join(' and ')
+    const what = [unsent.length ? plural(unsent.length, 'comment') : '', github.length ? plural(github.length, 'GitHub comment') : ''].filter(Boolean).join(' and ')
     setPending({ target, request: { commentIds: unsent.map((c) => c.id), github: github.length ? github : undefined, note }, summary: `Review request: ${what} on ${worktree.branch ?? worktree.name}` })
   }
   const openChanges = (): void => {

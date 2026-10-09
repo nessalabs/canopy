@@ -1,17 +1,20 @@
-import { useMemo, useState } from 'react'
-import { Bot, CheckCircle2, CornerDownRight, ExternalLink } from 'lucide-react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { ArrowUpRight, Bot, CheckCircle2, ExternalLink, GitPullRequest, MessagesSquare } from 'lucide-react'
 
-import type { GitHubNote, GitHubThread, ReviewComment } from '@canopy/shared'
+import type { GitHubNote, GitHubThread, PullRequestEvent, ReviewComment } from '@canopy/shared'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
-import { FileDiffPath } from '@/components/ui/file-diff-list'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { absoluteTime, plural, relativeTime } from '@/lib/format'
+import { groupBy } from '@/lib/group'
 import { cn } from '@/lib/utils'
 
+import { HOVER_ACTIONS } from '../comment-card'
+import { EmptySection, FileGroup, PaneSection } from '../pane-section'
+import { SendToAgentButton } from '../send-to-agent'
 import { GitHubAvatar, Markdown, at, useExternalLink } from './parts'
 
 /**
@@ -55,12 +58,23 @@ export function threadAsNote(thread: GitHubThread): GitHubNote {
   }
 }
 
+/** One reply from a thread, for sending on its own; `comment.github` must be set. */
+export function replyAsNote(comment: ReviewComment): GitHubNote {
+  const author = comment.github?.author ?? 'ghost'
+  return { author, file: comment.file, line: comment.line, side: comment.side, body: `${author}: ${comment.text.trim()}`, url: comment.github?.url ?? '', resolved: comment.github?.resolved ?? false }
+}
+
+/** A comment or review on the PR's conversation: no file, so it links to the PR itself. */
+export function eventAsNote(event: PullRequestEvent, prUrl: string): GitHubNote {
+  return { author: event.author, body: `${event.author}: ${event.body.trim()}`, url: prUrl, resolved: false }
+}
+
 type Filter = 'open' | 'all'
 
 /**
  * The PR's review threads from GitHub, under the local comments in the Comments pane: read
- * them here, jump to the line, or tick some and hand them to an agent with the same picker
- * local comments use.
+ * them here, jump to the line, send one to an agent on its own, or tick several and send them
+ * with the same picker local comments use.
  */
 export function GitHubThreadsPanel({
   number,
@@ -81,106 +95,135 @@ export function GitHubThreadsPanel({
   onSend: () => void
   sending: boolean
 }): React.JSX.Element {
-  const open = useExternalLink()
   const [filter, setFilter] = useState<Filter>('open')
   const unresolved = threads.filter((thread) => !thread.resolved)
   const shown = filter === 'open' ? unresolved : threads
-  const groups = useMemo(() => {
-    const byFile = new Map<string, GitHubThread[]>()
-    for (const thread of shown) byFile.set(thread.file, [...(byFile.get(thread.file) ?? []), thread])
-    return [...byFile].sort((a, b) => a[0].localeCompare(b[0]))
-  }, [shown])
+  const groups = useMemo(() => [...groupBy(shown, (thread) => thread.file)].sort((a, b) => a[0].localeCompare(b[0])), [shown])
   const pickedShown = shown.filter((thread) => picked.has(thread.id)).length
 
+  const actions = (
+    <>
+      <SegmentedControl value={filter} onValueChange={(value) => setFilter(value as Filter)} aria-label="Which threads" className="h-7 text-xs">
+        <SegmentedControlOption value="open">Open · {unresolved.length}</SegmentedControlOption>
+        <SegmentedControlOption value="all">All · {threads.length}</SegmentedControlOption>
+      </SegmentedControl>
+      {shown.length ? (
+        <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => shown.forEach((thread) => onPick(thread.id, pickedShown < shown.length))}>
+          {pickedShown < shown.length ? 'Select all' : 'Clear'}
+        </Button>
+      ) : null}
+      {threads.length ? (
+        <Button size="sm" className="h-7 text-xs" disabled={picked.size === 0 || sending} onClick={onSend}>
+          <Bot />
+          {picked.size ? `Send ${plural(picked.size, 'thread')}` : 'Send selected'}
+        </Button>
+      ) : null}
+    </>
+  )
+
   return (
-    <section className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-center gap-3">
-        <h3 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          From GitHub · PR #{number} · {plural(threads.length, 'thread')}
-          {unresolved.length ? `, ${unresolved.length} open` : ''}
-        </h3>
-        <SegmentedControl value={filter} onValueChange={(value) => setFilter(value as Filter)} aria-label="Which threads" className="h-7">
-          <SegmentedControlOption value="open">Open</SegmentedControlOption>
-          <SegmentedControlOption value="all">All</SegmentedControlOption>
-        </SegmentedControl>
-        <div className="ml-auto flex items-center gap-2">
-          {shown.length ? (
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => shown.forEach((thread) => onPick(thread.id, pickedShown < shown.length))}>
-              {pickedShown < shown.length ? 'Select all' : 'Select none'}
-            </Button>
-          ) : null}
-          <Button size="sm" className="h-7" disabled={picked.size === 0 || sending} onClick={onSend}>
-            <Bot />
-            Send {picked.size ? plural(picked.size, 'thread') : 'to agent'}
-          </Button>
-        </div>
-      </div>
+    <PaneSection icon={GitPullRequest} title={`From GitHub · #${number}`} count={threads.length} summary={threads.length ? `${unresolved.length} open` : undefined} actions={actions}>
       {threads.length === 0 ? (
-        <p className="rounded-lg border border-border px-4 py-6 text-center text-sm text-muted-foreground">No review comments on GitHub yet.</p>
+        <EmptySection icon={MessagesSquare} title="No review comments on GitHub" hint="When someone reviews the pull request, their line comments show up here, ready to hand to an agent." />
       ) : shown.length === 0 ? (
-        <p className="rounded-lg border border-border px-4 py-6 text-center text-sm text-muted-foreground">Every thread is resolved.</p>
+        <EmptySection icon={CheckCircle2} title="Every thread is resolved" hint="Switch to All to read the resolved ones." />
       ) : (
         groups.map(([file, list]) => (
-          <div key={file} className="overflow-hidden rounded-lg border border-border">
-            <h4 className="flex items-center gap-2 bg-muted/30 px-3 py-2 font-mono text-xs">
-              <FileDiffPath path={file} className="min-w-0 flex-1" />
-              <span className="text-[10px] text-muted-foreground">{plural(list.length, 'thread')}</span>
-            </h4>
-            <ul className="flex flex-col divide-y divide-border/60">
-              {list.map((thread) => (
-                <li key={thread.id} className={cn('flex gap-3 px-3 py-2', thread.resolved && 'opacity-70')}>
-                  <Checkbox className="mt-1" checked={picked.has(thread.id)} onChange={(event) => onPick(thread.id, event.target.checked)} aria-label="Include in the review request" />
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                      <button type="button" className="font-mono hover:text-foreground disabled:cursor-default" disabled={thread.line === null} onClick={() => onJump(thread)}>
-                        line {thread.line ?? thread.originalLine ?? '?'}
-                        {thread.side === 'old' ? ' (removed)' : ''}
-                      </button>
-                      {thread.resolved ? (
-                        <Badge variant="secondary" className="px-1 text-[9px]">
-                          <CheckCircle2 /> resolved
-                        </Badge>
-                      ) : null}
-                      {thread.outdated ? (
-                        <Badge variant="outline" className="px-1 text-[9px]">
-                          outdated
-                        </Badge>
-                      ) : null}
-                      {thread.line !== null ? (
-                        <Button variant="ghost" size="icon" className="size-5 text-muted-foreground" aria-label="Jump to the line" onClick={() => onJump(thread)}>
-                          <CornerDownRight className="size-3" />
-                        </Button>
-                      ) : null}
-                      {thread.comments[0]?.url ? (
-                        <a href={thread.comments[0].url} target="_blank" rel="noreferrer" onClick={open(thread.comments[0].url)} className="ml-auto flex items-center gap-1 hover:text-foreground">
-                          GitHub <ExternalLink className="size-3" />
-                        </a>
-                      ) : null}
-                    </div>
-                    {thread.comments.map((comment) => (
-                      <article key={comment.id} className="flex gap-2">
-                        <GitHubAvatar login={comment.author} host={host} className="mt-0.5 size-5 shrink-0 rounded-full" />
-                        <div className="min-w-0 flex-1">
-                          <p className="flex items-center gap-1.5 text-xs">
-                            <span className="font-medium">{comment.author}</span>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <span className="font-mono text-[10px] text-muted-foreground">{relativeTime(at(comment.at))}</span>
-                              </TooltipTrigger>
-                              <TooltipContent>{absoluteTime(at(comment.at))}</TooltipContent>
-                            </Tooltip>
-                          </p>
-                          <Markdown>{comment.body}</Markdown>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <FileGroup key={file} file={file} count={list.length} noun="thread">
+            {list.map((thread) => (
+              <ThreadRow key={thread.id} thread={thread} host={host} picked={picked.has(thread.id)} onPick={(on) => onPick(thread.id, on)} onJump={() => onJump(thread)} />
+            ))}
+          </FileGroup>
         ))
       )}
-    </section>
+    </PaneSection>
+  )
+}
+
+/** One thread: a tick to include it in a batch, where it sits, its replies, and its own send. */
+function ThreadRow({ thread, host, picked, onPick, onJump }: { thread: GitHubThread; host: string | null; picked: boolean; onPick: (on: boolean) => void; onJump: () => void }): React.JSX.Element {
+  const open = useExternalLink()
+  const url = thread.comments[0]?.url
+  const line = thread.line ?? thread.originalLine
+  return (
+    <li className={cn('group/card flex gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/40', picked && 'bg-primary/5', thread.resolved && 'opacity-75')}>
+      <Checkbox className="mt-1.5" checked={picked} onChange={(event) => onPick(event.target.checked)} aria-label="Include in the batch sent to an agent" />
+      <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+        <div className="flex min-h-7 flex-wrap items-center gap-2 text-xs">
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-md border border-border/70 bg-background/60 px-1.5 py-0.5 font-mono text-[11px] text-foreground/80 transition-colors hover:border-primary/50 hover:text-foreground disabled:pointer-events-none disabled:text-muted-foreground"
+            disabled={thread.line === null}
+            title={thread.line === null ? 'This line is no longer in the diff' : 'Show in the diff'}
+            onClick={onJump}
+          >
+            Line {line ?? '?'}
+            {thread.side === 'old' ? ' (removed)' : ''}
+            {thread.line !== null ? <ArrowUpRight className="size-3 text-muted-foreground" /> : null}
+          </button>
+          {thread.resolved ? (
+            <Badge variant="secondary">
+              <CheckCircle2 /> Resolved
+            </Badge>
+          ) : null}
+          {thread.outdated ? <Badge variant="outline">Outdated</Badge> : null}
+          <div className={cn('ml-auto', HOVER_ACTIONS)}>
+            <SendToAgentButton note={() => threadAsNote(thread)} />
+            {url ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button variant="ghost" size="icon" className="size-7 text-muted-foreground" aria-label="Open on GitHub" asChild>
+                    <a href={url} target="_blank" rel="noreferrer" onClick={open(url)}>
+                      <ExternalLink className="size-3.5" />
+                    </a>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Open on GitHub</TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
+        </div>
+        {thread.comments.map((comment) => (
+          <article key={comment.id} className="flex gap-2.5">
+            <GitHubAvatar login={comment.author} host={host} className="mt-0.5 size-6 shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1">
+              <p className="flex items-center gap-2 text-xs">
+                <span className="text-sm font-medium">{comment.author}</span>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <time className="text-muted-foreground">{relativeTime(at(comment.at))}</time>
+                  </TooltipTrigger>
+                  <TooltipContent>{absoluteTime(at(comment.at))}</TooltipContent>
+                </Tooltip>
+              </p>
+              <ClampedBody>{comment.body}</ClampedBody>
+            </div>
+          </article>
+        ))}
+      </div>
+    </li>
+  )
+}
+
+/** Review bots write screens of text; a reply shows its first few lines until asked for the rest. */
+function ClampedBody({ children }: { children: string }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [expanded, setExpanded] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  useLayoutEffect(() => {
+    const node = ref.current
+    if (node) setOverflows(node.scrollHeight > node.clientHeight + 1)
+  }, [children])
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <div ref={ref} className={cn('relative w-full text-sm', !expanded && 'max-h-40 overflow-hidden', !expanded && overflows && 'mask-b-from-60%')}>
+        <Markdown>{children}</Markdown>
+      </div>
+      {overflows || expanded ? (
+        <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'Show less' : 'Show more'}
+        </Button>
+      ) : null}
+    </div>
   )
 }

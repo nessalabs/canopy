@@ -153,7 +153,7 @@ export class ReviewService {
    * Agent tab lands on the conversation that holds the review. An error before the agent
    * produced anything un-marks the comments.
    */
-  async *stream(turn: PreparedReview, signal: AbortSignal): AsyncGenerator<AgentStreamEvent> {
+  async *stream(turn: PreparedReview): AsyncGenerator<AgentStreamEvent> {
     let produced = false
     const rollback = (): void => {
       if (!produced) this.markSent(turn.ids, null)
@@ -165,7 +165,7 @@ export class ReviewService {
     }
     try {
       const adapter = this.deps.agents.adapterFor(turn.ref.provider)
-      for await (const event of adapter.send(turn.ref.sessionId, turn.prompt, { ...turn.options, cwd: turn.cwd, signal })) {
+      for await (const event of adapter.send(turn.ref.sessionId, turn.prompt, { ...turn.options, cwd: turn.cwd })) {
         produced ||= producedContent(event)
         if (event.type === 'session') adopt({ provider: event.provider, sessionId: event.sessionId })
         if (event.type === 'error') rollback()

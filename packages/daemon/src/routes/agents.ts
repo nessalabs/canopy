@@ -13,20 +13,25 @@ import { now } from '../lib/ids'
 import type { Services } from './context'
 import { CwdQuery, IdParams, LimitQuery, SessionParams } from './params'
 
-export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, review, editDiffs, presence, sessions }: Services): void {
+export function registerAgentRoutes(app: FastifyInstance, { agents, turns, worktrees, review, editDiffs, presence, sessions }: Services): void {
   app.get(routes.providers(), async () => ({ providers: await agents.availableProviders() }))
 
   app.get(routes.agentSessions(':id'), async (request) => {
     const worktree = await worktrees.get(IdParams.parse(request.params).id)
     const { limit } = LimitQuery.parse(request.query)
-    return { sessions: await sessions.list(worktree, limit), pinned: review.pinned(worktree.id) }
+    // A turn Canopy is running counts as busy whatever else is watching the session.
+    const listed = (await sessions.list(worktree, limit)).map((session) =>
+      turns.isRunning(session.provider, session.sessionId) ? { ...session, running: true, status: 'busy' as const } : session
+    )
+    return { sessions: listed, pinned: review.pinned(worktree.id) }
   })
 
   app.post(routes.agentSessions(':id'), async (request, reply) => {
     const worktree = await worktrees.get(IdParams.parse(request.params).id)
     const { provider, text, ...options } = NewSessionInput.parse(request.body)
     const adapter = agents.adapterFor(provider)
-    await streamSse(request, reply, (signal) => adapter.send(null, text, { ...options, cwd: worktree.path, signal }))
+    const turn = turns.start(provider, null, adapter.send(null, text, { ...options, cwd: worktree.path }))
+    await streamSse(request, reply, (signal) => turn.follow(signal))
   })
 
   app.put(routes.agentPin(':id'), async (request, reply) => {
@@ -65,7 +70,16 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, worktrees, r
     // asked to run in the directory that is gone, the provider would fail to spawn with no reason given.
     if (options.cwd !== undefined && !existsSync(options.cwd)) throw new ApiError(409, 'checkout_gone', `${options.cwd} no longer exists; continue this session from a checkout that does`)
     const adapter = agents.adapterFor(provider)
-    await streamSse(request, reply, (signal) => adapter.send(sid, text, { ...options, signal }))
+    const turn = turns.start(adapter.provider, sid, adapter.send(sid, text, options))
+    await streamSse(request, reply, (signal) => turn.follow(signal))
+  })
+
+  // Rejoins a turn after the page that started it went away: what it has produced so far, then live.
+  app.get(routes.liveTurn(':provider', ':sid'), async (request, reply) => {
+    const { provider, sid } = SessionParams.parse(request.params)
+    const turn = turns.find(AgentProvider.parse(provider), sid)
+    if (!turn) throw noLiveTurn(provider, sid)
+    await streamSse(request, reply, (signal) => turn.follow(signal))
   })
 
   // The answer to a `permission_requested` event arrives on its own request, not on the turn's

@@ -18,8 +18,8 @@ export const fakeEvent = (seq: number, payload: AgentEvent['payload'], sessionId
 export class FakeAgent implements AgentAdapter {
   readonly provider = 'claude' as const
   readonly sent: Array<{ sessionId: string | null; text: string; options?: SendOptions }> = []
-  /** Whether the HTTP layer had already aborted us one tick into the turn. */
-  abortedEarly: boolean | undefined
+  /** While set, a turn stops after its first event until this settles — a turn still running. */
+  hold: Promise<void> | null = null
   sessions: AgentSessionSummary[] = [{ provider: 'claude', sessionId: 's1', title: 'fixture session', updatedAt: 1 }]
   script: (text: string) => AgentStreamEvent[] = (text) => [
     { type: 'session', provider: 'claude', sessionId: 's1' },
@@ -111,7 +111,7 @@ export class FakeAgent implements AgentAdapter {
     )
     if (first) yield first
     await new Promise((resolve) => setTimeout(resolve, 20))
-    this.abortedEarly = options?.signal?.aborted
+    await this.hold
     yield* rest
   }
 }

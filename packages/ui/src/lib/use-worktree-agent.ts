@@ -73,7 +73,7 @@ export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef) {
   const model = modelOverride ?? detected.model
   const effort = effortOverride ?? detected.effort
   const options = useMemo<TurnOptions>(() => ({ autonomy, model, effort }), [autonomy, model, effort])
-  const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options)
+  const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options, selected?.running === true)
   busyRef.current = turn.busy
   // What this provider can do in this checkout: the `/` and `@` menus, the model list, the details sheet.
   const capabilities = useAgentCapabilities(worktree.id, selected?.provider ?? fresh, selected?.sessionId)

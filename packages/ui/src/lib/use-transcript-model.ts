@@ -1,7 +1,7 @@
 import { useMemo, useRef } from 'react'
 
 import type { TranscriptResponse, TurnExtras, TurnImage } from '@canopy/shared'
-import type { ContextUsage, DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
+import type { AgentEvent, ContextUsage, DeltaBuffers, Transcript as FoldedTranscript } from '@canopy/shared/agent-stream'
 import { TranscriptBuilder, applyDeltas, contextUsage } from '@canopy/shared/agent-stream'
 
 import type { AgentTurn } from './use-agent-turn'
@@ -18,11 +18,21 @@ export interface TranscriptModel {
   context: ContextUsage | null
 }
 
-/** The fold in progress: which replay it started from and how much of the live turn it has absorbed. */
+/** The fold in progress: which replay it started from, where the live turn begins, and how much of it is absorbed. */
 interface Fold {
   history: TranscriptResponse | undefined
+  liveFrom: number | undefined
   builder: TranscriptBuilder
   pushed: number
+}
+
+/**
+ * The replay up to where the live turn begins. The session file is written as the agent works, so
+ * a replay read mid-turn — a rejoined turn, or a refetch while one streams — already holds the start
+ * of the turn the live events are about to repeat. Both are numbered alike, so `seq` is the seam.
+ */
+export function replayBefore(events: AgentEvent[], liveFrom: number | undefined): AgentEvent[] {
+  return liveFrom === undefined ? events : events.filter((event) => event.seq < liveFrom)
 }
 
 /**
@@ -36,11 +46,12 @@ export function useTranscriptModel(history: TranscriptResponse | undefined, turn
   const fold = useRef<Fold | null>(null)
   const transcript = useMemo(() => {
     let current = fold.current
-    // A new replay, or a live log that shrank (the turn was reset), starts the fold over.
-    if (current === null || current.history !== history || current.pushed > turn.events.length) {
+    const liveFrom = turn.events[0]?.seq
+    // A new replay, a live turn starting or reset, or a live log that shrank starts the fold over.
+    if (current === null || current.history !== history || current.liveFrom !== liveFrom || current.pushed > turn.events.length) {
       const builder = new TranscriptBuilder()
-      builder.push(history?.events ?? [])
-      current = { history, builder, pushed: 0 }
+      builder.push(replayBefore(history?.events ?? [], liveFrom))
+      current = { history, liveFrom, builder, pushed: 0 }
       fold.current = current
     }
     if (current.pushed < turn.events.length) {

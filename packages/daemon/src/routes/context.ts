@@ -4,6 +4,7 @@ import type { EditDiffsService } from '../agents/edit-diffs/service'
 import type { CommitService } from '../commit/service'
 import type { PresenceService } from '../agents/presence'
 import type { AgentRegistry } from '../agents/registry'
+import type { TurnHub } from '../agents/turn-hub'
 import type { SessionLister } from '../agents/sessions'
 import type { DaemonConfig } from '../config'
 import type { EnvironmentService } from '../env/service'
@@ -34,6 +35,8 @@ export interface Services {
   trash: TrashService
   review: ReviewService
   agents: AgentRegistry
+  /** Agent turns in flight, which run to the end whether or not a client is following. */
+  turns: TurnHub
   editDiffs: EditDiffsService
   presence: PresenceService
   sessions: SessionLister

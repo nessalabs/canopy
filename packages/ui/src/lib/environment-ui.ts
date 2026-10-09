@@ -7,7 +7,7 @@ import type { Against, DbInstanceInfo, EnvSource, EnvVar, HostSample } from '@ca
 
 export type DashboardTab = 'environment' | 'git' | 'agent'
 
-export const DASHBOARD_TABS: readonly DashboardTab[] = ['environment', 'git', 'agent']
+export const DASHBOARD_TABS: readonly DashboardTab[] = ['environment', 'agent', 'git']
 
 /**
  * Old tab names still found in bookmarks and open windows. Resources moved to the status bar's
