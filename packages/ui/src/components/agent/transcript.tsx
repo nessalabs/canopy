@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, Copy, FileDiff, FileText, Globe, Pencil, Puzzle, Search, Terminal, Undo2, Users, Webhook, Wrench } from 'lucide-react'
 
 import type { AgentCapabilities, PermissionDecisionInput, TurnExtras, TurnImage } from '@canopy/shared'
-import { isHarnessText } from '@canopy/shared'
+import { isHarnessText, parseTaskMessage } from '@canopy/shared'
 import type { AgentEvent, DeltaBuffers, ToolKind, Transcript as FoldedTranscript, Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent, previewOf, toolKind, toolTitle, toolVerb } from '@canopy/shared/agent-stream'
 
@@ -10,7 +10,6 @@ import { AgentActivity, AgentActivityCard, AgentActivityContent, AgentActivityCu
 import { Button } from '@/components/ui/button'
 import { ConversationRail, ConversationRailItem, ConversationRailPreview, ConversationRailTrigger } from '@/components/ui/conversation-rail'
 import { Message, MessageAction, MessageActions, MessageBubble, MessageContent } from '@/components/ui/message'
-import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { MessageScroller, MessageScrollerContent, MessageScrollerViewport } from '@/components/ui/message-scroller'
 import {
   Questionnaire,
@@ -44,6 +43,7 @@ import { beatLabel, beatsOf, type ActivityBeat, type Beat, type BeatCall } from 
 import { rowsByTurn } from '@/lib/turn-rows'
 import { classifyLocalAnswer } from '@/lib/local-answers'
 import { parseUsageReport } from '@/lib/usage-report'
+import { hasDrawnBlock } from '@/lib/change-map'
 import { cn } from '@/lib/utils'
 
 import type { Activity } from './agent-avatar'
@@ -53,6 +53,7 @@ import { TurnStatus } from './turn-status'
 import { ContextCard, McpCard, ModelCard, PeersCard, SkillDoctorCard } from './local-cards'
 import { UsageCard } from './usage-card'
 import { ImageTiles, ImageViewer, TextWithImageRefs } from './image-strip'
+import { LinkedMarkdown } from './answer-links'
 import { SelectionActions } from './selection-actions'
 
 const TOOL_ICON: Record<ToolKind, React.ReactNode> = {
@@ -128,14 +129,22 @@ function UserTurn({ text, images, writes, turnKey, onReviewTurn, onRewindTurn }:
   onRewindTurn?: (key: string) => void
 }): React.JSX.Element {
   const [viewer, setViewer] = useState<number | null>(null)
+  // A task another pane started reads as what was asked; its brief is for the agent, folded away.
+  const task = parseTaskMessage(text)
   return (
     <Message from="user">
       <MessageContent>
         {images.length > 0 ? <ImageTiles images={images} onOpen={setViewer} /> : null}
         {text ? (
           <MessageBubble variant="primary">
-            <TextWithImageRefs text={text} images={images} onOpen={setViewer} />
+            <TextWithImageRefs text={task?.title ?? text} images={images} onOpen={setViewer} />
           </MessageBubble>
+        ) : null}
+        {task ? (
+          <details className="self-end text-xs text-muted-foreground">
+            <summary className="cursor-pointer text-right select-none hover:text-foreground">The brief it was sent with</summary>
+            <pre className="mt-1 max-h-72 max-w-full overflow-auto rounded-lg border border-border bg-muted/40 p-3 font-mono text-[11px] whitespace-pre-wrap">{task.brief}</pre>
+          </details>
         ) : null}
         {text || writes?.count ? (
           <MessageActions className="self-end">
@@ -194,6 +203,7 @@ function localCard(text: string, prompt: string | undefined, capabilities: Agent
   }
 }
 
+
 /**
  * An agent bubble; `streaming` marks text still arriving. A finished answer to a local slash
  * command draws as its card, and a one-line one (`/effort`, `/rename`) as a note under the prompt.
@@ -210,12 +220,14 @@ function AssistantTurn({ text, avatarSeed, streaming, prompt, capabilities, onPi
   const note = streaming ? null : classifyLocalAnswer(text, prompt)
   if (note?.kind === 'note') return <p className="m-0 ml-10 nessa-text-2 text-muted-foreground">{note.text}</p>
   const card = streaming ? null : localCard(text, prompt, capabilities, onPickModel)
+  // A card or a change map needs the room a diagram needs, not a chat bubble's three quarters.
+  const wide = card !== null || hasDrawnBlock(text)
   return (
     <Message from="assistant">
       <RandomAvatar seed={avatarSeed} name="Agent" className="size-8 shrink-0 self-end rounded-full" />
-      <MessageContent className={card ? 'w-full max-w-full' : undefined}>
-        <MessageBubble variant="muted" className={cn('min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto', card && 'w-full')}>
-          {card ?? <MessageMarkdown className="text-sm" streaming={streaming}>{text}</MessageMarkdown>}
+      <MessageContent className={wide ? 'w-full max-w-full' : undefined}>
+        <MessageBubble variant="muted" className={cn('min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto', wide && 'w-full')}>
+          {card ?? <LinkedMarkdown className="text-sm" streaming={streaming}>{text}</LinkedMarkdown>}
         </MessageBubble>
         {/* Copying half-arrived text would hand over a truncated answer, so the action waits for the end. */}
         {streaming ? null : (
@@ -390,15 +402,15 @@ function RunSheetBody({ call, transcript }: { call: BeatCall; transcript: Folded
       ) : null}
       {said.map((event) =>
         isEvent(event, AgentEventType.AssistantText) && event.payload.text.trim() ? (
-          <MessageMarkdown key={event.id} className="text-xs">
+          <LinkedMarkdown key={event.id} className="text-xs">
             {event.payload.text}
-          </MessageMarkdown>
+          </LinkedMarkdown>
         ) : null
       )}
       {report?.trim() ? (
         <div className="w-full border-t border-border pt-3">
           <p className="mb-1 nessa-text-1 uppercase text-muted-foreground">Reported back</p>
-          <MessageMarkdown className="text-xs">{report}</MessageMarkdown>
+          <LinkedMarkdown className="text-xs">{report}</LinkedMarkdown>
         </div>
       ) : null}
     </>
@@ -581,6 +593,7 @@ export function TranscriptView({
   avatarSeed,
   capabilities,
   emptyMessage,
+  emptyState,
   writesByTurn,
   openInTerminal,
   onReviewTurn,
@@ -608,6 +621,8 @@ export function TranscriptView({
   /** What the provider advertises for this checkout; names a session that has not run yet. */
   capabilities?: AgentCapabilities
   emptyMessage: React.ReactNode
+  /** Takes the boxed note's place in an empty conversation: a surface's own welcome. */
+  emptyState?: React.ReactNode
   /** What each turn wrote, by turn key. */
   writesByTurn: ReadonlyMap<string, TurnWrites>
   openInTerminal?: boolean
@@ -691,7 +706,7 @@ export function TranscriptView({
                 sheetId={sheetId}
                 onOpen={() => setSheet({ kind: 'session' })}
               />
-              {empty ? <div className="rounded-xl border border-border py-10 text-center text-sm text-muted-foreground">{emptyMessage}</div> : null}
+              {empty ? (emptyState ?? <div className="rounded-xl border border-border py-10 text-center text-sm text-muted-foreground">{emptyMessage}</div>) : null}
               {turns.map((turn) => {
                 const prompt = turn.prompt && isEvent(turn.prompt, AgentEventType.UserMessage) && !turn.prompt.payload.synthetic && !isHarnessText(turn.prompt.payload.text) ? turn.prompt : null
                 return (

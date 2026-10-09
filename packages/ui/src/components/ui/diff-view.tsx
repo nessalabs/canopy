@@ -126,6 +126,11 @@ export interface DiffViewProps<TAnnotation = undefined>
    * always renders; DiffView deliberately never disables it.
    */
   renderHeaderMetadata?: (fileDiff: FileDiffMetadata) => React.ReactNode
+  /**
+   * Lines to show as selected — a range a link or a search pointed at.
+   * Controlled: pass `null` (or nothing) to clear it.
+   */
+  selectedLines?: SelectedLineRange | null
 }
 
 /**
@@ -212,6 +217,7 @@ function DiffView<TAnnotation = undefined>({
   onGutterUtilityClick,
   renderGutterUtility,
   renderHeaderMetadata,
+  selectedLines,
   className,
   style,
   ...props
@@ -312,6 +318,7 @@ function DiffView<TAnnotation = undefined>({
           renderAnnotation={renderAnnotation}
           renderGutterUtility={gutterUtility}
           renderHeaderMetadata={renderHeaderMetadata}
+          selectedLines={selectedLines}
         />
       ) : null}
     </div>

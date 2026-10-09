@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { DiffView, type DiffLineAnnotation, type SelectedLineRange } from '@/components/ui/diff-view'
 import { Textarea } from '@/components/ui/textarea'
 import { useAddComment, useDeleteComment } from '@/lib/api-hooks'
+import type { LineRange } from '@/lib/file-refs'
 import { lineAt } from '@/lib/patch'
 import { useTheme } from '@/lib/use-theme'
 
@@ -22,6 +23,41 @@ type AnnotationPayload =
   | { kind: 'composer'; target: CommentTarget }
 
 const SIDE_TO_PIERRE = { old: 'deletions', new: 'additions' } as const
+
+/** A new-side row of the rendered diff: the renderer draws into a shadow root, and deletions carry old numbers. */
+const rowFor = (container: HTMLElement, line: number): Element | null => {
+  for (const host of container.querySelectorAll('*')) {
+    const row = host.shadowRoot?.querySelector(`[data-line="${line}"]:not([data-line-type="change-deletion"])`)
+    if (row) return row
+  }
+  return null
+}
+
+/** The pane that scrolls the diff up and down. */
+function verticalScroller(element: HTMLElement): HTMLElement | null {
+  for (let current = element.parentElement; current; current = current.parentElement) {
+    if (/(auto|scroll)/.test(getComputedStyle(current).overflowY)) return current
+  }
+  return null
+}
+
+/**
+ * Brings a line into the middle of the pane once the diff has painted it — vertically only, as
+ * `scrollIntoView` would also slide wide code sideways. The renderer paints after highlighting,
+ * so it looks again each frame for a moment; the returned function stops it.
+ */
+function scrollToLine(container: HTMLElement, line: number): () => void {
+  let frame = 0
+  let tries = 60
+  const look = (): void => {
+    const row = rowFor(container, line)
+    const pane = verticalScroller(container)
+    if (row && pane) pane.scrollTop += row.getBoundingClientRect().top - pane.getBoundingClientRect().top - pane.clientHeight / 2
+    else if (--tries > 0) frame = requestAnimationFrame(look)
+  }
+  look()
+  return () => cancelAnimationFrame(frame)
+}
 
 function CommentThread({ worktreeId, comments }: { worktreeId: string; comments: ReviewComment[] }): React.JSX.Element {
   const remove = useDeleteComment(worktreeId)
@@ -81,7 +117,8 @@ export function WorktreeDiff({
   comments,
   mode,
   headerExtra,
-  focusCommentId
+  focusCommentId,
+  focusLines
 }: {
   worktreeId: string
   spec: DiffSpec
@@ -92,6 +129,8 @@ export function WorktreeDiff({
   headerExtra?: React.ReactNode
   /** Scrolls this comment into view once the diff has rendered (the Comments panel's "jump"). */
   focusCommentId?: string
+  /** Highlights these new-side lines and scrolls to them — a file reference the Git Agent cited. */
+  focusLines?: LineRange
 }): React.JSX.Element {
   const { theme } = useTheme()
   const add = useAddComment(worktreeId)
@@ -103,6 +142,11 @@ export function WorktreeDiff({
     if (!focusCommentId) return
     container.current?.querySelector(`[data-comment-id="${focusCommentId}"]`)?.scrollIntoView({ block: 'center' })
   }, [focusCommentId, patch])
+
+  useEffect(() => {
+    if (focusLines && container.current) return scrollToLine(container.current, focusLines.start)
+  }, [focusLines, patch])
+  const selectedLines = useMemo(() => (focusLines ? { start: focusLines.start, end: focusLines.end, side: 'additions' as const } : null), [focusLines])
 
   const submit = (target: CommentTarget, text: string): void => {
     add.mutate({
@@ -139,6 +183,7 @@ export function WorktreeDiff({
       lineAnnotations={lineAnnotations}
       onGutterUtilityClick={(range: SelectedLineRange) => setComposer({ line: range.start, side: range.side === 'deletions' ? 'old' : 'new' })}
       renderHeaderMetadata={() => headerExtra}
+      selectedLines={selectedLines}
       renderAnnotation={(annotation) => {
         const payload = annotation.metadata
         if (!payload) return null

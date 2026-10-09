@@ -4,6 +4,7 @@ import type { ChangedFile, DiffSpec, ReviewComment } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
 import { DiffStat, FileDiffPath } from '@/components/ui/file-diff-list'
+import type { LineRange } from '@/lib/file-refs'
 import { plural } from '@/lib/format'
 import { groupBy } from '@/lib/group'
 import { useFileTrail } from '@/lib/use-file-trail'
@@ -26,10 +27,11 @@ export function FilesSummary({ files }: { files: ChangedFile[] }): React.JSX.Ele
   )
 }
 
-/** Where the explorer should land: a file, and optionally a comment inside it to scroll to. */
+/** Where the explorer should land: a file, and optionally a comment or the lines inside it to scroll to. */
 export interface ExplorerFocus {
   path: string
   commentId?: string
+  lines?: LineRange
 }
 
 /**
@@ -74,7 +76,7 @@ export function DiffExplorer({
   const { go, reset } = trail
   useEffect(() => {
     if (focus === undefined) reset()
-    else go(focus.path)
+    else go(focus.path, focus.lines ? `L${focus.lines.start}` : undefined)
   }, [focus, go, reset])
   const stop = trail.current
   const selectedPath = stop?.path
@@ -92,6 +94,7 @@ export function DiffExplorer({
       comments={byFile.get(selected.path) ?? []}
       mode={mode}
       focusCommentId={focus?.path === selected.path ? focus.commentId : undefined}
+      focusLines={focus?.path === selected.path ? focus.lines : undefined}
       canPickHunks={commit !== undefined}
       anchor={stop?.hash}
       onOpenPath={trail.open}

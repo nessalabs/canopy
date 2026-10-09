@@ -2,11 +2,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { createPortal } from 'react-dom'
 import { Check, Copy, MessageSquareQuote } from 'lucide-react'
 
+import { containsAcross, selectionAt } from '@/lib/dom-selection'
 import { SelectionTooltip, SelectionTooltipAction, SelectionTooltipLabel, SelectionTooltipSeparator } from '@/components/ui/selection-tooltip'
 
-/** Selected transcript text and where it sits on screen, in viewport coordinates. */
+/** Selected text, the range it spans, and where it sits on screen, in viewport coordinates. */
 interface Selected {
   text: string
+  range: Range
   rect: DOMRect
 }
 
@@ -22,34 +24,41 @@ const ARROW_INSET = 14
  * user lets go — a pointerup or keyup — so the popover does not chase a drag in progress;
  * `selectionchange` only ever clears, which is what collapsing the selection should do.
  */
-function useSelectionIn(host: React.RefObject<HTMLElement | null>): { selected: Selected | null; clear: () => void } {
+function useSelectionIn(host: React.RefObject<HTMLElement | null>): { selected: Selected | null; release: () => void } {
   const [selected, setSelected] = useState<Selected | null>(null)
   // The live Range, so scrolling can re-measure the same selection instead of re-reading it.
   const range = useRef<Range | null>(null)
+  // The Selection it came from — a shadow root's own, inside the diff — so letting go of it works there too.
+  const source = useRef<Selection | null>(null)
 
   const clear = useCallback((): void => {
     range.current = null
     setSelected(null)
   }, [])
+  const release = useCallback((): void => {
+    source.current?.removeAllRanges()
+    clear()
+  }, [clear])
 
   useEffect(() => {
-    const inHost = (node: Node | null): boolean => node !== null && host.current !== null && host.current.contains(node)
+    const inHost = (node: Node | null): boolean => node !== null && host.current !== null && containsAcross(host.current, node)
 
     const read = (event: Event): void => {
       // Events from the popover itself are the user acting on the selection, not changing it.
       const target = event.target instanceof Element ? event.target : (event.target as Node | null)?.parentElement ?? null
       if (target?.closest('[data-slot="selection-actions"]')) return
-      const selection = document.getSelection()
+      const selection = selectionAt(event)
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) return clear()
       const text = selection.toString().trim()
       const live = selection.getRangeAt(0)
       if (!text || !inHost(live.commonAncestorContainer)) return clear()
       range.current = live.cloneRange()
-      setSelected({ text, rect: live.getBoundingClientRect() })
+      source.current = selection
+      setSelected({ text, range: range.current, rect: live.getBoundingClientRect() })
     }
 
     const dropIfCollapsed = (): void => {
-      const selection = document.getSelection()
+      const selection = source.current
       if (!selection || selection.isCollapsed || selection.rangeCount === 0) clear()
     }
 
@@ -81,20 +90,22 @@ function useSelectionIn(host: React.RefObject<HTMLElement | null>): { selected: 
     }
   }, [clear, host])
 
-  return { selected, clear }
+  return { selected, release }
 }
 
 /**
- * What you can do with text you highlighted in the transcript: put it on the clipboard, or
- * hand it to the composer as context for the next turn. Floats just above the selection —
+ * What you can do with text you highlighted — in the transcript, or in a PR's diff: put it on the
+ * clipboard, or hand it to an agent's composer as context for the next turn. Floats just above the selection —
  * below it near the top of the window — and stays out of the way until there is one.
  */
-export function SelectionActions({ host, onAsk }: {
+export function SelectionActions({ host, onAsk, askLabel = 'Ask agent' }: {
   host: React.RefObject<HTMLElement | null>
-  /** Stages the selected text as context on the composer. */
-  onAsk?: (text: string) => void
+  /** Stages the selected text as context on the composer; the range says where it was taken from. */
+  onAsk?: (text: string, range: Range) => void
+  /** Names the agent the text goes to. */
+  askLabel?: string
 }): React.JSX.Element | null {
-  const { selected, clear } = useSelectionIn(host)
+  const { selected, release } = useSelectionIn(host)
   const [copied, setCopied] = useState(false)
   const timer = useRef<number>(undefined)
   useEffect(() => () => window.clearTimeout(timer.current), [])
@@ -160,16 +171,15 @@ export function SelectionActions({ host, onAsk }: {
         <>
           <SelectionTooltipSeparator />
           <SelectionTooltipAction
-            aria-label="Ask the agent about the selected text"
+            aria-label={`${askLabel} about the selected text`}
             tooltip="Stage this text as context for your next message"
             onClick={() => {
-              onAsk(selected.text)
-              document.getSelection()?.removeAllRanges()
-              clear()
+              onAsk(selected.text, selected.range)
+              release()
             }}
           >
             <MessageSquareQuote aria-hidden="true" />
-            <SelectionTooltipLabel>Ask agent</SelectionTooltipLabel>
+            <SelectionTooltipLabel>{askLabel}</SelectionTooltipLabel>
           </SelectionTooltipAction>
         </>
       ) : null}

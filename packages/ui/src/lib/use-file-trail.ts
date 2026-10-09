@@ -16,8 +16,8 @@ export function useFileTrail(base?: string) {
   const current: FileStop | undefined = trail.at(-1) ?? (base === undefined ? undefined : { path: base })
   return {
     current,
-    /** Show a file, dropping wherever the trail had reached. */
-    go: useCallback((path: string) => setTrail([{ path }]), []),
+    /** Show a file — at a heading or line (`L42`) when `hash` names one — dropping wherever the trail had reached. */
+    go: useCallback((path: string, hash?: string) => setTrail([{ path, hash }]), []),
     /** Forget the trail; the pane falls back to `base`. */
     reset: useCallback(() => setTrail([]), []),
     /** Follow a link out of the current file, keeping it as the way back. */

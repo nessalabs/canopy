@@ -109,6 +109,14 @@ export const useFilePatch = (worktreeId: string, spec: DiffSpec, path: string, e
   return useQuery({ queryKey: keys.filePatch(worktreeId, spec, path), queryFn: () => api.filePatch(worktreeId, spec, path), enabled, staleTime: POLL_MS })
 }
 
+/** Several files' patches at once, cached under the same keys as `useFilePatch`, so Changes and Groups share them. */
+export const useFilePatches = (worktreeId: string, spec: DiffSpec, paths: string[]) => {
+  const api = useApi()
+  return useQueries({
+    queries: paths.map((path) => ({ queryKey: keys.filePatch(worktreeId, spec, path), queryFn: () => api.filePatch(worktreeId, spec, path), staleTime: POLL_MS }))
+  })
+}
+
 /** Directory listings for every open directory of the worktree browser; each fetched once on expand. */
 export const useTrees = (worktreeId: string, dirs: string[]) => {
   const api = useApi()

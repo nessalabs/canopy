@@ -14,6 +14,7 @@ import { PaneSplitDirection, createAppShellLayout, setSplitWeights, splitPane, t
 import { NO_MESSAGE_ID, rewindInputFor } from '@/lib/rewind'
 import { parseSessionPanelId, sessionPanelId } from '@/lib/session-panels'
 import { filesByTurn, mergeTurns, resolveTurn, snapshotsByTurn, type Checkout, type TurnEntry, type TurnPick } from '@/lib/turn-changes'
+import { useStaging } from '@/lib/use-staging'
 import { useTranscriptModel } from '@/lib/use-transcript-model'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
@@ -144,9 +145,8 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   }
   const openBeside = (ref: SessionRef): void => setRequest({ id: sessionPanelId(ref), action: 'open', nonce: Date.now() })
 
-  // Text quoted out of the transcript, on its way to the composer, which clears it once it is a chip.
-  // The id makes a repeat quote of the same passage its own request rather than a no-op.
-  const [quote, setQuote] = useState<{ id: number; text: string }>()
+  // Text quoted out of the transcript, on its way to the composer.
+  const staging = useStaging()
 
   const panels: PanelDef[] = [
     {
@@ -181,9 +181,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             onRewindTurn: sessionRef && !removed ? askRewind : undefined,
             latestChanges: { count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }
           }}
-          quote={quote}
-          onQuote={(text) => setQuote({ id: Date.now(), text })}
-          onQuoteStaged={() => setQuote(undefined)}
+          staging={staging}
         />
       )
     },
