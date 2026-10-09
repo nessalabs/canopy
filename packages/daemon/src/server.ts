@@ -17,6 +17,7 @@ import { createSessionLister } from './agents/sessions'
 import { TurnHub } from './agents/turn-hub'
 import { CommitService } from './commit/service'
 import { claudeText, draftText, type TextGenerator } from './drafts/draft'
+import { groupBrief } from './drafts/groups'
 import { registerAuth } from './auth'
 import type { DaemonConfig } from './config'
 import { createDbRegistry } from './env/databases/registry'
@@ -150,6 +151,7 @@ export function buildServices(deps: ServerDeps): Services {
     commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
     draftText: (worktreeId, input) =>
       draftText({ git, worktrees, settings: (projectId) => environment.settings(projectId), generate: deps.generateText ?? claudeText }, worktreeId, input),
+    groupBrief: (worktreeId, input) => groupBrief({ history }, worktreeId, input),
     merges: new MergeService({ repo, git, worktrees, projects, events }),
     destroyJobs: new DestroyJobsService({ worktrees, events }),
     github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees, review }),

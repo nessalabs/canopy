@@ -1,4 +1,4 @@
-import type { DraftInput, TextDraft } from '@canopy/shared'
+import type { DraftInput, GroupInput, GroupingBrief, TextDraft } from '@canopy/shared'
 
 import type { EditDiffsService } from '../agents/edit-diffs/service'
 import type { CommitService } from '../commit/service'
@@ -29,6 +29,7 @@ export interface Services {
   watch: WatchService
   commits: CommitService
   draftText: (worktreeId: string, input: DraftInput) => Promise<TextDraft>
+  groupBrief: (worktreeId: string, input: GroupInput) => Promise<GroupingBrief>
   merges: MergeService
   destroyJobs: DestroyJobsService
   github: GitHubService

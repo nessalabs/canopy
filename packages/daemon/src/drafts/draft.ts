@@ -110,12 +110,15 @@ export function draftPrompt(instructions: string, branch: string, sections: Cont
 /** A reply wrapped whole in one code fence; a fence that only closes the body's last block is left alone. */
 const WRAPPING_FENCE = /^```\w*\n([\s\S]*)\n```$/
 
+/** A model's reply with a fence around the whole of it dropped. */
+export function unfenced(text: string): string {
+  const trimmed = text.trim()
+  return (WRAPPING_FENCE.exec(trimmed)?.[1] ?? trimmed).trim()
+}
+
 /** First non-blank line is the title, the rest the body. A fence around the whole reply is dropped. */
 export function parseDraft(text: string): TextDraft {
-  const trimmed = text.trim()
-  const lines = (WRAPPING_FENCE.exec(trimmed)?.[1] ?? trimmed)
-    .trim()
-    .split('\n')
+  const lines = unfenced(text).split('\n')
   return { title: (lines[0] ?? '').trim(), body: lines.slice(1).join('\n').trim() }
 }
 

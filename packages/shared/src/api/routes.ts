@@ -39,6 +39,8 @@ export const routes = {
   commitChanges: (id: string) => `${API_PREFIX}/worktrees/${id}/commit`,
   /** Ask Claude to draft a commit message or a pull request's title and body. */
   draft: (id: string) => `${API_PREFIX}/worktrees/${id}/draft`,
+  /** The brief a grouping session starts from: instructions plus every hunk under a short id. */
+  groupBrief: (id: string) => `${API_PREFIX}/worktrees/${id}/group-brief`,
   /** Land the worktree's branch on its base branch. */
   merge: (id: string) => `${API_PREFIX}/worktrees/${id}/merge`,
   /** Keep a path out of commits: .git/info/exclude, .gitignore, skip-worktree or rm --cached. */
