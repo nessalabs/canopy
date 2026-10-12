@@ -3,6 +3,8 @@ import { Columns2, GripVertical, Maximize2, Minimize2, Rows2, X } from 'lucide-r
 
 import { AppShell, AppShellBody, AppShellMain, AppShellPaneDragHandle, AppShellWorkspace, useAppShell } from '@/components/composites/app-shell'
 import { IconAction } from '@/components/icon-action'
+import { ChatTabs } from '@/components/ui/chat-tabs'
+import { FileIcon } from '@/components/ui/file-icon'
 import { PaneSplitDirection, collectPanes, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
 import type { FileStop } from '@/lib/use-file-trail'
 
@@ -47,11 +49,50 @@ function PaneActions({ pane }: { pane: PaneNode }): React.JSX.Element {
         {maximized ? <Minimize2 aria-hidden className="size-3.5" /> : <Maximize2 aria-hidden className="size-3.5" />}
       </IconAction>
       {only ? null : (
-        <IconAction label="Close this file" onClick={() => closePane({ paneId: pane.id })}>
+        <IconAction label="Close this pane" onClick={() => closePane({ paneId: pane.id })}>
           <X aria-hidden className="size-3.5" />
         </IconAction>
       )}
     </span>
+  )
+}
+
+const basename = (path: string): string => path.split('/').pop() ?? path
+
+/**
+ * What each open file's tab says: its name, and where names collide, the folder it sits in, so
+ * two `index.ts` tabs can be told apart.
+ */
+export function tabTitles(paths: readonly string[]): string[] {
+  const names = paths.map(basename)
+  return paths.map((path, index) => {
+    const name = names[index]!
+    if (names.filter((other) => other === name).length === 1) return name
+    const folder = path.split('/').slice(0, -1).join('/')
+    return folder ? `${name} — ${folder}` : name
+  })
+}
+
+/**
+ * The pane's open files as tabs, in the order they were opened: pick one to show it, close one
+ * and its neighbour takes over. Closing a pane's last file closes the pane too, unless it is the
+ * only one left.
+ */
+function FileTabs({ pane }: { pane: PaneNode }): React.JSX.Element | null {
+  const { closePane, closeView, layout, openView } = useAppShell()
+  if (pane.views.length === 0) return null
+  const only = collectPanes(layout.workspace.root).length === 1
+  const titles = tabTitles(pane.views)
+  const close = (path: string): void => (pane.views.length === 1 && !only ? closePane({ paneId: pane.id }) : closeView({ viewId: path, paneId: pane.id }))
+  return (
+    <ChatTabs
+      tabs={pane.views.map((path, index) => ({ id: path, title: titles[index]!, icon: <FileIcon name={basename(path)} className="size-3.5" />, closeable: true }))}
+      value={pane.activeViewId ?? null}
+      onValueChange={(path) => openView({ viewId: path, paneId: pane.id })}
+      onClose={close}
+      label="Open files"
+      className="shrink-0 border-b border-border px-2 py-1"
+    />
   )
 }
 
@@ -80,26 +121,29 @@ function Pane({ pane, worktreeId, trail, onTrail }: { pane: PaneNode; worktreeId
   const previous = live && live.length > 1 ? live.at(-2) : undefined
 
   return (
-    <FilePane
-      worktreeId={worktreeId}
-      path={path}
-      dragPaneId={pane.id}
-      anchor={live?.at(-1)?.hash}
-      onOpenPath={(next, hash) => {
-        onTrail(followLink(trail, path, next, hash))
-        openView({ viewId: next, paneId: pane.id })
-      }}
-      onBack={
-        live === undefined || previous === undefined
-          ? undefined
-          : () => {
-              onTrail(live.slice(0, -1))
-              openView({ viewId: previous.path, paneId: pane.id })
-            }
-      }
-      actions={actions}
-      className="bg-card"
-    />
+    <div className="flex h-full min-h-0 flex-col bg-card">
+      <FileTabs pane={pane} />
+      <FilePane
+        worktreeId={worktreeId}
+        path={path}
+        dragPaneId={pane.id}
+        anchor={live?.at(-1)?.hash}
+        onOpenPath={(next, hash) => {
+          onTrail(followLink(trail, path, next, hash))
+          openView({ viewId: next, paneId: pane.id })
+        }}
+        onBack={
+          live === undefined || previous === undefined
+            ? undefined
+            : () => {
+                onTrail(live.slice(0, -1))
+                openView({ viewId: previous.path, paneId: pane.id })
+              }
+        }
+        actions={actions}
+        className="min-h-0 flex-1"
+      />
+    </div>
   )
 }
 

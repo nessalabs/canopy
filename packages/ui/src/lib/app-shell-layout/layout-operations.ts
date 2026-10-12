@@ -677,30 +677,17 @@ function openView(
   const { workspace } = layout
   const paneId = options.paneId ?? workspace.activePaneId
 
-  const visit = (node: LayoutNode): LayoutNode => {
-    if (node.type === "pane") {
-      if (node.id !== paneId || node.activeViewId === options.viewId) {
-        return node
-      }
-
-      return {
-        ...node,
-        views: node.views.includes(options.viewId)
-          ? node.views
-          : [...node.views, options.viewId],
-        activeViewId: options.viewId,
-      }
-    }
-
-    const children = node.children.map(visit)
-    const unchanged = children.every(
-      (child, index) => child === node.children[index],
-    )
-
-    return unchanged ? node : { ...node, children }
-  }
-
-  const root = visit(workspace.root)
+  const root = updatePane(workspace.root, paneId, (pane) =>
+    pane.activeViewId === options.viewId
+      ? pane
+      : {
+          ...pane,
+          views: pane.views.includes(options.viewId)
+            ? pane.views
+            : [...pane.views, options.viewId],
+          activeViewId: options.viewId,
+        },
+  )
 
   if (root === workspace.root) {
     // The pane may already show this view — "open" still means "take me
@@ -716,6 +703,74 @@ function openView(
     { ...layout, workspace: { ...workspace, root } },
     { paneId },
   )
+}
+
+/**
+ * Closes a view in a pane: the view leaves the pane's list, and when it was
+ * the active one its right neighbour (else its left) takes over. A pane left
+ * with no views stays open and empty; whether it closes is the caller's call.
+ *
+ * @example
+ * ```txt
+ * pane views ["a", "b", "c"], active "b" + closeView "b"
+ *   → views ["a", "c"], active "c"
+ * ```
+ *
+ * @param layout - The current layout document.
+ * @param options - The view to close and the pane holding it (defaults to
+ * the active pane).
+ * @returns The next document, or the same document when the pane or view is
+ * missing.
+ */
+function closeView(
+  layout: AppShellLayout,
+  options: { viewId: PaneViewId; paneId?: LayoutNodeId },
+): AppShellLayout {
+  const { workspace } = layout
+  const paneId = options.paneId ?? workspace.activePaneId
+
+  const root = updatePane(workspace.root, paneId, (pane) => {
+    const index = pane.views.indexOf(options.viewId)
+    if (index === -1) {
+      return pane
+    }
+
+    const views = pane.views.filter((view) => view !== options.viewId)
+    const activeViewId =
+      pane.activeViewId === options.viewId
+        ? (views[index] ?? views[index - 1])
+        : pane.activeViewId
+
+    return { ...pane, views, activeViewId }
+  })
+
+  return root === workspace.root
+    ? layout
+    : { ...layout, workspace: { ...workspace, root } }
+}
+
+/**
+ * Rebuilds the tree with one pane replaced by `update(pane)`, sharing every
+ * untouched node. The same root comes back when the pane is missing or
+ * `update` returns it unchanged.
+ */
+function updatePane(
+  node: LayoutNode,
+  paneId: LayoutNodeId,
+  update: (pane: PaneNode) => PaneNode,
+): LayoutNode {
+  if (node.type === "pane") {
+    return node.id === paneId ? update(node) : node
+  }
+
+  const children = node.children.map((child) =>
+    updatePane(child, paneId, update),
+  )
+  const unchanged = children.every(
+    (child, index) => child === node.children[index],
+  )
+
+  return unchanged ? node : { ...node, children }
 }
 
 /**
@@ -967,6 +1022,7 @@ function resizeDock(
 
 export {
   closePane,
+  closeView,
   createAppShellLayout,
   createPaneNode,
   focusPane,
