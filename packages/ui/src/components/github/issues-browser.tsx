@@ -148,7 +148,7 @@ export function ReaderPane({ projectId, reader, empty }: { projectId: string; re
           </Button>
         </div>
       ) : null}
-      <div {...(state.tabs.length > 1 && state.active ? tabPanelProps(state.active) : {})} className="min-h-0 flex-1 overflow-y-auto">
+      <div {...(state.tabs.length > 1 && state.active && current ? tabPanelProps(state.active, titleOf(current)) : {})} className="min-h-0 flex-1 overflow-y-auto">
         {current ? <ReadingView key={state.active} projectId={projectId} reading={current} onFollow={reader.follow} /> : empty}
       </div>
     </section>

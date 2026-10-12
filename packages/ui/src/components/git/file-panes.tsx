@@ -124,7 +124,7 @@ function Pane({ pane, worktreeId, trail, onTrail }: { pane: PaneNode; worktreeId
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       <FileTabs pane={pane} />
-      <div {...tabPanelProps(path)} className="flex min-h-0 flex-1 flex-col">
+      <div {...tabPanelProps(path, tabTitles(pane.views)[pane.views.indexOf(path)] ?? path)} className="flex min-h-0 flex-1 flex-col">
       <FilePane
         worktreeId={worktreeId}
         path={path}
