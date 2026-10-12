@@ -9,9 +9,20 @@ import { IdParams } from './params'
 
 /** `?fresh=1` waits for GitHub instead of answering from what the daemon holds. */
 const FreshQuery = z.object({ fresh: z.enum(['1', 'true']).optional() })
+const SearchQuery = z.object({ q: z.string().max(200).default('') })
+const IssueParams = IdParams.extend({ number: z.coerce.number().int().positive() })
+const UrlQuery = z.object({ url: z.string().url() })
 
 /** The Git tab's Pull request pane: GitHub through the daemon host's `gh`, and the push it needs. */
-export function registerGitHubRoutes(app: FastifyInstance, { github, projects }: Services): void {
+export function registerGitHubRoutes(app: FastifyInstance, { github, issues, projects }: Services): void {
+  const projectPath = (params: unknown): string => projects.get(IdParams.parse(params).id).path
+
+  app.get(routes.projectIssues(':id'), async (request) => issues.search(projectPath(request.params), SearchQuery.parse(request.query).q))
+
+  app.get(routes.projectIssue(':id', ':number'), async (request) => issues.read(projectPath(request.params), IssueParams.parse(request.params).number))
+
+  app.get(routes.githubAttachment(':id'), async (request) => issues.attachment(projectPath(request.params), UrlQuery.parse(request.query).url))
+
   app.get(routes.projectPullRequests(':id'), async (request) => github.list(projects.get(IdParams.parse(request.params).id).path))
 
   app.get(routes.pullRequest(':id'), async (request) => github.read(IdParams.parse(request.params).id, { fresh: FreshQuery.parse(request.query).fresh !== undefined }))

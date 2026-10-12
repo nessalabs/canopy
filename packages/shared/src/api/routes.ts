@@ -15,6 +15,12 @@ export const routes = {
   projectTrash: (id: string) => `${API_PREFIX}/projects/${id}/trash`,
   /** Recent PRs across the project's repository, for the Command Center's list. */
   projectPullRequests: (id: string) => `${API_PREFIX}/projects/${id}/pull-requests`,
+  /** The repository's issues and PRs for the composer's `#` menu; `?q=` searches, a number finds that one. */
+  projectIssues: (id: string) => `${API_PREFIX}/projects/${id}/issues`,
+  /** One issue or PR with its timeline. */
+  projectIssue: (id: string, number: string) => `${API_PREFIX}/projects/${id}/issues/${number}`,
+  /** A file attached on GitHub (`?url=`), as text, for reading it inside Canopy. */
+  githubAttachment: (id: string) => `${API_PREFIX}/projects/${id}/github-attachment`,
   trashEntry: (id: string, entry: string) => `${API_PREFIX}/projects/${id}/trash/${entry}`,
   trashRestore: (id: string, entry: string) => `${API_PREFIX}/projects/${id}/trash/${entry}/restore`,
   worktrees: () => `${API_PREFIX}/worktrees`,
