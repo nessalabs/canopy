@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AtSign, Brain, FileDiff, Paperclip, Plus, Square, Users } from 'lucide-react'
 
-import { ImageMediaType, type ChangedFile, type Effort } from '@canopy/shared'
+import { ImageMediaType, type ChangedFile, type Effort, type IssueSummary } from '@canopy/shared'
 import type { ContextUsage } from '@canopy/shared/agent-stream'
 
 import {
@@ -15,6 +15,7 @@ import {
   ChatComposerSubmit,
   ChatComposerTrigger
 } from '@/components/ui/chat-composer'
+import { IssueStateBadge } from '@/components/github/issue-view'
 import { ComposerAccessMode } from '@/components/ui/composer-access-mode'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { ModelThinkingControl } from '@/components/ui/model-capability-controls'
@@ -22,10 +23,13 @@ import { ModelPicker } from '@/components/ui/model-picker'
 
 import { SearchableListbox } from '@/components/ui/searchable-listbox'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useFetchIssue, useIssueSearch } from '@/lib/api-hooks'
 import { ACCESS_TO_AUTONOMY, AUTONOMY_TO_ACCESS } from '@/lib/autonomy'
 import { agentMention, commandMenu, composeMessage, isNewSessionCommand, type Attachment, type CommandItem, type MentionItem } from '@/lib/compose'
 import { plural } from '@/lib/format'
 import { effortLevelsFor, modelGroupFor } from '@/lib/models'
+import { issueContext, issueLabel } from '@/lib/issue-context'
+import { useDebounced } from '@/lib/use-debounced'
 import type { StagedText } from '@/lib/use-staging'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
@@ -79,6 +83,44 @@ function CommandRow({ item }: { item: CommandItem }): React.JSX.Element {
   )
 }
 
+/** One `#` row: the issue or PR, its number and where it stands. */
+function IssueRow({ item }: { item: IssueSummary }): React.JSX.Element {
+  return (
+    <span className="flex w-full min-w-0 items-center gap-2">
+      <IssueStateBadge state={item.state} kind={item.kind} className="px-1.5 py-0 text-[10px]" />
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">#{item.number}</span>
+      <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
+      <span className="shrink-0 text-[11px] text-muted-foreground">{item.kind === 'pr' ? 'PR' : 'Issue'}</span>
+    </span>
+  )
+}
+
+/**
+ * The `#` menu: the repository's issues and PRs, searched on GitHub as the query settles, so
+ * the list is GitHub's answer and is not filtered again here. Picking one stages its whole
+ * thread for the agent.
+ */
+function IssueMenu({ projectId, query, onPick }: { projectId: string; query: string; onPick: (item: IssueSummary) => void }): React.JSX.Element {
+  const settled = useDebounced(query.trim(), 250)
+  const search = useIssueSearch(projectId, settled)
+  const unavailable = search.data && search.data.gh.state !== 'ready'
+  return (
+    <SearchableListbox
+      items={search.data?.items ?? []}
+      query=""
+      getItemId={(item) => String(item.number)}
+      getItemKeywords={() => []}
+      renderItem={(item) => <IssueRow item={item} />}
+      onValueChange={(_, item) => onPick(item)}
+      listLabel="Issues and pull requests"
+      loading={search.isPending}
+      loadingMessage="Searching GitHub…"
+      emptyMessage={search.error ? 'GitHub search failed' : unavailable ? 'GitHub is not set up for this repository' : 'No matching issue or pull request'}
+      className="max-h-80"
+    />
+  )
+}
+
 /** One `@` row: a changed file, or a subagent the session can hand work to. */
 function MentionRow({ item }: { item: MentionItem }): React.JSX.Element {
   if (item.kind === 'file') return <span className="min-w-0 truncate font-mono text-sm">{item.path}</span>
@@ -102,7 +144,8 @@ export function AgentComposer({
   staged,
   onStaged,
   context = null,
-  onOpenAttachment
+  onOpenAttachment,
+  projectId
 }: {
   agent: WorktreeAgent
   changedFiles: ChangedFile[]
@@ -115,6 +158,8 @@ export function AgentComposer({
   context?: ContextUsage | null
   /** Opens a staged text attachment to read; given, those chips' names become buttons. */
   onOpenAttachment?: (attachment: PreviewedAttachment) => void
+  /** The project whose GitHub repository the `#` menu searches; absent, there is no `#` menu. */
+  projectId?: string
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -140,6 +185,17 @@ export function AgentComposer({
   const effortValue = effortLevels.some((level) => level.value === effort) ? effort : effortLevels[0]?.value
 
   const add = (attachment: Attachment): void => setAttachments((current) => [...current, attachment])
+  const fetchIssue = useFetchIssue(projectId ?? '')
+  /** A picked issue is staged with its whole thread; the chip names it while the thread loads. */
+  const pickIssue = (item: IssueSummary, clearTrigger: () => void): void => {
+    clearTrigger()
+    const chip = { ...attach('pasted-text', issueLabel(item), ''), issue: item.number }
+    add(chip)
+    void fetchIssue(item.number).then(
+      (thread) => setAttachments((current) => current.map((a) => (a.id === chip.id ? { ...a, text: issueContext(thread) } : a))),
+      () => setAttachments((current) => current.map((a) => (a.id === chip.id ? { ...a, text: `GitHub ${item.kind === 'pr' ? 'pull request' : 'issue'} #${item.number}: ${item.title}\n${item.url}` } : a)))
+    )
+  }
   const remove = (id: string): void => setAttachments((current) => current.filter((a) => a.id !== id))
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -266,7 +322,7 @@ export function AgentComposer({
             >
               {attachment.image ? (
                 <img src={dataUrl(attachment.image)} alt={attachment.label} className="h-20 w-auto max-w-48 rounded-md object-cover" />
-              ) : onOpenAttachment && attachment.kind === 'pasted-text' ? (
+              ) : onOpenAttachment && (attachment.kind === 'pasted-text' || attachment.issue !== undefined) ? (
                 <button type="button" title={`Open ${attachment.label}`} onClick={() => onOpenAttachment(attachment)} className="truncate underline-offset-2 outline-none hover:underline focus-visible:underline">
                   {attachment.label}
                 </button>
@@ -307,6 +363,11 @@ export function AgentComposer({
           />
         )}
       </ChatComposerTrigger>
+      {projectId ? (
+        <ChatComposerTrigger trigger="#" label="Mention an issue or pull request">
+          {({ query, clearTrigger }) => <IssueMenu projectId={projectId} query={query} onPick={(item) => pickIssue(item, clearTrigger)} />}
+        </ChatComposerTrigger>
+      ) : null}
       <ChatComposerTrigger trigger="@" label="Mention a file or a subagent">
         {({ query, clearTrigger }) => (
           <SearchableListbox

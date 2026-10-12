@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 
 import type { Worktree } from '@canopy/shared'
 
+import type { PreviewedAttachment } from '@/components/agent/attachment-preview'
 import { AgentAvatar } from '@/components/agent/agent-avatar'
 import type { OpenFileRef } from '@/components/agent/answer-links'
 import { NewSessionButton } from '@/components/agent/new-session-button'
@@ -90,7 +91,19 @@ function Empty({ seed, agent }: { seed: string; agent: GitAgent }): React.JSX.El
  * change, each running on its own and coloured by how it is doing. Files and code dropped on it
  * join the tab on screen as context; files its answers cite open in the pane beside it.
  */
-export function GitAgentPanel({ worktree, agent, seed, onOpenRef }: { worktree: Worktree; agent: GitAgent; seed: string; onOpenRef: OpenFileRef }): React.JSX.Element {
+export function GitAgentPanel({
+  worktree,
+  agent,
+  seed,
+  onOpenRef,
+  onOpenAttachment
+}: {
+  worktree: Worktree
+  agent: GitAgent
+  seed: string
+  onOpenRef: OpenFileRef
+  onOpenAttachment?: (attachment: PreviewedAttachment) => void
+}): React.JSX.Element {
   const [metas, setMetas] = useState<Record<string, TabMeta>>({})
   const [over, setOver] = useState(false)
   const drag = useDragAnywhere()
@@ -144,6 +157,7 @@ export function GitAgentPanel({ worktree, agent, seed, onOpenRef }: { worktree: 
             worktree={worktree}
             tab={tab}
             onOpenRef={onOpenRef}
+            onOpenAttachment={onOpenAttachment}
             active={tab.id === active}
             staging={agent.staging(tab.id)}
             outgoing={agent.outbox[tab.id]}

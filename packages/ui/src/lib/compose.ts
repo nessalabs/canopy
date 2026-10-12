@@ -11,6 +11,8 @@ export interface Attachment {
   text: string
   /** Present for pasted images; sent as an image block, referenced in text as `[Image #N]`. */
   image?: { mediaType: ImageMediaType; data: string }
+  /** Present for an issue or PR mentioned with `#`; its chip opens the issue rather than the text. */
+  issue?: number
 }
 
 /** The `/` menu's sections, in the order they are listed. */

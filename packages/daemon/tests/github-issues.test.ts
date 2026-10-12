@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
-import type { GhStatus } from '@canopy/shared'
+import { isAttachmentUrl, type GhStatus } from '@canopy/shared'
 
 import type { GhRun, GhRunner } from '../src/github/gh'
-import { IssuesService, isAttachmentUrl, toIssueSummary, toTimelineItem } from '../src/github/issues'
+import { IssuesService, toIssueSummary, toTimelineItem } from '../src/github/issues'
 
 const ok = (stdout = ''): GhRun => ({ found: true, exitCode: 0, stdout, stderr: '' })
 const READY: GhStatus = { state: 'ready', host: 'github.com', repo: 'acme/app', remoteUrl: 'git@github.com:acme/app.git', detail: null }

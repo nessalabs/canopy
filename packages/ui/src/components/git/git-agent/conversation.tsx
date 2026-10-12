@@ -4,6 +4,7 @@ import { Database, GitCompareArrows, Network, Radar, Repeat2, Workflow, type Luc
 import type { SessionRef, Worktree } from '@canopy/shared'
 
 import { Conversation, type Starter } from '@/components/agent/conversation'
+import type { PreviewedAttachment } from '@/components/agent/attachment-preview'
 import type { OpenFileRef } from '@/components/agent/answer-links'
 import { sessionTitle } from '@/components/agent/session-rail'
 import { useDiffFiles } from '@/lib/api-hooks'
@@ -56,6 +57,7 @@ export function GitAgentConversation({
   worktree,
   tab,
   onOpenRef,
+  onOpenAttachment,
   active,
   staging,
   outgoing,
@@ -66,6 +68,8 @@ export function GitAgentConversation({
   worktree: Worktree
   tab: AgentTab
   onOpenRef: OpenFileRef
+  /** Opens a staged chip — an issue, a file — where the Git tab reads it. */
+  onOpenAttachment?: (attachment: PreviewedAttachment) => void
   active: boolean
   staging: Staging
   outgoing?: Outgoing
@@ -129,7 +133,7 @@ export function GitAgentConversation({
 
   return (
     <div className={cn('h-full min-h-0', !active && 'hidden')}>
-      <Conversation worktree={worktree} agent={agent} model={model} changedFiles={files && 'files' in files ? files.files : []} staging={staging} avatarSeed={seed} onOpenRef={onOpenRef} starter={starter} />
+      <Conversation worktree={worktree} agent={agent} model={model} changedFiles={files && 'files' in files ? files.files : []} staging={staging} avatarSeed={seed} onOpenRef={onOpenRef} starter={starter} onOpenAttachment={onOpenAttachment} />
     </div>
   )
 }

@@ -7,7 +7,7 @@
  * downloads, which work without a login for public repositories and are retried with `gh`'s
  * token for private ones.
  */
-import type { GhStatus, GitHubAttachment, IssueSearchResponse, IssueSummary, IssueThread, IssueTimelineItem } from '@canopy/shared'
+import { isAttachmentUrl, type GhStatus, type GitHubAttachment, type IssueSearchResponse, type IssueSummary, type IssueThread, type IssueTimelineItem } from '@canopy/shared'
 
 import { ApiError, badRequest } from '../lib/errors'
 import type { GhRunner } from './gh'
@@ -103,18 +103,6 @@ export function toTimelineItem(raw: Raw, index: number): IssueTimelineItem | nul
   const actor = login(raw.actor ?? raw.user) ?? (event === 'committed' ? (raw.author?.name ?? null) : null)
   const ref = event === 'cross-referenced' ? (raw.source?.issue?.number ?? null) : null
   return { type: 'event', id, actor, createdAt, event, text, ref }
-}
-
-/** GitHub's attachment links, and nothing else: the daemon is not a general-purpose fetcher. */
-export function isAttachmentUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    if (parsed.protocol !== 'https:') return false
-    if (parsed.hostname === 'github.com') return parsed.pathname.startsWith('/user-attachments/') || /^\/[^/]+\/[^/]+\/files\//.test(parsed.pathname)
-    return parsed.hostname.endsWith('.githubusercontent.com')
-  } catch {
-    return false
-  }
 }
 
 /** What GitHub search is asked: this repository, the words typed, newest activity first. */

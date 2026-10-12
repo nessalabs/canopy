@@ -4,6 +4,8 @@ import { MarkdownDoc } from '@/components/git/file-viewer'
 export interface PreviewedAttachment {
   label: string
   text: string
+  /** An issue or PR mentioned with `#`, opened as itself rather than as text. */
+  issue?: number
 }
 
 const MARKDOWN = /\.(md|markdown|mdx)$/i
