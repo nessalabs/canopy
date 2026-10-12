@@ -1,5 +1,5 @@
 import { ApiError, ApiErrorBody } from '../api/errors'
-import { routes } from '../api/routes'
+import { SOCKET_PROTOCOL, routes } from '../api/routes'
 import type {
   AdoptWorktreeInput,
   AgentCapabilities,
@@ -246,7 +246,8 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     createTerminal: (worktreeId: string, input: CreateTerminalInput) => post<{ terminal: TerminalInfo }>(routes.terminals(worktreeId), input).then((r) => r.terminal),
     closeTerminal: (terminalId: string) => del(routes.terminal(terminalId)),
     /** The terminal's socket address, with the token in the query since a WebSocket cannot carry a header. */
-    terminalSocketUrl: (terminalId: string) => `${base.replace(/^http/, 'ws')}${withQuery(routes.terminalSocket(terminalId), { token })}`,
+    /** Where a terminal's socket connects, and the protocols that carry the token there. */
+    terminalSocket: (terminalId: string) => ({ url: `${base.replace(/^http/, 'ws')}${routes.terminalSocket(terminalId)}`, protocols: [SOCKET_PROTOCOL, token] }),
     excludePaths: (worktreeId: string, input: ExcludeInput) => post<ChangesResponse>(routes.exclude(worktreeId), input),
     hiddenPaths: (worktreeId: string) => get<HiddenResponse>(routes.hidden(worktreeId)).then((r) => r.hidden),
     unhidePaths: (worktreeId: string, input: UnhideInput) => post<ChangesResponse>(routes.unhide(worktreeId), input),

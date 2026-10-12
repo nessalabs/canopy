@@ -116,13 +116,13 @@ export class GitAgentStore {
     const session = patch.session ?? current.session
     const result = patch.result ?? current.result
     this.db
-      .prepare('UPDATE change_groupings SET provider = ?, session_id = ?, result_json = ? WHERE id = ?')
-      .run(session?.provider ?? null, session?.sessionId ?? null, result ? JSON.stringify(result) : null, id)
+      .prepare('UPDATE change_groupings SET provider = ?, session_id = ?, result_json = ? WHERE id = ? AND worktree_id = ?')
+      .run(session?.provider ?? null, session?.sessionId ?? null, result ? JSON.stringify(result) : null, id, worktreeId)
     return this.grouping(worktreeId, id)
   }
 
   removeGrouping(worktreeId: string, id: string): void {
     this.grouping(worktreeId, id)
-    this.db.prepare('DELETE FROM change_groupings WHERE id = ?').run(id)
+    this.db.prepare('DELETE FROM change_groupings WHERE id = ? AND worktree_id = ?').run(id, worktreeId)
   }
 }

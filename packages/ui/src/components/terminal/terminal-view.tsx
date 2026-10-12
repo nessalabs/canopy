@@ -61,7 +61,8 @@ export function TerminalView({ terminalId, active }: { terminalId: string; activ
     term.current = terminal
 
     let disposed = false
-    const socket = new WebSocket(api.terminalSocketUrl(terminalId))
+    const { url, protocols } = api.terminalSocket(terminalId)
+    const socket = new WebSocket(url, protocols)
     const send = (message: unknown): void => {
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
     }
@@ -83,7 +84,7 @@ export function TerminalView({ terminalId, active }: { terminalId: string; activ
     socket.addEventListener('open', () => (opened = true))
     socket.onclose = (event) => {
       if (event.code === 4404) terminal.write('\r\n\x1b[2m[this terminal is gone]\x1b[0m\r\n')
-      else if (!opened) terminal.write(`\x1b[31mCould not connect to the terminal (code ${event.code}).\x1b[0m\r\nCanopy reaches it at ${api.terminalSocketUrl(terminalId).replace(/token=[^&]+/, 'token=…')}\r\n`)
+      else if (!opened) terminal.write(`\x1b[31mCould not connect to the terminal (code ${event.code}).\x1b[0m\r\nCanopy reaches it at ${url}\r\n`)
       else if (!disposed) terminal.write('\r\n\x1b[2m[disconnected from the daemon]\x1b[0m\r\n')
     }
     const input = terminal.onData((data) => send({ type: 'input', data }))

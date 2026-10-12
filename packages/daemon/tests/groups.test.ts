@@ -62,7 +62,7 @@ describe('group brief route', () => {
   it('numbers the working-tree hunks, new files included, and puts the user’s wording in the prompt', async () => {
     repo.write({ 'a.txt': 'a changed\n', 'c.txt': 'new\n' })
     const res = await start({ against: 'head', instructions: 'by layer' })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(201)
     expect(res.body.grouping.ids).toEqual({ h1: { path: 'a.txt', hunk: 0 }, h2: { path: 'c.txt', hunk: 0 } } satisfies Record<string, HunkRef>)
     expect(res.body.grouping.fingerprint).toBe('a.txt:1:1|c.txt:1:0')
     expect(res.body.grouping.instructions).toBe('by layer')

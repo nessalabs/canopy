@@ -1,5 +1,11 @@
 export const API_PREFIX = '/api/v1'
 
+/**
+ * The subprotocol a Canopy socket asks for. A browser cannot put a header on a WebSocket, so the
+ * token travels as the second protocol it offers — never in the URL, where logs would keep it.
+ */
+export const SOCKET_PROTOCOL = 'canopy'
+
 /** Ids are UUIDs, shas, or provider names — URL-safe by construction, so paths double as Fastify route templates. */
 
 /** Every daemon route in one place, so the client and the server never drift. */

@@ -51,13 +51,20 @@ export function useChangeGroups(worktree: Worktree, against: Against, agent: Git
 
   // A grouping's tab learns its session from the first turn; the grouping keeps it, so its groups
   // and its chat can be found again once the tab is closed.
+  // A binding is forgotten only once it is saved; one that failed is tried again on the next change.
   const [started, setStarted] = useState<Record<string, string>>({})
+  const binding = useRef(new Set<string>())
   useEffect(() => {
     for (const [id, tabId] of Object.entries(started)) {
       const session = agent.tabs.find((tab) => tab.id === tabId)?.session
-      if (!session) continue
-      setStarted(({ [id]: _bound, ...rest }) => rest)
-      void patch(id, { session })
+      if (!session || binding.current.has(id)) continue
+      binding.current.add(id)
+      patch(id, { session })
+        .then(
+          () => setStarted(({ [id]: _bound, ...rest }) => rest),
+          () => undefined
+        )
+        .finally(() => binding.current.delete(id))
     }
   }, [agent.tabs, started, patch])
 
