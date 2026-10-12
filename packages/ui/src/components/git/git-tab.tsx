@@ -2,6 +2,8 @@ import { useMemo, useRef, useState } from 'react'
 
 import type { Against, GitHubNote, GitHubThread, ReviewComment, Worktree } from '@canopy/shared'
 
+import type { PreviewedAttachment } from '@/components/agent/attachment-preview'
+import { IssuesBrowser, useReader } from '@/components/github/issues-browser'
 import { SelectionActions } from '@/components/agent/selection-actions'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
 import type { DiffMode } from '@/components/worktree-diff'
@@ -162,13 +164,19 @@ export function GitTab({
     }
     return true
   }
+  // A chip in the Git Agent's composer — an issue mentioned with #, a staged file — opens in Issues' reader.
+  const reader = useReader()
+  const readChip = (attachment: PreviewedAttachment): void => {
+    reader.open(attachment.issue !== undefined ? { kind: 'issue', number: attachment.issue } : { kind: 'staged', attachment })
+    onPaneChange('issues')
+  }
   const focusFor = (target: Pane): ExplorerFocus | undefined => (jump?.pane === target ? jump.focus : undefined)
 
   return (
     <SendToAgentProvider value={sendOne}>
       <Tabs value={pane} onValueChange={(value) => onPaneChange(value as Pane)} className="flex min-h-0 flex-1 flex-col">
         <GitViewTabs dirty={worktree.status?.dirtyTotal ?? 0} comments={comments.length} unreviewed={unreviewed} onPrefetchPr={prefetchPr} />
-        {pane === 'comments' ? null : <DiffTools mode={mode} onModeChange={setMode} against={pane === 'changes' || pane === 'groups' ? against : undefined} onAgainstChange={setAgainst} baseBranch={worktree.baseBranch} />}
+        {pane === 'comments' || pane === 'issues' ? null : <DiffTools mode={mode} onModeChange={setMode} against={pane === 'changes' || pane === 'groups' ? against : undefined} onAgainstChange={setAgainst} baseBranch={worktree.baseBranch} />}
         <GitActions
           worktree={worktree}
           pane={pane}
@@ -200,6 +208,9 @@ export function GitTab({
               <TabsContent value="pr" className="flex min-h-0 flex-1 flex-col">
                 <PullRequestView worktree={worktree} review={shared} githubComments={githubComments} focus={prFocus} onOpenChanges={() => onPaneChange('changes')} />
               </TabsContent>
+              <TabsContent value="issues" className="flex min-h-0 flex-1 flex-col">
+                <IssuesBrowser projectId={worktree.projectId} reader={reader} />
+              </TabsContent>
               <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-5">
                 <CommentsPanel worktreeId={worktree.id} comments={comments} onJump={onJump} />
                 {threadsQuery.data ? (
@@ -211,7 +222,7 @@ export function GitTab({
           </SplitViewPanel>
           <SplitViewSeparator className={gitAgent.open ? undefined : 'hidden'} />
           <SplitViewPanel id="git-agent" defaultSize={30} minSize={20} className={cn('min-h-0 border-l border-border', !gitAgent.open && 'hidden')}>
-            <GitAgentPanel worktree={worktree} agent={gitAgent} seed={agentSeed} onOpenRef={openRef} />
+            <GitAgentPanel worktree={worktree} agent={gitAgent} seed={agentSeed} onOpenRef={openRef} onOpenAttachment={readChip} />
           </SplitViewPanel>
         </SplitView>
       </Tabs>

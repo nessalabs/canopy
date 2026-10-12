@@ -184,6 +184,7 @@ export function Conversation({
           onStaged={staging?.taken}
           context={model.context}
           onOpenAttachment={onOpenAttachment}
+          projectId={worktree.projectId}
         />
       </div>
     </FileRefLinks>

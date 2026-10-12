@@ -1,5 +1,5 @@
 import { useCallback, useRef } from 'react'
-import { type UseMutationOptions, useInfiniteQuery, useIsMutating, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { type UseMutationOptions, useInfiniteQuery, useIsMutating, keepPreviousData, useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import type {
   AddCommentInput,
@@ -841,4 +841,48 @@ export const useExclude = (worktreeId: string) => {
 export const useUnhide = (worktreeId: string) => {
   const api = useApi()
   return useHiding(worktreeId, (input: UnhideInput) => api.unhidePaths(worktreeId, input))
+}
+
+/** The repository's issues and PRs matching what was typed after `#`; the last answer stays up while the next loads. */
+export const useIssueSearch = (projectId: string, q: string, enabled = true) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.issueSearch(projectId, q),
+    queryFn: () => api.searchIssues(projectId, q),
+    enabled,
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+    retry: false
+  })
+}
+
+/** One issue or PR with its timeline; absent `number`, nothing is read. */
+export const useIssue = (projectId: string, number: number | undefined) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.issue(projectId, number ?? 0),
+    queryFn: () => api.issue(projectId, number!),
+    enabled: number !== undefined,
+    staleTime: 20_000,
+    retry: false
+  })
+}
+
+/** A file attached on GitHub, as text; it never changes under its URL. */
+export const useGitHubAttachment = (projectId: string, url: string | undefined) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.githubAttachment(projectId, url ?? ''),
+    queryFn: () => api.githubAttachment(projectId, url!),
+    enabled: url !== undefined,
+    staleTime: Infinity,
+    retry: false
+  })
+}
+
+/** Reads one issue for a one-off use — staging it as context — through the same cache the view uses. */
+export const useFetchIssue = (projectId: string) => {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return (number: number) => queryClient.fetchQuery({ queryKey: keys.issue(projectId, number), queryFn: () => api.issue(projectId, number), staleTime: 20_000 })
 }
