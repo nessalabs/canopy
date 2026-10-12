@@ -3,7 +3,7 @@ import { Bot, Check, Plus } from 'lucide-react'
 
 import type { AgentProvider, AgentSessionSummary } from '@canopy/shared'
 
-import { ProviderIcon } from '@/components/agent/provider-icon'
+import { PROVIDER_NAMES, ProviderIcon } from '@/components/agent/provider-icon'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { SearchableListbox } from '@/components/ui/searchable-listbox'
@@ -14,15 +14,14 @@ import type { ReviewTarget } from '@/lib/use-agent-turn'
 /** A row of the picker: an existing session, or a "start new" entry per installed provider. */
 type Choice = { id: string; target: ReviewTarget; title: string; detail: string; isNew: boolean }
 
-const NAMES: Record<AgentProvider, string> = { claude: 'Claude Code', codex: 'Codex' }
 
 function choices(providers: AgentProvider[], sessions: AgentSessionSummary[]): Choice[] {
-  const fresh = providers.map<Choice>((provider) => ({ id: `new:${provider}`, target: { provider, sessionId: null }, title: `New ${NAMES[provider]} session`, detail: 'Starts with this review', isNew: true }))
+  const fresh = providers.map<Choice>((provider) => ({ id: `new:${provider}`, target: { provider, sessionId: null }, title: `New ${PROVIDER_NAMES[provider]} session`, detail: 'Starts with this review', isNew: true }))
   const existing = sessions.map<Choice>((s) => ({
     id: `${s.provider}:${s.sessionId}`,
     target: { provider: s.provider, sessionId: s.sessionId },
     title: s.title || s.sessionId.slice(0, 8),
-    detail: `${NAMES[s.provider]} · ${relativeTime(s.updatedAt)}`,
+    detail: `${PROVIDER_NAMES[s.provider]} · ${relativeTime(s.updatedAt)}`,
     isNew: false
   }))
   return [...fresh, ...existing]

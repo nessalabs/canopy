@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
-import { FileDiff, MessageSquare, Users } from 'lucide-react'
+import { FileDiff, FileText, MessageSquare, Users } from 'lucide-react'
 
-import type { RewindResult, SessionRef, Worktree } from '@canopy/shared'
+import type { AgentProvider, RewindResult, SessionRef, Worktree } from '@canopy/shared'
 import type { Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
@@ -18,6 +18,7 @@ import { useStaging } from '@/lib/use-staging'
 import { useTranscriptModel } from '@/lib/use-transcript-model'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
+import { AttachmentPreview, type PreviewedAttachment } from './attachment-preview'
 import { Conversation } from './conversation'
 import { NewSessionButton } from './new-session-button'
 import { RewindDialog } from './rewind-dialog'
@@ -31,7 +32,7 @@ const LAYOUT_KEY = 'canopy-agent-layout-v3'
 
 const REMOVED_CHECKOUT = 'This session ran in a worktree that has been removed'
 
-type PanelId = 'sessions' | 'conversation' | 'changes'
+type PanelId = 'sessions' | 'conversation' | 'changes' | 'attachment'
 
 /** Sessions | conversation, 1 : 3. The changes panel opens on demand to the right of the conversation. */
 function buildAgentLayout(): AppShellLayout {
@@ -140,10 +141,26 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   const sessionPanel = (viewId: string): PanelDef | undefined => {
     const ref = parseSessionPanelId(viewId)
     const summary = ref && everySession.find((s) => s.provider === ref.provider && s.sessionId === ref.sessionId)
-    if (!ref) return undefined
-    return { id: viewId, title: summary ? sessionTitle(summary) : ref.sessionId.slice(0, 8), icon: MessageSquare, render: () => <SessionPane worktree={worktree} session={ref} changedFiles={changedFiles} /> }
+    // A layout saved in another worktree can name a session this one does not have; the pane composes a new one instead.
+    if (!ref || (!summary && !agent.loading)) return undefined
+    return { id: viewId, title: summary ? sessionTitle(summary) : ref.sessionId.slice(0, 8), icon: MessageSquare, render: () => <SessionPane worktree={worktree} session={ref} changedFiles={changedFiles} onOpenAttachment={openAttachment} /> }
   }
   const openBeside = (ref: SessionRef): void => setRequest({ id: sessionPanelId(ref), action: 'open', nonce: Date.now() })
+
+  // A staged attachment opened from any composer here is read in one panel to the right.
+  const [attachment, setAttachment] = useState<PreviewedAttachment>()
+  const openAttachment = (next: PreviewedAttachment): void => {
+    setAttachment(next)
+    setRequest({ id: 'attachment', action: 'open', nonce: Date.now() })
+    setMobilePanel('attachment')
+  }
+
+  // A new session is composed in the main conversation, so that panel comes on screen with it.
+  const startSession = (provider: AgentProvider): void => {
+    agent.startSession(provider)
+    setRequest({ id: 'conversation', action: 'open', nonce: Date.now() })
+    setMobilePanel('conversation')
+  }
 
   // Text quoted out of the transcript, on its way to the composer.
   const staging = useStaging()
@@ -182,6 +199,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             latestChanges: { count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }
           }}
           staging={staging}
+          onOpenAttachment={openAttachment}
         />
       )
     },
@@ -204,7 +222,9 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
         ) : (
           <p className="p-4 text-xs text-muted-foreground">No turn has changed files yet. Each user message that made the agent write files gets its diff here.</p>
         )
-    }
+    },
+    // Listed only once something has been opened, so the top bar does not offer an empty reader.
+    ...(attachment ? [{ id: 'attachment', title: attachment.label, icon: FileText, render: () => <AttachmentPreview attachment={attachment} /> }] : [])
   ]
 
   const rewindDialog = (
@@ -232,7 +252,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
         </ShellSlot>
       ) : null}
       <ShellSlot name="actions">
-        <NewSessionButton providers={providers.data ?? []} active={agent.fresh} onStart={agent.startSession} disabled={agent.turn.busy} />
+        <NewSessionButton providers={providers.data ?? []} active={agent.fresh} onStart={startSession} disabled={agent.turn.busy} />
       </ShellSlot>
     </>
   )
@@ -264,12 +284,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
         buildDefaultLayout={buildAgentLayout}
         panels={panels}
         resolvePanel={sessionPanel}
-        renderEmpty={(place) => (
-          <div className="flex h-full min-h-0 flex-col">
-            <p className="px-4 pt-3 text-xs text-muted-foreground">Open a session here — or drag one in from Sessions.</p>
-            <SessionRail sessions={agent.sessions} elsewhere={agent.elsewhere} branch={worktree.branch} onSelect={(ref) => place(sessionPanelId(ref))} className="min-h-0 flex-1" />
-          </div>
-        )}
+        renderEmpty={(place) => <SessionPane worktree={worktree} changedFiles={changedFiles} onCreated={(ref) => place(sessionPanelId(ref))} onOpenAttachment={openAttachment} />}
         request={request}
         onVisibleChange={setVisible}
         className="min-h-0 flex-1 rounded-none border-0"

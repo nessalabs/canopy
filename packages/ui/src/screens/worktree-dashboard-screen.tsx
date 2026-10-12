@@ -53,7 +53,7 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
   useEffect(forgetLinkQuery, [])
   useHotkeys(Object.fromEntries(TABS.map(({ value }, index) => [String(index + 1), () => setTab(value)])))
   const [destroyOpen, setDestroyOpen] = useState(false)
-  const agent = useWorktreeAgent(worktree)
+  const agent = useWorktreeAgent(worktree, undefined, { compose: true })
   const openChanges = (): void => {
     setTab('git')
     setGitPane('changes')

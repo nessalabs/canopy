@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { AgentProvider, Autonomy, Effort, SessionRef, TurnOptions, Worktree } from '@canopy/shared'
 
-import { useAgentCapabilities, useAgentSessions, usePinSession, useTranscript } from './api-hooks'
+import { useAgentCapabilities, useAgentSessions, usePinSession, useProviders, useTranscript } from './api-hooks'
 import { modelAlias } from './models'
 import { useAgentTurn } from './use-agent-turn'
 
@@ -18,9 +18,15 @@ export const sameRef = (a: SessionRef | undefined, b: SessionRef | undefined): b
  * neither follows nor moves the worktree's pin. `follow: false` keeps a conversation to the
  * sessions picked in it — a Git Agent tab — starting from none and never moving the pin.
  * `instructions` ride along with every turn, added to the provider's own system prompt.
+ * `compose` makes a conversation with no session to show a new one, ready for its first message.
  */
-export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef, { follow = true, instructions }: { follow?: boolean; instructions?: string } = {}) {
+export function useWorktreeAgent(
+  worktree: Worktree,
+  fixed?: SessionRef,
+  { follow = true, instructions, compose = false }: { follow?: boolean; instructions?: string; compose?: boolean } = {}
+) {
   const sessions = useAgentSessions(worktree.id)
+  const providers = useProviders().data ?? []
   const pin = usePinSession(worktree.id)
   const [chosen, setChosen] = useState<SessionRef>()
   // Set while composing the first message of a new session; cleared once the agent names it.
@@ -46,6 +52,12 @@ export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef, { follo
   useEffect(() => {
     if (chosen && !all.some((s) => sameRef(s, chosen))) setChosen(undefined)
   }, [chosen, all])
+
+  // Nothing to show: the conversation is a new session with the first installed provider.
+  const [firstProvider] = providers
+  useEffect(() => {
+    if (compose && !sessions.isPending && !selected && !fresh && firstProvider) setFresh(firstProvider)
+  }, [compose, sessions.isPending, selected, fresh, firstProvider])
 
   const select = (ref: SessionRef): void => {
     setFresh(undefined)
@@ -107,6 +119,8 @@ export function useWorktreeAgent(worktree: Worktree, fixed?: SessionRef, { follo
     selected,
     select,
     fresh,
+    /** The providers installed here, which a new session can be started with. */
+    providers,
     startSession,
     history,
     capabilities: capabilities.data,

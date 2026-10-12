@@ -106,7 +106,7 @@ function useDocLinks(path: string, root: React.RefObject<HTMLDivElement | null>,
 }
 
 /** The whole doc, rendered, with the fragment a link carried in applied once it is on screen. */
-function MarkdownDoc({ text, path, anchor, onOpenPath }: { text: string; path: string; anchor?: string; onOpenPath?: OpenPath }): React.JSX.Element {
+export function MarkdownDoc({ text, path, anchor, onOpenPath }: { text: string; path: string; anchor?: string; onOpenPath?: OpenPath }): React.JSX.Element {
   const root = useRef<HTMLDivElement>(null)
   const onClick = useDocLinks(path, root, onOpenPath)
 

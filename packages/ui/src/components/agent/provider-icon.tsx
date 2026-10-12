@@ -2,6 +2,9 @@ import type { AgentProvider } from '@canopy/shared'
 
 import { cn } from '@/lib/utils'
 
+/** How each provider is named wherever Canopy offers or describes its sessions. */
+export const PROVIDER_NAMES: Record<AgentProvider, string> = { claude: 'Claude Code', codex: 'Codex' }
+
 /**
  * Provider marks, taken from the SVGs nessa_ui's own model-picker stories use
  * (apps/storybook/public/model-icons). Upstream candidate: a nessa `provider-icon`.
