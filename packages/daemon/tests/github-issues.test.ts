@@ -99,15 +99,25 @@ describe('IssuesService', () => {
     expect(gh.calls[0]!.join(' ')).not.toContain('since=')
   })
 
-  it('catches up only on what changed since the last sync, once the copy is stale', async () => {
-    const { gh, clock, service } = setup((args) => (isSync(args) ? lines(RAW_ISSUE) : ok()))
+  it('catches up on what changed since the last sync once the copy is stale, new issues included', async () => {
+    let remote = [RAW_ISSUE]
+    const { gh, clock, service } = setup((args) => (isSync(args) ? lines(...remote) : ok()))
     await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    remote = [{ ...RAW_ISSUE, number: 500, title: 'Opened a minute ago', updated_at: '2026-10-12T12:09:00Z' }]
     clock.now += 10 * 60_000
-    await service.search('/repo', '', { kind: 'issue', state: 'open' })
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    const found = await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    expect(found.items.map((item) => item.number)).toEqual([500, 249])
     const syncs = gh.calls.filter(isSync)
     expect(syncs).toHaveLength(2)
     expect(syncs[1]!.join(' ')).toContain('since=2026-10-12T11:59:00.000Z')
+  })
+
+  it('does not ask GitHub again while the copy is fresh', async () => {
+    const { gh, clock, service } = setup((args) => (isSync(args) ? lines(RAW_ISSUE) : ok()))
+    await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    clock.now += 20_000
+    await service.search('/repo', 'files', { kind: 'issue', state: 'open' })
+    expect(gh.calls.filter(isSync)).toHaveLength(1)
   })
 
   it('asks GitHub directly for a number the copy does not have yet', async () => {

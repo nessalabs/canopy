@@ -17,6 +17,12 @@ import type { IssueCache } from './issue-cache'
 const SYNC_TTL_MS = 30_000
 /** Each catch-up re-reads a little before the last one, so clock skew with GitHub loses nothing. */
 const SYNC_OVERLAP_MS = 60_000
+/**
+ * How long a search on a stale copy waits for the catch-up — usually one quick request — so an
+ * issue opened a minute ago is in the very answer that went looking for it. Past this the answer
+ * comes from the copy and the catch-up finishes behind it.
+ */
+const CATCH_UP_WAIT_MS = 1_500
 /** A first sync of a large repository pages through all of it. */
 const SYNC_TIMEOUT_MS = 180_000
 /** Attachments are read as text in a pane; past this it is not a document anyone reads there. */
@@ -154,11 +160,17 @@ export class IssuesService {
     return run
   }
 
-  /** Waits for the first sync; after that answers at once and catches up behind the answer when stale. */
+  /**
+   * Waits for the first sync. After that a fresh copy answers at once, and a stale one waits a
+   * moment for the catch-up — which brings new issues and PRs as well as changed ones, since a
+   * new one's `updated_at` is when it was opened.
+   */
   private async current(cwd: string, repo: string): Promise<void> {
     const last = this.deps.cache.syncedAt(repo)
     if (!last) return this.sync(cwd, repo)
-    if (this.now() - Date.parse(last) > SYNC_TTL_MS) void this.sync(cwd, repo).catch(() => undefined)
+    if (this.now() - Date.parse(last) <= SYNC_TTL_MS) return
+    const catchUp = this.sync(cwd, repo).catch(() => undefined)
+    await Promise.race([catchUp, new Promise((resolve) => setTimeout(resolve, CATCH_UP_WAIT_MS))])
   }
 
   async search(cwd: string, q: string, filter: IssueFilter = { kind: 'issue', state: 'open' }): Promise<IssueSearchResponse> {

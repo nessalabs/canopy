@@ -852,7 +852,8 @@ export const useIssueSearch = (projectId: string, q: string, filter: IssueFilter
     queryKey: keys.issueSearch(projectId, q, filter),
     queryFn: () => api.searchIssues(projectId, q, filter),
     enabled,
-    staleTime: 30_000,
+    // The daemon answers from its local copy and keeps that current, so asking it again is cheap.
+    staleTime: 5_000,
     placeholderData: keepPreviousData,
     retry: false
   })
