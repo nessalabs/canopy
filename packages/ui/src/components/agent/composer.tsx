@@ -15,6 +15,7 @@ import {
   ChatComposerSubmit,
   ChatComposerTrigger
 } from '@/components/ui/chat-composer'
+import { IssueFilterBar, OPEN_ISSUES } from '@/components/github/issue-filter'
 import { IssueStateBadge } from '@/components/github/issue-view'
 import { ComposerAccessMode } from '@/components/ui/composer-access-mode'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -36,6 +37,9 @@ import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 import type { PreviewedAttachment } from './attachment-preview'
 import { ContextMeter } from './context-meter'
 
+
+/** The `/`, `@` and `#` menus: square-cornered, like the rest of Canopy's surfaces. */
+const MENU = 'rounded-md'
 
 let nextAttachmentId = 0
 const attach = (kind: Attachment['kind'], label: string, text: string): Attachment => ({ id: `att-${++nextAttachmentId}`, kind, label, text })
@@ -90,7 +94,7 @@ function IssueRow({ item }: { item: IssueSummary }): React.JSX.Element {
       <IssueStateBadge state={item.state} kind={item.kind} className="px-1.5 py-0 text-[10px]" />
       <span className="shrink-0 font-mono text-xs text-muted-foreground">#{item.number}</span>
       <span className="min-w-0 flex-1 truncate text-sm">{item.title}</span>
-      <span className="shrink-0 text-[11px] text-muted-foreground">{item.kind === 'pr' ? 'PR' : 'Issue'}</span>
+      {item.author ? <span className="shrink-0 text-[11px] text-muted-foreground">{item.author}</span> : null}
     </span>
   )
 }
@@ -102,9 +106,12 @@ function IssueRow({ item }: { item: IssueSummary }): React.JSX.Element {
  */
 function IssueMenu({ projectId, query, onPick }: { projectId: string; query: string; onPick: (item: IssueSummary) => void }): React.JSX.Element {
   const settled = useDebounced(query.trim(), 250)
-  const search = useIssueSearch(projectId, settled)
+  const [filter, setFilter] = useState(OPEN_ISSUES)
+  const search = useIssueSearch(projectId, settled, filter)
   const unavailable = search.data && search.data.gh.state !== 'ready'
   return (
+    <>
+    <IssueFilterBar filter={filter} onChange={setFilter} />
     <SearchableListbox
       items={search.data?.items ?? []}
       query=""
@@ -115,9 +122,10 @@ function IssueMenu({ projectId, query, onPick }: { projectId: string; query: str
       listLabel="Issues and pull requests"
       loading={search.isPending}
       loadingMessage="Searching GitHub…"
-      emptyMessage={search.error ? 'GitHub search failed' : unavailable ? 'GitHub is not set up for this repository' : 'No matching issue or pull request'}
+      emptyMessage={search.error ? 'GitHub search failed' : unavailable ? 'GitHub is not set up for this repository' : filter.kind === 'pr' ? 'No matching pull request' : 'No matching issue'}
       className="max-h-80"
     />
+    </>
   )
 }
 
@@ -292,7 +300,7 @@ export function AgentComposer({
       // Lifted off the pane it sits on: always bordered, a shade lighter, with a soft drop and a top highlight.
       // Focus only firms up the border; the stock ring glow reads as a bright halo on the dark panes.
       borderMode="always"
-      className="bg-muted/50 shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_12px_32px_-16px_rgb(0_0_0/0.6)] focus-within:border-foreground/25 focus-within:ring-0"
+      className="rounded-lg bg-muted/50 shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_12px_32px_-16px_rgb(0_0_0/0.6)] focus-within:border-foreground/25 focus-within:ring-0"
       fileDrop={ready ? { onFiles: (files) => void attachFiles(files), label: 'Drop images or text files to attach' } : undefined}
       onSubmit={(event) => {
         event.preventDefault()
@@ -317,7 +325,7 @@ export function AgentComposer({
               // Images are their own label: a larger thumbnail, no kind glyph, no text.
               kind={attachment.image ? undefined : attachment.kind}
               itemLabel={attachment.label}
-              className={attachment.image ? 'h-auto p-1' : undefined}
+              className={attachment.image ? 'h-auto rounded-md p-1' : 'rounded-md'}
               onRemove={() => remove(attachment.id)}
             >
               {attachment.image ? (
@@ -348,7 +356,7 @@ export function AgentComposer({
         aria-label="Message the agent"
         disabled={!ready}
       />
-      <ChatComposerTrigger trigger="/" label="Commands">
+      <ChatComposerTrigger trigger="/" label="Commands" className={MENU}>
         {({ query, clearTrigger }) => (
           <SearchableListbox
             items={commands}
@@ -364,11 +372,11 @@ export function AgentComposer({
         )}
       </ChatComposerTrigger>
       {projectId ? (
-        <ChatComposerTrigger trigger="#" label="Mention an issue or pull request">
+        <ChatComposerTrigger trigger="#" label="Mention an issue or pull request" className={MENU}>
           {({ query, clearTrigger }) => <IssueMenu projectId={projectId} query={query} onPick={(item) => pickIssue(item, clearTrigger)} />}
         </ChatComposerTrigger>
       ) : null}
-      <ChatComposerTrigger trigger="@" label="Mention a file or a subagent">
+      <ChatComposerTrigger trigger="@" label="Mention a file or a subagent" className={MENU}>
         {({ query, clearTrigger }) => (
           <SearchableListbox
             items={mentions}

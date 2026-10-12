@@ -10,6 +10,7 @@ import type {
   ChangesResponse,
   CommitInput,
   CreatePullRequestInput,
+  IssueFilter,
   PullRequestAction,
   PullRequestResponse,
   ProjectPullRequests,
@@ -844,11 +845,11 @@ export const useUnhide = (worktreeId: string) => {
 }
 
 /** The repository's issues and PRs matching what was typed after `#`; the last answer stays up while the next loads. */
-export const useIssueSearch = (projectId: string, q: string, enabled = true) => {
+export const useIssueSearch = (projectId: string, q: string, filter: IssueFilter, enabled = true) => {
   const api = useApi()
   return useQuery({
-    queryKey: keys.issueSearch(projectId, q),
-    queryFn: () => api.searchIssues(projectId, q),
+    queryKey: keys.issueSearch(projectId, q, filter),
+    queryFn: () => api.searchIssues(projectId, q, filter),
     enabled,
     staleTime: 30_000,
     placeholderData: keepPreviousData,

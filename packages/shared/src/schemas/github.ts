@@ -277,6 +277,10 @@ export const IssueSummary = z.object({
 })
 export type IssueSummary = z.infer<typeof IssueSummary>
 
+/** Which of the repository's issues and PRs a search lists: one kind, open only or every state. */
+export const IssueFilter = z.object({ kind: IssueKind.default('issue'), state: z.enum(['open', 'all']).default('open') })
+export type IssueFilter = z.infer<typeof IssueFilter>
+
 /** The repository's issues and PRs matching a search, most recently updated first. */
 export const IssueSearchResponse = z.object({ gh: GhStatus, items: z.array(IssueSummary) })
 export type IssueSearchResponse = z.infer<typeof IssueSearchResponse>

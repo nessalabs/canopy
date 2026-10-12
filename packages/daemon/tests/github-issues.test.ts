@@ -90,7 +90,13 @@ describe('IssuesService', () => {
     await service.search('/repo', 's3')
     await service.search('/repo', 's3')
     expect(gh.calls).toHaveLength(1)
-    expect(gh.calls[0]).toContain('q=repo:acme/app s3')
+    expect(gh.calls[0]).toContain('q=repo:acme/app is:issue is:open s3')
+  })
+
+  it('searches one kind, and every state only when asked', async () => {
+    const gh = fakeGh(() => ok(JSON.stringify({ items: [] })))
+    await new IssuesService({ gh, status: async () => READY }).search('/repo', '', { kind: 'pr', state: 'all' })
+    expect(gh.calls[0]).toContain('q=repo:acme/app is:pr')
   })
 
   it('answers with no items when GitHub is not available', async () => {
