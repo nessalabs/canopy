@@ -59,6 +59,7 @@ import type {
   ProjectPullRequests,
   IssueSearchResponse,
   IssueFilter,
+  IssueAssignees,
   TerminalInfo,
   CreateTerminalInput,
   IssueThread,
@@ -230,7 +231,8 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     pullRequest: (worktreeId: string, fresh = false) => get<PullRequestResponse>(routes.pullRequest(worktreeId), fresh ? { fresh: '1' } : {}),
     projectPullRequests: (projectId: string) => get<ProjectPullRequests>(routes.projectPullRequests(projectId)),
     searchIssues: (projectId: string, q: string, filter: IssueFilter, limit = 10) =>
-      get<IssueSearchResponse>(routes.projectIssues(projectId), { ...(q ? { q } : {}), kind: filter.kind, state: filter.state, limit }),
+      get<IssueSearchResponse>(routes.projectIssues(projectId), { ...(q ? { q } : {}), kind: filter.kind, state: filter.state, assignee: filter.assignee, limit }),
+    issueAssignees: (projectId: string) => get<IssueAssignees>(routes.projectIssueAssignees(projectId)),
     issue: (projectId: string, number: number) => get<IssueThread>(routes.projectIssue(projectId, String(number))),
     githubAttachment: (projectId: string, url: string) => get<GitHubAttachment>(routes.githubAttachment(projectId), { url }),
     createPullRequest: (worktreeId: string, input: CreatePullRequestInput) =>

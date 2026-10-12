@@ -112,6 +112,75 @@ describe('IssuesService', () => {
     expect(syncs[1]!.join(' ')).toContain('since=2026-10-12T11:59:00.000Z')
   })
 
+  it('drops an issue closed on GitHub from the open list at the next catch-up', async () => {
+    let remote = [RAW_ISSUE]
+    const { clock, service } = setup((args) => (isSync(args) ? lines(...remote) : ok()))
+    expect((await service.search('/repo', '', { kind: 'issue', state: 'open' })).items).toHaveLength(1)
+    remote = [{ ...RAW_ISSUE, state: 'closed', updated_at: '2026-10-12T12:05:00Z' }]
+    clock.now += 10 * 60_000
+    expect((await service.search('/repo', '', { kind: 'issue', state: 'open' })).items).toEqual([])
+  })
+
+  it('rebuilds the copy when GitHub counts fewer than it holds — something was deleted or moved away', async () => {
+    let remote: object[] = [RAW_ISSUE, { ...RAW_ISSUE, number: 300 }]
+    const { gh, clock, service } = setup((args) => {
+      if (isSync(args)) return lines(...remote)
+      if (args.includes('search/issues')) return ok(JSON.stringify({ total_count: remote.length }))
+      return ok()
+    })
+    await service.search('/repo', '', { kind: 'issue', state: 'all' })
+    remote = [RAW_ISSUE]
+    clock.now += 10 * 60_000
+    await service.search('/repo', '', { kind: 'issue', state: 'all' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect((await service.search('/repo', '', { kind: 'issue', state: 'all' })).items.map((item) => item.number)).toEqual([249])
+    expect(gh.calls.filter(isSync).at(-1)!.join(' ')).not.toContain('since=')
+  })
+
+  it('leaves the copy be when the counts agree, and checks again only after a while', async () => {
+    const { gh, clock, service } = setup((args) => {
+      if (isSync(args)) return lines(RAW_ISSUE)
+      return ok(JSON.stringify({ total_count: 1 }))
+    })
+    await service.search('/repo', '', { kind: 'issue', state: 'all' })
+    for (const minutes of [1, 1]) {
+      clock.now += minutes * 60_000
+      await service.search('/repo', '', { kind: 'issue', state: 'all' })
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    }
+    expect(gh.calls.filter((args) => args.includes('search/issues'))).toHaveLength(1)
+    expect(gh.calls.filter(isSync).every((args, index) => index === 0 || args.join(' ').includes('since='))).toBe(true)
+  })
+
+  it('forgets an issue deleted on GitHub when it is opened', async () => {
+    const { cache, service } = setup((args) => (isSync(args) ? lines(RAW_ISSUE) : { found: true, exitCode: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' }))
+    await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    await expect(service.read('/repo', 249)).rejects.toMatchObject({ status: 404 })
+    expect(cache.summary('acme/app', 249)).toBeUndefined()
+  })
+
+  it('says where an issue was transferred to, and forgets it here', async () => {
+    const { cache, service } = setup((args) => {
+      if (isSync(args)) return lines(RAW_ISSUE)
+      if (args.includes('--paginate')) return lines()
+      return ok(JSON.stringify({ ...RAW_ISSUE, number: 12, repository_url: 'https://api.github.com/repos/acme/other' }))
+    })
+    await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    await expect(service.read('/repo', 249)).rejects.toMatchObject({ status: 410, message: '#249 was moved to acme/other#12' })
+    expect(cache.summary('acme/app', 249)).toBeUndefined()
+  })
+
+  it('filters by assignee, and names everyone assigned and who "me" is', async () => {
+    const { service } = setup((args) => {
+      if (isSync(args)) return lines({ ...RAW_ISSUE, assignees: [{ login: 'rohit' }] }, { ...RAW_ISSUE, number: 300, assignees: [{ login: 'igaurab' }, { login: 'sanzog' }] })
+      return ok(JSON.stringify({ login: 'igaurab' }))
+    })
+    const mine = await service.search('/repo', '', { kind: 'issue', state: 'open', assignee: 'igaurab' })
+    expect(mine.items.map((item) => [item.number, item.assignees])).toEqual([[300, ['igaurab', 'sanzog']]])
+    expect(await service.assignees('/repo')).toEqual({ assignees: ['igaurab', 'rohit', 'sanzog'], viewer: 'igaurab' })
+  })
+
   it('does not ask GitHub again while the copy is fresh', async () => {
     const { gh, clock, service } = setup((args) => (isSync(args) ? lines(RAW_ISSUE) : ok()))
     await service.search('/repo', '', { kind: 'issue', state: 'open' })

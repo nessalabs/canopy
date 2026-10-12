@@ -18,6 +18,8 @@ export const routes = {
   /** The repository's issues and PRs for the composer's `#` menu; `?q=` searches, a number finds that one. */
   projectIssues: (id: string) => `${API_PREFIX}/projects/${id}/issues`,
   /** One issue or PR with its timeline. */
+  /** Everyone the repository's issues and PRs are assigned to, for the assignee filter. */
+  projectIssueAssignees: (id: string) => `${API_PREFIX}/projects/${id}/issue-assignees`,
   projectIssue: (id: string, number: string) => `${API_PREFIX}/projects/${id}/issues/${number}`,
   /** A file attached on GitHub (`?url=`), as text, for reading it inside Canopy. */
   githubAttachment: (id: string) => `${API_PREFIX}/projects/${id}/github-attachment`,

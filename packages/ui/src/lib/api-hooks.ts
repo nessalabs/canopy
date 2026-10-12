@@ -907,3 +907,9 @@ export const useCloseTerminal = (worktreeId: string) => {
   const api = useApi()
   return useInvalidating((terminalId: string) => api.closeTerminal(terminalId), () => [keys.terminals(worktreeId)])
 }
+
+/** Everyone the repository's issues and PRs are assigned to, and who "me" is, for the assignee filter. */
+export const useIssueAssignees = (projectId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.issueAssignees(projectId), queryFn: () => api.issueAssignees(projectId), staleTime: 60_000, retry: false })
+}

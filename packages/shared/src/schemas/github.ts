@@ -273,13 +273,24 @@ export const IssueSummary = z.object({
   state: PullRequestState,
   url: z.string(),
   author: z.string().nullable(),
+  /** Logins it is assigned to. */
+  assignees: z.array(z.string()).default([]),
   updatedAt: z.string()
 })
 export type IssueSummary = z.infer<typeof IssueSummary>
 
 /** Which of the repository's issues and PRs a search lists: one kind, open only or every state. */
-export const IssueFilter = z.object({ kind: IssueKind.default('issue'), state: z.enum(['open', 'all']).default('open') })
+export const IssueFilter = z.object({
+  kind: IssueKind.default('issue'),
+  state: z.enum(['open', 'all']).default('open'),
+  /** Only those assigned to this login. */
+  assignee: z.string().min(1).optional()
+})
 export type IssueFilter = z.infer<typeof IssueFilter>
+
+/** Who the repository's issues and PRs are assigned to, and who `gh` is signed in as. */
+export const IssueAssignees = z.object({ assignees: z.array(z.string()), viewer: z.string().nullable() })
+export type IssueAssignees = z.infer<typeof IssueAssignees>
 
 /** The repository's issues and PRs matching a search, most recently updated first. */
 export const IssueSearchResponse = z.object({ gh: GhStatus, items: z.array(IssueSummary) })
