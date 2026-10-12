@@ -12,6 +12,7 @@ import {
 import { ErrorBoundary } from '@/components/error-boundary'
 import { ShellSlot } from '@/components/shell-slots'
 import { IconAction } from '@/components/icon-action'
+import { pruneLayout } from '@/lib/prune-layout'
 import { PaneSplitDirection, closePane as closePaneOp, collectPanes, splitPane, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
 import { placementOf, reinsertPane, type Placement } from '@/lib/panel-placement'
 import { Button } from '@/components/ui/button'
@@ -140,6 +141,7 @@ export function PanelShell({
   buildDefaultLayout,
   panels,
   resolvePanel,
+  keepView,
   renderEmpty,
   onVisibleChange,
   request,
@@ -150,6 +152,8 @@ export function PanelShell({
   panels: PanelDef[]
   /** Panels made on demand rather than listed — a view id `panels` does not name is asked here. */
   resolvePanel?: (viewId: string) => PanelDef | undefined
+  /** Which saved views still mean something; the rest are dropped when the arrangement loads. */
+  keepView?: (viewId: string) => boolean
   /** What an empty pane offers instead of the default hint; `place` puts a view into that pane. */
   renderEmpty?: (place: (viewId: string) => void) => React.ReactNode
   /** Called with the ids of the panels currently on screen whenever the arrangement changes. */
@@ -161,7 +165,10 @@ export function PanelShell({
   const initial = useMemo<AppShellLayout>(() => {
     try {
       const stored = localStorage.getItem(storageKey)
-      if (stored) return JSON.parse(stored) as AppShellLayout
+      if (stored) {
+        const layout = JSON.parse(stored) as AppShellLayout
+        return keepView ? pruneLayout(layout, keepView) : layout
+      }
     } catch {
       // fall through to the default arrangement
     }

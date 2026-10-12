@@ -30,6 +30,9 @@ import type { TurnWrites } from './transcript'
 import { TurnChanges, type TurnReview } from './turn-changes'
 
 
+/** Panels a saved arrangement keeps; the Reader's tabs do not survive a reload, so neither does it. */
+const SAVED_PANELS = new Set(['sessions', 'conversation', 'changes'])
+
 const LAYOUT_KEY = 'canopy-agent-layout-v3'
 
 const REMOVED_CHECKOUT = 'This session ran in a worktree that has been removed'
@@ -289,7 +292,15 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
         buildDefaultLayout={buildAgentLayout}
         panels={panels}
         resolvePanel={sessionPanel}
-        renderEmpty={(place) => <SessionPane worktree={worktree} changedFiles={changedFiles} onCreated={(ref) => place(sessionPanelId(ref))} onOpenAttachment={openAttachment} />}
+        keepView={(viewId) => SAVED_PANELS.has(viewId) || parseSessionPanelId(viewId) !== undefined}
+        renderEmpty={(place) =>
+          // One composer on screen at a time: beside the main conversation an empty pane only says what it is for.
+          visible.includes('conversation') ? (
+            <p className="p-4 text-xs text-muted-foreground">Drag a session here from Sessions, or close this panel.</p>
+          ) : (
+            <SessionPane worktree={worktree} changedFiles={changedFiles} onCreated={(ref) => place(sessionPanelId(ref))} onOpenAttachment={openAttachment} />
+          )
+        }
         request={request}
         onVisibleChange={setVisible}
         className="min-h-0 flex-1 rounded-none border-0"
