@@ -6,6 +6,7 @@ import { useStaging } from '@/lib/use-staging'
 import { useTranscriptModel } from '@/lib/use-transcript-model'
 import { useWorktreeAgent } from '@/lib/use-worktree-agent'
 
+import type { OpenIssueRef } from './answer-links'
 import type { PreviewedAttachment } from './attachment-preview'
 import { Conversation } from './conversation'
 
@@ -19,13 +20,15 @@ export function SessionPane({
   session,
   changedFiles,
   onCreated,
-  onOpenAttachment
+  onOpenAttachment,
+  onOpenIssue
 }: {
   worktree: Worktree
   session?: SessionRef
   changedFiles: ChangedFile[]
   onCreated?: (session: SessionRef) => void
   onOpenAttachment?: (attachment: PreviewedAttachment) => void
+  onOpenIssue?: OpenIssueRef
 }): React.JSX.Element {
   const agent = useWorktreeAgent(worktree, session, { follow: false, compose: !session })
   const model = useTranscriptModel(agent.history.data, agent.turn)
@@ -42,6 +45,7 @@ export function SessionPane({
       changedFiles={changedFiles}
       staging={staging}
       onOpenAttachment={onOpenAttachment}
+      onOpenIssue={onOpenIssue}
     />
   )
 }

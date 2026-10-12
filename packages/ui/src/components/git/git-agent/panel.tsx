@@ -3,6 +3,7 @@ import { X } from 'lucide-react'
 
 import type { Worktree } from '@canopy/shared'
 
+import type { OpenIssueRef } from '@/components/agent/answer-links'
 import type { PreviewedAttachment } from '@/components/agent/attachment-preview'
 import { AgentAvatar } from '@/components/agent/agent-avatar'
 import type { OpenFileRef } from '@/components/agent/answer-links'
@@ -96,13 +97,15 @@ export function GitAgentPanel({
   agent,
   seed,
   onOpenRef,
-  onOpenAttachment
+  onOpenAttachment,
+  onOpenIssue
 }: {
   worktree: Worktree
   agent: GitAgent
   seed: string
   onOpenRef: OpenFileRef
   onOpenAttachment?: (attachment: PreviewedAttachment) => void
+  onOpenIssue?: OpenIssueRef
 }): React.JSX.Element {
   const [metas, setMetas] = useState<Record<string, TabMeta>>({})
   const [over, setOver] = useState(false)
@@ -158,6 +161,7 @@ export function GitAgentPanel({
             tab={tab}
             onOpenRef={onOpenRef}
             onOpenAttachment={onOpenAttachment}
+            onOpenIssue={onOpenIssue}
             active={tab.id === active}
             staging={agent.staging(tab.id)}
             outgoing={agent.outbox[tab.id]}

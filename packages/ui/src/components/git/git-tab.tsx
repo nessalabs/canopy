@@ -170,6 +170,10 @@ export function GitTab({
     reader.show(attachment.issue !== undefined ? { kind: 'issue', number: attachment.issue } : { kind: 'staged', attachment })
     onPaneChange('issues')
   }
+  const readIssue = (number: number, newTab: boolean): void => {
+    reader.show({ kind: 'issue', number }, newTab)
+    onPaneChange('issues')
+  }
   const focusFor = (target: Pane): ExplorerFocus | undefined => (jump?.pane === target ? jump.focus : undefined)
 
   return (
@@ -222,7 +226,7 @@ export function GitTab({
           </SplitViewPanel>
           <SplitViewSeparator className={gitAgent.open ? undefined : 'hidden'} />
           <SplitViewPanel id="git-agent" defaultSize={30} minSize={20} className={cn('min-h-0 border-l border-border', !gitAgent.open && 'hidden')}>
-            <GitAgentPanel worktree={worktree} agent={gitAgent} seed={agentSeed} onOpenRef={openRef} onOpenAttachment={readChip} />
+            <GitAgentPanel worktree={worktree} agent={gitAgent} seed={agentSeed} onOpenRef={openRef} onOpenAttachment={readChip} onOpenIssue={readIssue} />
           </SplitViewPanel>
         </SplitView>
       </Tabs>

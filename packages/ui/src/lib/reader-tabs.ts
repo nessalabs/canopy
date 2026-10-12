@@ -26,12 +26,13 @@ const withActive = (state: ReaderTabs, update: (tab: ReaderTab) => ReaderTab): R
 
 /**
  * How the reader's tabs move, as pure steps. `show` brings a reading up — the tab already
- * showing it, else a new one. `open` puts it in the tab on screen, starting that tab's trail
+ * showing it, else a new one; with `newTab`, always a new one. `open` puts it in the tab on screen, starting that tab's trail
  * over (a pick from a list). `follow` is a link: onto the trail of the tab on screen, or with
  * `newTab` into a tab of its own. `back` steps the tab on screen back along its trail.
  */
 export const readerSteps = {
-  show: (state: ReaderTabs, reading: Reading): ReaderTabs => {
+  show: (state: ReaderTabs, reading: Reading, newTab = false): ReaderTabs => {
+    if (newTab) return readerSteps.follow(state, reading, true)
     const showing = state.tabs.find((t) => sameReading(t.trail.at(-1), reading))
     if (showing) return { ...state, active: showing.id }
     const added = tab(reading)
