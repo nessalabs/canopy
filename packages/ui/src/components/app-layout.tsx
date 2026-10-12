@@ -11,6 +11,8 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { MergedMark } from '@/components/merged-mark'
 import { ShellSlotProvider, ShellSlotTarget } from '@/components/shell-slots'
 import { SidePanel, type SidePanelId } from '@/components/side-panel'
+import { TerminalDockProvider, type TerminalDock, type TerminalDockControls } from '@/components/terminal/terminal-dock'
+import { TerminalPanel } from '@/components/terminal/terminal-panel'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
 import { Button } from '@/components/ui/button'
 import {
@@ -43,6 +45,8 @@ import { usePlatform } from '@/providers/platform'
 const RECENT_WORKTREE_KEY = 'canopy-recent-worktree'
 
 /** Where a tool's last full-screen choice is kept, per tool, between toggles and reloads. */
+const TERMINAL_DOCK_KEY = 'canopy-terminal-dock'
+
 const fullKey = (id: SidePanelId): string => `canopy-side-panel-full:${id}`
 
 /** How this tool was last left: full screen, or docked beside the screen. */
@@ -223,6 +227,38 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
     setPanelFull(storedFull('files'))
   }
   useHotkeys({ '\\': toggleFiles })
+
+  // The terminal is the worktree on screen's, or away from one, the last one that was.
+  const terminalWorktree = worktreeId ?? recent
+  const [terminalDock, setTerminalDock] = useState<TerminalDock>(() => readStored<TerminalDock>(TERMINAL_DOCK_KEY) ?? 'bottom')
+  const [bottomOpen, setBottomOpen] = useState(false)
+  const terminal: TerminalDockControls = {
+    dock: terminalDock,
+    open: terminalDock === 'right' ? panel === 'terminal' : bottomOpen,
+    toggle: () => {
+      if (!terminalWorktree) return
+      if (terminalDock === 'bottom') return setBottomOpen((current) => !current)
+      setPanel(panel === 'terminal' ? undefined : 'terminal')
+    },
+    moveTo: (next) => {
+      writeStored(TERMINAL_DOCK_KEY, next)
+      setTerminalDock(next)
+      setBottomOpen(next === 'bottom')
+      if (next === 'right') setPanel('terminal')
+      else if (panel === 'terminal') setPanel(undefined)
+    }
+  }
+  // Ctrl+` as in VS Code; the hotkey table only knows plain keys.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.ctrlKey && event.code === 'Backquote') {
+        event.preventDefault()
+        terminal.toggle()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
   // Keyed on the location so navigating away from a screen that threw clears the error.
   const main = (
     <main className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -233,6 +269,7 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
   )
 
   return (
+    <TerminalDockProvider value={terminal}>
     <ShellSlotProvider>
       <SidebarProvider className="h-svh max-h-svh min-h-0 flex-col overflow-hidden" keyboardShortcut={{ key: '[' }}>
         <div className="flex min-h-0 flex-1">
@@ -282,6 +319,9 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
               its scroll and its half-typed message would all go back to their defaults. Closing
               the panel hides it instead, exactly as full screen hides the main side.
             */}
+            {/* The terminal docks below everything else, as in VS Code; the split stays mounted for the same reason. */}
+            <SplitView orientation={SplitViewOrientation.Vertical} className="min-h-0 flex-1">
+            <SplitViewPanel id="workspace" minSize={20} className="flex min-h-0 flex-col">
             <SplitView orientation={SplitViewOrientation.Horizontal} className="min-h-0 flex-1">
               <SplitViewPanel id="main" minSize={40} className={cn('flex min-h-0 flex-col', open && panelFull && 'hidden')}>
                 {main}
@@ -299,6 +339,12 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
                 ) : null}
               </SplitViewPanel>
             </SplitView>
+            </SplitViewPanel>
+            <SplitViewSeparator className={bottomOpen && terminalWorktree ? undefined : 'hidden'} />
+            <SplitViewPanel id="terminal" defaultSize={32} minSize={10} className={cn('min-h-0 border-t border-border', !(bottomOpen && terminalWorktree) && 'hidden')}>
+              {bottomOpen && terminalWorktree ? <TerminalPanel key={terminalWorktree} worktreeId={terminalWorktree} /> : null}
+            </SplitViewPanel>
+            </SplitView>
           </SidebarInset>
         </div>
         {recent ? <RecentWorktreeStatus id={recent} /> : null}
@@ -306,5 +352,6 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
         <AddProjectDialog open={addOpen} onOpenChange={setAddOpen} />
       </SidebarProvider>
     </ShellSlotProvider>
+    </TerminalDockProvider>
   )
 }

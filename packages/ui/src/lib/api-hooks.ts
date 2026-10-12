@@ -10,6 +10,7 @@ import type {
   ChangesResponse,
   CommitInput,
   CreatePullRequestInput,
+  CreateTerminalInput,
   IssueFilter,
   PullRequestAction,
   PullRequestResponse,
@@ -886,4 +887,20 @@ export const useFetchIssue = (projectId: string) => {
   const api = useApi()
   const queryClient = useQueryClient()
   return (number: number) => queryClient.fetchQuery({ queryKey: keys.issue(projectId, number), queryFn: () => api.issue(projectId, number), staleTime: 20_000 })
+}
+
+/** The worktree's in-app terminals, as the daemon keeps them. */
+export const useTerminals = (worktreeId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.terminals(worktreeId), queryFn: () => api.terminals(worktreeId) })
+}
+
+export const useCreateTerminal = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating((input: CreateTerminalInput) => api.createTerminal(worktreeId, input), () => [keys.terminals(worktreeId)])
+}
+
+export const useCloseTerminal = (worktreeId: string) => {
+  const api = useApi()
+  return useInvalidating((terminalId: string) => api.closeTerminal(terminalId), () => [keys.terminals(worktreeId)])
 }

@@ -4,6 +4,7 @@ import { useLocation } from 'wouter'
 
 import { environmentDot, type Worktree } from '@canopy/shared'
 
+import { useTerminalDock } from '@/components/terminal/terminal-dock'
 import { ErrorNote } from '@/components/error-note'
 import { IconAction } from '@/components/icon-action'
 import { ResourcesTab } from '@/components/resources/resources-tab'
@@ -19,7 +20,7 @@ import { plural } from '@/lib/format'
 import { ENV_STATE_BADGE, mergedLabel, WORKTREE_DOT } from '@/lib/status'
 
 import { DestroyWorktreeDialog } from './destroy-worktree-dialog'
-import { useToolLabels, useWorktreeControls, WorktreeMenuItems } from './worktree-actions'
+import { WorktreeMenuItems } from './worktree-actions'
 
 const TRIGGER = 'h-6 gap-1.5 px-1.5 font-mono text-xs font-normal text-muted-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground'
 
@@ -186,13 +187,12 @@ function ResourcesPopover({ worktree }: { worktree: Worktree }): React.JSX.Eleme
   )
 }
 
-/** The status bar's right-hand worktree tools: a terminal in it, its resources, and its agent. */
+/** The status bar's right-hand worktree tools: its terminal, its resources, and its agent. */
 export function WorktreeStatusTools({ worktree, onOpenAgent }: { worktree: Worktree; onOpenAgent: () => void }): React.JSX.Element {
-  const controls = useWorktreeControls(worktree)
-  const { terminal } = useToolLabels()
+  const terminal = useTerminalDock()
   return (
     <>
-      <IconAction label={`Open in ${terminal}`} className="w-7" onClick={() => controls.openIn('terminal')}>
+      <IconAction label={terminal.open ? 'Hide the terminal  Ctrl+`' : 'Terminal  Ctrl+`'} pressed={terminal.open} className="w-7" onClick={terminal.toggle}>
         <SquareTerminal className="size-3.5" />
       </IconAction>
       <ResourcesPopover worktree={worktree} />

@@ -11,11 +11,16 @@ function tokenMatches(presented: string | undefined, expected: string): boolean 
   return a.length === b.length && timingSafeEqual(a, b)
 }
 
-/** Bearer-token gate on everything under the API prefix; static assets and /healthz stay open. */
+/**
+ * Bearer-token gate on everything under the API prefix; static assets and /healthz stay open. A
+ * browser cannot put a header on a WebSocket, so an upgrade may carry the token as `?token=`.
+ */
 export function registerAuth(app: FastifyInstance, token: string): void {
   app.addHook('onRequest', async (request) => {
     if (!request.url.startsWith(API_PREFIX)) return
-    const presented = request.headers.authorization?.replace(/^Bearer\s+/i, '')
+    const upgrade = request.headers.upgrade?.toLowerCase() === 'websocket'
+    const queried = upgrade ? (request.query as { token?: string } | undefined)?.token : undefined
+    const presented = request.headers.authorization?.replace(/^Bearer\s+/i, '') ?? queried
     if (!tokenMatches(presented, token)) throw new ApiError(401, 'unauthorized', 'missing or invalid bearer token')
   })
 }
