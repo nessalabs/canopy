@@ -3,6 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { isAttachmentUrl, type GhStatus } from '@canopy/shared'
 
 import type { GhRun, GhRunner } from '../src/github/gh'
+import { openDb } from '../src/db'
+import { IssueCache } from '../src/github/issue-cache'
 import { IssuesService, toIssueSummary, toTimelineItem } from '../src/github/issues'
 
 const ok = (stdout = ''): GhRun => ({ found: true, exitCode: 0, stdout, stderr: '' })
@@ -75,63 +77,109 @@ describe('isAttachmentUrl', () => {
   ])('%s → %s', (url, expected) => expect(isAttachmentUrl(url)).toBe(expected))
 })
 
+/** A service over a fresh in-memory copy, with the clock the test moves. */
+function setup(answer: (args: string[]) => GhRun, status: GhStatus = READY) {
+  const gh = fakeGh(answer)
+  const cache = new IssueCache(openDb(':memory:'))
+  const clock = { now: Date.parse('2026-10-12T12:00:00Z') }
+  const service = new IssuesService({ gh, status: async () => status, cache, now: () => clock.now })
+  return { gh, cache, clock, service }
+}
+
+const lines = (...items: object[]): GhRun => ok(items.map((item) => JSON.stringify(item)).join('\n'))
+const RAW_PR = { ...RAW_ISSUE, number: 282, title: 'Copy contexts to S3', html_url: 'https://github.com/acme/app/pull/282', pull_request: {} }
+const isSync = (args: string[]) => args.some((arg) => arg.startsWith('repos/acme/app/issues?'))
+
 describe('IssuesService', () => {
-  it('looks a number up directly instead of searching', async () => {
-    const gh = fakeGh(() => ok(JSON.stringify(RAW_ISSUE)))
-    const service = new IssuesService({ gh, status: async () => READY })
-    const found = await service.search('/repo', '#249')
-    expect(found.items.map((item) => item.number)).toEqual([249])
-    expect(gh.calls).toEqual([['api', 'repos/acme/app/issues/249']])
+  it('syncs everything once, then answers searches from the local copy', async () => {
+    const { gh, service } = setup((args) => (isSync(args) ? lines(RAW_ISSUE, RAW_PR) : ok()))
+    expect((await service.search('/repo', '', { kind: 'issue', state: 'open' })).items.map((i) => i.number)).toEqual([249])
+    expect((await service.search('/repo', 's3', { kind: 'pr', state: 'open' })).items.map((i) => i.number)).toEqual([282])
+    expect(gh.calls.filter(isSync)).toHaveLength(1)
+    expect(gh.calls[0]!.join(' ')).not.toContain('since=')
   })
 
-  it('searches the repository for words, and remembers the answer', async () => {
-    const gh = fakeGh(() => ok(JSON.stringify({ items: [RAW_ISSUE] })))
-    const service = new IssuesService({ gh, status: async () => READY })
-    await service.search('/repo', 's3')
-    await service.search('/repo', 's3')
-    expect(gh.calls).toHaveLength(1)
-    expect(gh.calls[0]).toContain('q=repo:acme/app is:issue is:open s3')
+  it('catches up only on what changed since the last sync, once the copy is stale', async () => {
+    const { gh, clock, service } = setup((args) => (isSync(args) ? lines(RAW_ISSUE) : ok()))
+    await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    clock.now += 10 * 60_000
+    await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    const syncs = gh.calls.filter(isSync)
+    expect(syncs).toHaveLength(2)
+    expect(syncs[1]!.join(' ')).toContain('since=2026-10-12T11:59:00.000Z')
   })
 
-  it('searches one kind, and every state only when asked', async () => {
-    const gh = fakeGh(() => ok(JSON.stringify({ items: [] })))
-    await new IssuesService({ gh, status: async () => READY }).search('/repo', '', { kind: 'pr', state: 'all' })
-    expect(gh.calls[0]).toContain('q=repo:acme/app is:pr')
+  it('asks GitHub directly for a number the copy does not have yet', async () => {
+    const { gh, service } = setup((args) => (isSync(args) ? lines() : ok(JSON.stringify({ ...RAW_ISSUE, number: 500 }))))
+    const found = await service.search('/repo', '#500', { kind: 'issue', state: 'open' })
+    expect(found.items.map((item) => item.number)).toEqual([500])
+    expect(gh.calls.at(-1)).toEqual(['api', 'repos/acme/app/issues/500'])
   })
 
   it('answers with no items when GitHub is not available', async () => {
-    const gh = fakeGh(() => ok())
-    const service = new IssuesService({ gh, status: async () => ({ ...READY, state: 'unauthenticated' }) })
-    expect((await service.search('/repo', '')).items).toEqual([])
+    const { gh, service } = setup(() => ok(), { ...READY, state: 'unauthenticated' })
+    expect((await service.search('/repo', '', { kind: 'issue', state: 'open' })).items).toEqual([])
     expect(gh.calls).toEqual([])
   })
 
-  it('reads a thread with its timeline', async () => {
-    const gh = fakeGh((args) =>
-      args.includes('--paginate')
-        ? ok(`${JSON.stringify({ event: 'commented', id: 9, user: { login: 'sanzog' }, body: 'hi' })}\n${JSON.stringify({ event: 'mentioned' })}\n`)
-        : ok(JSON.stringify(RAW_ISSUE))
-    )
-    const thread = await new IssuesService({ gh, status: async () => READY }).read('/repo', 249)
+  it('reads a thread once, and again only after the issue changed', async () => {
+    let updated = RAW_ISSUE.updated_at
+    const { gh, clock, service } = setup((args) => {
+      if (isSync(args)) return lines({ ...RAW_ISSUE, updated_at: updated })
+      if (args.includes('--paginate')) return lines({ event: 'commented', id: 9, user: { login: 'sanzog' }, body: 'hi' }, { event: 'mentioned' })
+      return ok(JSON.stringify({ ...RAW_ISSUE, updated_at: updated }))
+    })
+    const thread = await service.read('/repo', 249)
     expect(thread).toMatchObject({ number: 249, body: 'TBD', repo: 'acme/app' })
     expect(thread.timeline.map((item) => item.type)).toEqual(['comment'])
+    await service.read('/repo', 249)
+    const reads = () => gh.calls.filter((args) => args.includes('repos/acme/app/issues/249')).length
+    expect(reads()).toBe(1)
+
+    updated = '2026-10-12T12:30:00Z'
+    clock.now += 10 * 60_000
+    await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await service.read('/repo', 249)
+    expect(reads()).toBe(2)
   })
 
   it('retries an attachment with the gh login when GitHub refuses it', async () => {
-    const gh = fakeGh(() => ok('secret\n'))
     const seen: Array<string | undefined> = []
     const fetcher = (async (_url: string, init?: RequestInit) => {
       const auth = (init?.headers as Record<string, string> | undefined)?.Authorization
       seen.push(auth)
       return auth ? new Response('# Plan', { status: 200, headers: { 'content-type': 'text/markdown' } }) : new Response('', { status: 404 })
     }) as typeof fetch
-    const file = await new IssuesService({ gh, status: async () => READY, fetch: fetcher }).attachment('/repo', 'https://github.com/user-attachments/files/1/plan.md')
+    const service = new IssuesService({ gh: fakeGh(() => ok('secret\n')), status: async () => READY, cache: new IssueCache(openDb(':memory:')), fetch: fetcher })
+    const file = await service.attachment('/repo', 'https://github.com/user-attachments/files/1/plan.md')
     expect(file).toMatchObject({ name: 'plan.md', text: '# Plan', contentType: 'text/markdown' })
     expect(seen).toEqual([undefined, 'token secret'])
   })
 
   it('refuses a URL that is not a GitHub attachment', async () => {
-    const service = new IssuesService({ gh: fakeGh(() => ok()), status: async () => READY })
+    const { service } = setup(() => ok())
     await expect(service.attachment('/repo', 'https://example.com/x.md')).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('IssueCache', () => {
+  it('matches every word of a title, literally, and a number', () => {
+    const cache = new IssueCache(openDb(':memory:'))
+    cache.save('acme/app', [toIssueSummary(RAW_ISSUE), toIssueSummary({ ...RAW_ISSUE, number: 7, title: '100% coverage_report' })])
+    const open = { kind: 'issue', state: 'open' } as const
+    expect(cache.search('acme/app', 'files s3', open).map((i) => i.number)).toEqual([249])
+    expect(cache.search('acme/app', '100%', open).map((i) => i.number)).toEqual([7])
+    expect(cache.search('acme/app', 'e_r', open).map((i) => i.number)).toEqual([7])
+    expect(cache.search('acme/app', '#249', open).map((i) => i.number)).toEqual([249])
+    expect(cache.search('other/repo', '', open)).toEqual([])
+  })
+
+  it('lists closed ones only when asked', () => {
+    const cache = new IssueCache(openDb(':memory:'))
+    cache.save('acme/app', [toIssueSummary({ ...RAW_ISSUE, state: 'closed' })])
+    expect(cache.search('acme/app', '', { kind: 'issue', state: 'open' })).toEqual([])
+    expect(cache.search('acme/app', '', { kind: 'issue', state: 'all' })).toHaveLength(1)
   })
 })

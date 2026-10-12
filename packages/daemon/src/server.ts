@@ -40,6 +40,7 @@ import { createCanopyd, type Canopyd } from './env/worktree/canopyd'
 import { createDiffReader } from './git/diff'
 import { runGit, type GitRunner } from './git/exec'
 import { runGh, type GhRunner } from './github/gh'
+import { IssueCache } from './github/issue-cache'
 import { IssuesService } from './github/issues'
 import { GitHubService } from './github/service'
 import { createRepo } from './git/repo'
@@ -169,7 +170,7 @@ export function buildServices(deps: ServerDeps): Services {
     merges: new MergeService({ repo, git, worktrees, projects, events }),
     destroyJobs: new DestroyJobsService({ worktrees, events }),
     github,
-    issues: new IssuesService({ gh, status: (cwd) => github.status(cwd, null) }),
+    issues: new IssuesService({ gh, status: (cwd) => github.status(cwd, null), cache: new IssueCache(deps.db) }),
     terminals: new TerminalsService({ spawn: deps.spawnPty ?? spawnPty, worktreePath: (id) => worktrees.location(id).path, worktreeEnv: (id) => environment.shellEnv(id) }),
     review,
     agents,
