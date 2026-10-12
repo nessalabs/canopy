@@ -47,7 +47,8 @@ function SectionSwitcher({ tab, dirty }: { tab: DashboardTab; dirty: number }): 
 
 function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectName: string }): React.JSX.Element {
   const [, navigate] = useLocation()
-  const [tab, setTab] = useState<DashboardTab>(() => parseTab(linkQuery()) ?? (worktree.environment.configured ? 'environment' : 'git'))
+  // A worktree opens on its agent; a link that names a tab (`?tab=git`) still opens that one.
+  const [tab, setTab] = useState<DashboardTab>(() => parseTab(linkQuery()) ?? 'agent')
   const [gitPane, setGitPane] = useState<GitPane>(() => parseGitLink(linkQuery()).pane ?? 'changes')
   // The Git tab reads the same link while this first render mounts it; after that it is spent.
   useEffect(forgetLinkQuery, [])
