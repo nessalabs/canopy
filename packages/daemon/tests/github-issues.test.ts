@@ -99,6 +99,14 @@ describe('IssuesService', () => {
     expect(gh.calls[0]!.join(' ')).not.toContain('since=')
   })
 
+  it('asks an Enterprise host, and keeps its copy apart from a github.com repository of the same name', async () => {
+    const { gh, cache, service } = setup((args) => (isSync(args) ? lines(RAW_ISSUE) : ok()), { ...READY, host: 'github.acme.com' })
+    await service.search('/repo', '', { kind: 'issue', state: 'open' })
+    expect(gh.calls[0]!.slice(0, 3)).toEqual(['api', '--hostname', 'github.acme.com'])
+    expect(cache.count('github.acme.com/acme/app')).toBe(1)
+    expect(cache.count('github.com/acme/app')).toBe(0)
+  })
+
   it('catches up on what changed since the last sync once the copy is stale, new issues included', async () => {
     let remote = [RAW_ISSUE]
     const { gh, clock, service } = setup((args) => (isSync(args) ? lines(...remote) : ok()))
@@ -157,7 +165,7 @@ describe('IssuesService', () => {
     const { cache, service } = setup((args) => (isSync(args) ? lines(RAW_ISSUE) : { found: true, exitCode: 1, stdout: '', stderr: 'gh: Not Found (HTTP 404)' }))
     await service.search('/repo', '', { kind: 'issue', state: 'open' })
     await expect(service.read('/repo', 249)).rejects.toMatchObject({ status: 404 })
-    expect(cache.summary('acme/app', 249)).toBeUndefined()
+    expect(cache.summary('github.com/acme/app', 249)).toBeUndefined()
   })
 
   it('says where an issue was transferred to, and forgets it here', async () => {
@@ -168,7 +176,7 @@ describe('IssuesService', () => {
     })
     await service.search('/repo', '', { kind: 'issue', state: 'open' })
     await expect(service.read('/repo', 249)).rejects.toMatchObject({ status: 410, message: '#249 was moved to acme/other#12' })
-    expect(cache.summary('acme/app', 249)).toBeUndefined()
+    expect(cache.summary('github.com/acme/app', 249)).toBeUndefined()
   })
 
   it('filters by assignee, and names everyone assigned and who "me" is', async () => {
@@ -193,7 +201,7 @@ describe('IssuesService', () => {
     const { gh, service } = setup((args) => (isSync(args) ? lines() : ok(JSON.stringify({ ...RAW_ISSUE, number: 500 }))))
     const found = await service.search('/repo', '#500', { kind: 'issue', state: 'open' })
     expect(found.items.map((item) => item.number)).toEqual([500])
-    expect(gh.calls.at(-1)).toEqual(['api', 'repos/acme/app/issues/500'])
+    expect(gh.calls.at(-1)).toEqual(['api', '--hostname', 'github.com', 'repos/acme/app/issues/500'])
   })
 
   it('answers with no items when GitHub is not available', async () => {

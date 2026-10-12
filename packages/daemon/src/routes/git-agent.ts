@@ -23,7 +23,7 @@ export function registerGitAgentRoutes(app: FastifyInstance, { gitAgent, startGr
 
   app.get(routes.groupings(':id'), async (request) => ({ groupings: gitAgent.groupings(IdParams.parse(request.params).id) }))
 
-  app.post(routes.groupings(':id'), async (request) => startGrouping(IdParams.parse(request.params).id, GroupInput.parse(request.body)))
+  app.post(routes.groupings(':id'), async (request, reply) => reply.code(201).send(await startGrouping(IdParams.parse(request.params).id, GroupInput.parse(request.body))))
 
   app.patch(routes.grouping(':id', ':gid'), async (request) => {
     const { id, gid } = GroupingParams.parse(request.params)

@@ -6,6 +6,7 @@ import { IconAction } from '@/components/icon-action'
 import { ChatTabs } from '@/components/ui/chat-tabs'
 import { FileIcon } from '@/components/ui/file-icon'
 import { PaneSplitDirection, collectPanes, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
+import { tabPanelProps } from '@/lib/tab-panel'
 import type { FileStop } from '@/lib/use-file-trail'
 
 import { FilePane } from './content-pane'
@@ -123,6 +124,7 @@ function Pane({ pane, worktreeId, trail, onTrail }: { pane: PaneNode; worktreeId
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
       <FileTabs pane={pane} />
+      <div {...tabPanelProps(path)} className="flex min-h-0 flex-1 flex-col">
       <FilePane
         worktreeId={worktreeId}
         path={path}
@@ -143,6 +145,7 @@ function Pane({ pane, worktreeId, trail, onTrail }: { pane: PaneNode; worktreeId
         actions={actions}
         className="min-h-0 flex-1"
       />
+      </div>
     </div>
   )
 }

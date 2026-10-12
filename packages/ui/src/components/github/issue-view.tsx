@@ -127,19 +127,35 @@ function Event({ item, onOpenIssue }: { item: Extract<IssueTimelineItem, { type:
   )
 }
 
+/** `href` as an absolute URL, read against `base`; null when it is not one. */
+function resolveLink(href: string, base: string): string | null {
+  try {
+    return new URL(href, base).href
+  } catch {
+    return null
+  }
+}
+
 /**
  * Sends a click on a link inside the thread where it belongs: another issue or PR of this
- * repository opens in Canopy, an attached file opens in Canopy's reader, and anything else is
- * left to the app-wide handler that opens the browser.
+ * repository opens in Canopy, an attached file opens in Canopy's reader, and anything else opens
+ * in the browser. A relative link (`../blob/main/README.md`) is read against the thread's own
+ * URL, as GitHub reads it, rather than against Canopy's page.
  */
-function useThreadLinks(repoUrl: string, { onOpenIssue, onOpenAttachment }: IssueLinkHandlers): (event: React.MouseEvent) => void {
+function useThreadLinks(threadUrl: string, { onOpenIssue, onOpenAttachment }: IssueLinkHandlers): (event: React.MouseEvent) => void {
+  const { openExternal } = usePlatform()
   return (event) => {
     if (event.button !== 0) return
     const anchor = (event.target as Element).closest('a[href]')
     if (!(anchor instanceof HTMLAnchorElement)) return
-    const link = classifyGitHubLink(anchor.href, repoUrl)
-    if (link.kind === 'external') return
+    const raw = anchor.getAttribute('href')!
+    // A jump within the thread, such as a footnote, stays on the page.
+    if (raw.startsWith('#')) return
+    const href = resolveLink(raw, threadUrl)
+    if (!href) return
     event.preventDefault()
+    const link = classifyGitHubLink(href, repoUrlOf(threadUrl))
+    if (link.kind === 'external') return openExternal(href)
     const newTab = opensNewTab(event)
     if (link.kind === 'issue') onOpenIssue(link.number, newTab)
     else onOpenAttachment(link.url, newTab)
@@ -150,7 +166,7 @@ function useThreadLinks(repoUrl: string, { onOpenIssue, onOpenAttachment }: Issu
 export function IssueThreadView({ thread, ...handlers }: { thread: IssueThread } & IssueLinkHandlers): React.JSX.Element {
   const { openExternal } = usePlatform()
   const repoUrl = repoUrlOf(thread.url)
-  const onClick = useThreadLinks(repoUrl, handlers)
+  const onClick = useThreadLinks(thread.url, handlers)
   const comments = thread.timeline.filter((item) => item.type === 'comment').length
   return (
     <div onClick={onClick} className="mx-auto flex max-w-3xl flex-col gap-4 px-5 py-6">

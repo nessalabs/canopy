@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/input'
 import { useIssueAssignees, useIssueSearch } from '@/lib/api-hooks'
 import { relativeTime } from '@/lib/format'
 import { EMPTY_READER, readerSteps, type Reading, type ReaderTabs } from '@/lib/reader-tabs'
+import { tabPanelProps } from '@/lib/tab-panel'
 import { useDebounced } from '@/lib/use-debounced'
 import { cn } from '@/lib/utils'
 
@@ -147,7 +148,9 @@ export function ReaderPane({ projectId, reader, empty }: { projectId: string; re
           </Button>
         </div>
       ) : null}
-      <div className="min-h-0 flex-1 overflow-y-auto">{current ? <ReadingView key={state.active} projectId={projectId} reading={current} onFollow={reader.follow} /> : empty}</div>
+      <div {...(state.tabs.length > 1 && state.active ? tabPanelProps(state.active) : {})} className="min-h-0 flex-1 overflow-y-auto">
+        {current ? <ReadingView key={state.active} projectId={projectId} reading={current} onFollow={reader.follow} /> : empty}
+      </div>
     </section>
   )
 }

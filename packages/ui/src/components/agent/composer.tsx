@@ -33,6 +33,7 @@ import { issueContext, issueLabel } from '@/lib/issue-context'
 import { useDebounced } from '@/lib/use-debounced'
 import type { StagedText } from '@/lib/use-staging'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
+import { cn } from '@/lib/utils'
 
 import type { PreviewedAttachment } from './attachment-preview'
 import { ContextMeter } from './context-meter'
@@ -176,8 +177,11 @@ export function AgentComposer({
   const [hint, setHint] = useState<{ name: string; text: string }>()
   const { busy } = agent.turn
   const ready = agent.selected !== undefined || agent.fresh !== undefined
+  // An issue's chip has no text until its thread has been read; sending before then would hand
+  // the agent an empty context block.
+  const reading = attachments.some((a) => a.issue !== undefined && a.text === '')
   // A running turn takes typing too: the daemon folds it into the turn rather than starting another.
-  const canSend = ready && (draft.trim() !== '' || attachments.length > 0)
+  const canSend = ready && !reading && (draft.trim() !== '' || attachments.length > 0)
   const provider = agent.selected?.provider ?? agent.fresh ?? 'claude'
   const capabilities = agent.capabilities
   const commands = useMemo(() => commandMenu(capabilities?.commands), [capabilities?.commands])
@@ -325,7 +329,8 @@ export function AgentComposer({
               // Images are their own label: a larger thumbnail, no kind glyph, no text.
               kind={attachment.image ? undefined : attachment.kind}
               itemLabel={attachment.label}
-              className={attachment.image ? 'h-auto rounded-md p-1' : 'rounded-md'}
+              className={cn(attachment.image ? 'h-auto rounded-md p-1' : 'rounded-md', 'aria-busy:animate-pulse')}
+              aria-busy={(attachment.issue !== undefined && attachment.text === '') || undefined}
               onRemove={() => remove(attachment.id)}
             >
               {attachment.image ? (

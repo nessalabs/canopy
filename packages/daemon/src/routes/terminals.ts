@@ -36,12 +36,23 @@ export function registerTerminalRoutes(app: FastifyInstance, { terminals, worktr
       socket.close(4404, 'no such terminal')
       return
     }
+    // A listener's throw would escape Fastify and end the daemon with every shell in it, so a
+    // frame that is not a message is dropped, and one for a terminal closed since ends the socket.
     socket.on('message', (raw) => {
-      const parsed = TerminalClientMessage.safeParse(JSON.parse(String(raw)))
+      let parsed
+      try {
+        parsed = TerminalClientMessage.safeParse(JSON.parse(String(raw)))
+      } catch {
+        return
+      }
       if (!parsed.success) return
       const message = parsed.data
-      if (message.type === 'input') terminals.write(tid, message.data)
-      else terminals.resize(tid, message.cols, message.rows)
+      try {
+        if (message.type === 'input') terminals.write(tid, message.data)
+        else terminals.resize(tid, message.cols, message.rows)
+      } catch {
+        socket.close(4404, 'no such terminal')
+      }
     })
     socket.on('close', () => detach())
   })

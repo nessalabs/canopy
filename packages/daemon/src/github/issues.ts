@@ -130,6 +130,17 @@ export function movedTo(issue: Raw, repo: string): string | null {
   return home && home.toLowerCase() !== repo.toLowerCase() ? home : null
 }
 
+/**
+ * A repository as `gh` reaches it: the checkout to run in, the host it lives on (github.com or
+ * an Enterprise host), `owner/name` there, and the key its local copy is kept under.
+ */
+interface Target {
+  cwd: string
+  host: string
+  repo: string
+  key: string
+}
+
 /** `249` or `#249`: a number to look up directly rather than search for. */
 const asNumber = (q: string): number | null => (/^#?\d+$/.test(q.trim()) ? Number(q.trim().replace('#', '')) : null)
 
@@ -145,9 +156,16 @@ export class IssuesService {
     return (this.deps.now ?? Date.now)()
   }
 
-  /** `gh api` as JSON; `lines` reads one JSON value per line (a paginated `--jq '.[]'`). */
-  private async api(cwd: string, args: string[], { lines = false, timeout }: { lines?: boolean; timeout?: number } = {}): Promise<any> {
-    const run = await this.deps.gh(cwd, ['api', ...args], timeout ? { timeout } : undefined)
+  /** The checkout's repository, when `gh` is ready to reach it. */
+  private async target(cwd: string): Promise<{ gh: GhStatus; at: Target | null }> {
+    const gh = await this.deps.status(cwd)
+    const at = gh.state === 'ready' && gh.host && gh.repo ? { cwd, host: gh.host, repo: gh.repo, key: `${gh.host}/${gh.repo}` } : null
+    return { gh, at }
+  }
+
+  /** `gh api` on the repository's host, as JSON; `lines` reads one JSON value per line (a paginated `--jq '.[]'`). */
+  private async api(at: Target, args: string[], { lines = false, timeout }: { lines?: boolean; timeout?: number } = {}): Promise<any> {
+    const run = await this.deps.gh(at.cwd, ['api', '--hostname', at.host, ...args], timeout ? { timeout } : undefined)
     if (run.exitCode !== 0) {
       const message = run.stderr.trim().split('\n')[0] || `gh api exited with ${run.exitCode}`
       throw new ApiError(/not found/i.test(run.stderr) ? 404 : 502, 'gh_failed', message)
@@ -165,17 +183,17 @@ export class IssuesService {
    * counts as an update. The first sync, and one asked for with `rebuild`, reads them all and
    * replaces the copy.
    */
-  private sync(cwd: string, repo: string, rebuild = false): Promise<void> {
-    const running = this.syncing.get(repo)
+  private sync(at: Target, rebuild = false): Promise<void> {
+    const running = this.syncing.get(at.key)
     if (running) return running
-    const syncedAt = this.deps.cache.syncedAt(repo)
+    const syncedAt = this.deps.cache.syncedAt(at.key)
     const full = rebuild || !syncedAt
     const startedAt = new Date(this.now()).toISOString()
     const since = full ? '' : `&since=${new Date(Date.parse(syncedAt) - SYNC_OVERLAP_MS).toISOString()}`
-    const run = this.api(cwd, ['--paginate', `repos/${repo}/issues?state=all&per_page=100&sort=updated&direction=desc${since}`, '--jq', '.[]'], { lines: true, timeout: SYNC_TIMEOUT_MS })
-      .then((raw: Raw[]) => this.deps.cache.save(repo, raw.map(toIssueSummary), { at: startedAt, full }))
-      .finally(() => this.syncing.delete(repo))
-    this.syncing.set(repo, run)
+    const run = this.api(at, ['--paginate', `repos/${at.repo}/issues?state=all&per_page=100&sort=updated&direction=desc${since}`, '--jq', '.[]'], { lines: true, timeout: SYNC_TIMEOUT_MS })
+      .then((raw: Raw[]) => this.deps.cache.save(at.key, raw.map(toIssueSummary), { at: startedAt, full }))
+      .finally(() => this.syncing.delete(at.key))
+    this.syncing.set(at.key, run)
     return run
   }
 
@@ -184,12 +202,12 @@ export class IssuesService {
    * moment for the catch-up — which brings new issues and PRs as well as changed ones, since a
    * new one's `updated_at` is when it was opened.
    */
-  private async current(cwd: string, repo: string): Promise<void> {
-    const last = this.deps.cache.syncedAt(repo)
-    if (!last) return this.sync(cwd, repo)
+  private async current(at: Target): Promise<void> {
+    const last = this.deps.cache.syncedAt(at.key)
+    if (!last) return this.sync(at)
     if (this.now() - Date.parse(last) <= SYNC_TTL_MS) return
-    const catchUp = this.sync(cwd, repo).catch(() => undefined)
-    void catchUp.then(() => this.checkDrift(cwd, repo))
+    const catchUp = this.sync(at).catch(() => undefined)
+    void catchUp.then(() => this.checkDrift(at))
     await Promise.race([catchUp, new Promise((resolve) => setTimeout(resolve, CATCH_UP_WAIT_MS))])
   }
 
@@ -199,77 +217,79 @@ export class IssuesService {
    * deleted or transferred away (or the search index is a moment behind), and then the copy is
    * rebuilt.
    */
-  private async checkDrift(cwd: string, repo: string): Promise<void> {
-    const last = this.checked.get(repo)
+  private async checkDrift(at: Target): Promise<void> {
+    const last = this.checked.get(at.key)
     if (last !== undefined && this.now() - last < DRIFT_CHECK_MS) return
-    this.checked.set(repo, this.now())
+    this.checked.set(at.key, this.now())
     try {
-      const found = await this.api(cwd, ['-X', 'GET', 'search/issues', '-f', `q=repo:${repo}`, '-f', 'per_page=1'])
-      if (typeof found?.total_count === 'number' && found.total_count !== this.deps.cache.count(repo)) await this.sync(cwd, repo, true)
+      const found = await this.api(at, ['-X', 'GET', 'search/issues', '-f', `q=repo:${at.repo}`, '-f', 'per_page=1'])
+      if (typeof found?.total_count === 'number' && found.total_count !== this.deps.cache.count(at.key)) await this.sync(at, true)
     } catch {
       // A failed check is tried again at the next window; the copy stays as it is.
     }
   }
 
   async search(cwd: string, q: string, filter: IssueFilter = { kind: 'issue', state: 'open' }, limit = 10): Promise<IssueSearchResponse> {
-    const gh = await this.deps.status(cwd)
-    if (gh.state !== 'ready' || !gh.repo) return { gh, items: [] }
-    const repo = gh.repo
-    await this.current(cwd, repo)
+    const { gh, at } = await this.target(cwd)
+    if (!at) return { gh, items: [] }
+    await this.current(at)
     // A number the copy does not have yet — opened a moment ago — is asked for directly.
     const number = asNumber(q)
-    if (number !== null && !this.deps.cache.summary(repo, number)) {
-      const one = await this.api(cwd, [`repos/${repo}/issues/${number}`]).catch((error: unknown) => {
+    if (number !== null && !this.deps.cache.summary(at.key, number)) {
+      const one = await this.api(at, [`repos/${at.repo}/issues/${number}`]).catch((error: unknown) => {
         if (error instanceof ApiError && error.status === 404) return null
         throw error
       })
-      if (one) this.deps.cache.save(repo, [toIssueSummary(one)])
+      if (one) this.deps.cache.save(at.key, [toIssueSummary(one)])
     }
-    return { gh, items: this.deps.cache.search(repo, q, filter, limit) }
+    return { gh, items: this.deps.cache.search(at.key, q, filter, limit) }
   }
 
-  /** Who `gh` is signed in as, asked once: "Assigned to me" needs it. */
-  private viewer?: Promise<string | null>
+  /** Who `gh` is signed in as on each host, asked once: "Assigned to me" needs it. */
+  private readonly viewers = new Map<string, Promise<string | null>>()
 
   /** Everyone the repository's issues and PRs are assigned to, and who "me" is. */
   async assignees(cwd: string): Promise<IssueAssignees> {
-    const gh = await this.deps.status(cwd)
-    if (gh.state !== 'ready' || !gh.repo) return { assignees: [], viewer: null }
-    await this.current(cwd, gh.repo)
-    this.viewer ??= this.api(cwd, ['user']).then(
-      (user: Raw | null) => login(user),
-      () => ((this.viewer = undefined), null)
-    )
-    return { assignees: this.deps.cache.assignees(gh.repo), viewer: await this.viewer }
+    const { at } = await this.target(cwd)
+    if (!at) return { assignees: [], viewer: null }
+    await this.current(at)
+    if (!this.viewers.has(at.host)) {
+      const asked = this.api(at, ['user']).then(
+        (user: Raw | null) => login(user),
+        () => (this.viewers.delete(at.host), null)
+      )
+      this.viewers.set(at.host, asked)
+    }
+    return { assignees: this.deps.cache.assignees(at.key), viewer: await this.viewers.get(at.host)! }
   }
 
   /** The thread as last read while its issue says nothing changed; read from GitHub otherwise. */
   async read(cwd: string, number: number): Promise<IssueThread> {
-    const gh = await this.deps.status(cwd)
-    if (gh.state !== 'ready' || !gh.repo) throw new ApiError(409, 'gh_unavailable', `GitHub is not available here (${gh.state})`)
-    const repo = gh.repo
-    await this.current(cwd, repo).catch(() => undefined)
-    const known = this.deps.cache.summary(repo, number)
-    const cached = known && this.deps.cache.thread(repo, number, known.updatedAt)
+    const { gh, at } = await this.target(cwd)
+    if (!at) throw new ApiError(409, 'gh_unavailable', `GitHub is not available here (${gh.state})`)
+    const { key, repo } = at
+    await this.current(at).catch(() => undefined)
+    const known = this.deps.cache.summary(key, number)
+    const cached = known && this.deps.cache.thread(key, number, known.updatedAt)
     if (cached) return cached
     const [issue, events] = await Promise.all([
-      this.api(cwd, [`repos/${repo}/issues/${number}`]),
-      this.api(cwd, ['--paginate', `repos/${repo}/issues/${number}/timeline`, '--jq', '.[]'], { lines: true })
+      this.api(at, [`repos/${repo}/issues/${number}`]),
+      this.api(at, ['--paginate', `repos/${repo}/issues/${number}/timeline`, '--jq', '.[]'], { lines: true })
     ]).catch((error: unknown) => {
       // Deleted on GitHub: the copy stops listing it.
-      if (error instanceof ApiError && error.status === 404) this.deps.cache.remove(repo, number)
+      if (error instanceof ApiError && error.status === 404) this.deps.cache.remove(key, number)
       throw error
     })
     // Transferred: GitHub answers with the issue where it lives now, in another repository.
     const home = movedTo(issue, repo)
     if (home) {
-      this.deps.cache.remove(repo, number)
+      this.deps.cache.remove(key, number)
       throw new ApiError(410, 'issue_moved', `#${number} was moved to ${home}#${issue.number}`)
     }
     const timeline = (events as Raw[]).map(toTimelineItem).filter((item): item is IssueTimelineItem => item !== null)
     const thread: IssueThread = { ...toIssueSummary(issue), body: String(issue.body ?? ''), createdAt: String(issue.created_at ?? ''), repo, timeline }
-    this.deps.cache.save(repo, [toIssueSummary(issue)])
-    this.deps.cache.saveThread(repo, thread)
+    this.deps.cache.save(key, [toIssueSummary(issue)])
+    this.deps.cache.saveThread(key, thread)
     return thread
   }
 
