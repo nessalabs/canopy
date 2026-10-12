@@ -11,11 +11,14 @@ import { isAttachmentUrl, type GhStatus, type GitHubAttachment, type IssueFilter
 
 import { ApiError, badRequest } from '../lib/errors'
 import type { GhRunner } from './gh'
+import type { IssueCache } from './issue-cache'
 
-/** Searches as the `#` menu is typed into; a short memory spares GitHub's search rate limit. */
-const SEARCH_TTL_MS = 30_000
-const THREAD_TTL_MS = 20_000
-const SEARCH_LIMIT = 30
+/** How old the local copy may be before a search starts catching it up behind its answer. */
+const SYNC_TTL_MS = 30_000
+/** Each catch-up re-reads a little before the last one, so clock skew with GitHub loses nothing. */
+const SYNC_OVERLAP_MS = 60_000
+/** A first sync of a large repository pages through all of it. */
+const SYNC_TIMEOUT_MS = 180_000
 /** Attachments are read as text in a pane; past this it is not a document anyone reads there. */
 const MAX_ATTACHMENT_BYTES = 2 * 1024 * 1024
 
@@ -25,6 +28,8 @@ export interface IssuesDeps {
   gh: GhRunner
   /** Whether `gh` can talk to GitHub for this checkout, and which repository it is. */
   status: (cwd: string) => Promise<GhStatus>
+  /** The local copy searches are answered from. */
+  cache: IssueCache
   fetch?: typeof fetch
   now?: () => number
 }
@@ -105,15 +110,12 @@ export function toTimelineItem(raw: Raw, index: number): IssueTimelineItem | nul
   return { type: 'event', id, actor, createdAt, event, text, ref }
 }
 
-/** What GitHub search is asked: this repository, the one kind, open only unless asked, the words typed. */
-export const searchQuery = (repo: string, q: string, { kind, state }: IssueFilter): string =>
-  [`repo:${repo}`, kind === 'pr' ? 'is:pr' : 'is:issue', state === 'open' ? 'is:open' : '', q].filter(Boolean).join(' ')
-
 /** `249` or `#249`: a number to look up directly rather than search for. */
 const asNumber = (q: string): number | null => (/^#?\d+$/.test(q.trim()) ? Number(q.trim().replace('#', '')) : null)
 
 export class IssuesService {
-  private readonly memo = new Map<string, { at: number; value: Promise<unknown> }>()
+  /** The sync running for each repository, so concurrent searches share one. */
+  private readonly syncing = new Map<string, Promise<void>>()
 
   constructor(private readonly deps: IssuesDeps) {}
 
@@ -121,19 +123,9 @@ export class IssuesService {
     return (this.deps.now ?? Date.now)()
   }
 
-  /** One answer per key within `ttl`; a failure is forgotten so the next ask tries again. */
-  private remember<T>(key: string, ttl: number, read: () => Promise<T>): Promise<T> {
-    const cached = this.memo.get(key)
-    if (cached && this.now() - cached.at < ttl) return cached.value as Promise<T>
-    const value = read()
-    this.memo.set(key, { at: this.now(), value })
-    value.catch(() => this.memo.delete(key))
-    return value
-  }
-
   /** `gh api` as JSON; `lines` reads one JSON value per line (a paginated `--jq '.[]'`). */
-  private async api(cwd: string, args: string[], lines = false): Promise<any> {
-    const run = await this.deps.gh(cwd, ['api', ...args])
+  private async api(cwd: string, args: string[], { lines = false, timeout }: { lines?: boolean; timeout?: number } = {}): Promise<any> {
+    const run = await this.deps.gh(cwd, ['api', ...args], timeout ? { timeout } : undefined)
     if (run.exitCode !== 0) {
       const message = run.stderr.trim().split('\n')[0] || `gh api exited with ${run.exitCode}`
       throw new ApiError(/not found/i.test(run.stderr) ? 404 : 502, 'gh_failed', message)
@@ -145,37 +137,65 @@ export class IssuesService {
       .map((line) => JSON.parse(line))
   }
 
+  /**
+   * Brings the local copy up to date: every issue and PR on the first sync, and after that only
+   * the ones updated since the last — one request when nothing changed.
+   */
+  private sync(cwd: string, repo: string): Promise<void> {
+    const running = this.syncing.get(repo)
+    if (running) return running
+    const last = this.deps.cache.syncedAt(repo)
+    const startedAt = new Date(this.now()).toISOString()
+    const since = last ? `&since=${new Date(Date.parse(last) - SYNC_OVERLAP_MS).toISOString()}` : ''
+    const run = this.api(cwd, ['--paginate', `repos/${repo}/issues?state=all&per_page=100&sort=updated&direction=desc${since}`, '--jq', '.[]'], { lines: true, timeout: SYNC_TIMEOUT_MS })
+      .then((raw: Raw[]) => this.deps.cache.save(repo, raw.map(toIssueSummary), startedAt))
+      .finally(() => this.syncing.delete(repo))
+    this.syncing.set(repo, run)
+    return run
+  }
+
+  /** Waits for the first sync; after that answers at once and catches up behind the answer when stale. */
+  private async current(cwd: string, repo: string): Promise<void> {
+    const last = this.deps.cache.syncedAt(repo)
+    if (!last) return this.sync(cwd, repo)
+    if (this.now() - Date.parse(last) > SYNC_TTL_MS) void this.sync(cwd, repo).catch(() => undefined)
+  }
+
   async search(cwd: string, q: string, filter: IssueFilter = { kind: 'issue', state: 'open' }): Promise<IssueSearchResponse> {
     const gh = await this.deps.status(cwd)
     if (gh.state !== 'ready' || !gh.repo) return { gh, items: [] }
     const repo = gh.repo
-    const items = await this.remember(`search:${repo}:${filter.kind}:${filter.state}:${q}`, SEARCH_TTL_MS, async () => {
-      const number = asNumber(q)
-      if (number !== null) {
-        const one = await this.api(cwd, [`repos/${repo}/issues/${number}`]).catch((error: unknown) => {
-          if (error instanceof ApiError && error.status === 404) return null
-          throw error
-        })
-        return one ? [toIssueSummary(one)] : []
-      }
-      const found = await this.api(cwd, ['-X', 'GET', 'search/issues', '-f', `q=${searchQuery(repo, q, filter)}`, '-f', 'sort=updated', '-f', `per_page=${SEARCH_LIMIT}`])
-      return ((found?.items ?? []) as Raw[]).map(toIssueSummary)
-    })
-    return { gh, items }
+    await this.current(cwd, repo)
+    // A number the copy does not have yet — opened a moment ago — is asked for directly.
+    const number = asNumber(q)
+    if (number !== null && !this.deps.cache.summary(repo, number)) {
+      const one = await this.api(cwd, [`repos/${repo}/issues/${number}`]).catch((error: unknown) => {
+        if (error instanceof ApiError && error.status === 404) return null
+        throw error
+      })
+      if (one) this.deps.cache.save(repo, [toIssueSummary(one)])
+    }
+    return { gh, items: this.deps.cache.search(repo, q, filter) }
   }
 
+  /** The thread as last read while its issue says nothing changed; read from GitHub otherwise. */
   async read(cwd: string, number: number): Promise<IssueThread> {
     const gh = await this.deps.status(cwd)
     if (gh.state !== 'ready' || !gh.repo) throw new ApiError(409, 'gh_unavailable', `GitHub is not available here (${gh.state})`)
     const repo = gh.repo
-    return this.remember(`thread:${repo}:${number}`, THREAD_TTL_MS, async () => {
-      const [issue, events] = await Promise.all([
-        this.api(cwd, [`repos/${repo}/issues/${number}`]),
-        this.api(cwd, ['--paginate', `repos/${repo}/issues/${number}/timeline`, '--jq', '.[]'], true)
-      ])
-      const timeline = (events as Raw[]).map(toTimelineItem).filter((item): item is IssueTimelineItem => item !== null)
-      return { ...toIssueSummary(issue), body: String(issue.body ?? ''), createdAt: String(issue.created_at ?? ''), repo, timeline }
-    })
+    await this.current(cwd, repo).catch(() => undefined)
+    const known = this.deps.cache.summary(repo, number)
+    const cached = known && this.deps.cache.thread(repo, number, known.updatedAt)
+    if (cached) return cached
+    const [issue, events] = await Promise.all([
+      this.api(cwd, [`repos/${repo}/issues/${number}`]),
+      this.api(cwd, ['--paginate', `repos/${repo}/issues/${number}/timeline`, '--jq', '.[]'], { lines: true })
+    ])
+    const timeline = (events as Raw[]).map(toTimelineItem).filter((item): item is IssueTimelineItem => item !== null)
+    const thread: IssueThread = { ...toIssueSummary(issue), body: String(issue.body ?? ''), createdAt: String(issue.created_at ?? ''), repo, timeline }
+    this.deps.cache.save(repo, [toIssueSummary(issue)])
+    this.deps.cache.saveThread(repo, thread)
+    return thread
   }
 
   /** A file attached on GitHub, as text; tried without a login first, then with `gh`'s. */
