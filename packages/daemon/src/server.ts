@@ -39,6 +39,7 @@ import { createCanopyd, type Canopyd } from './env/worktree/canopyd'
 import { createDiffReader } from './git/diff'
 import { runGit, type GitRunner } from './git/exec'
 import { runGh, type GhRunner } from './github/gh'
+import { IssuesService } from './github/issues'
 import { GitHubService } from './github/service'
 import { createRepo } from './git/repo'
 import { ProjectsService } from './projects/service'
@@ -144,6 +145,8 @@ export function buildServices(deps: ServerDeps): Services {
   const history = new HistoryService({ repo, diffs, worktrees, snapshots })
   const gitAgent = new GitAgentStore({ db: deps.db, worktrees })
   const review = new ReviewService({ db: deps.db, worktrees, agents })
+  const gh = deps.gh ?? runGh
+  const github = new GitHubService({ git, gh, worktrees, review })
   return {
     watch: new WatchService({ worktrees, projects, repo, events }),
     trash: new TrashService({ repo, projects }),
@@ -159,7 +162,8 @@ export function buildServices(deps: ServerDeps): Services {
     gitAgent,
     merges: new MergeService({ repo, git, worktrees, projects, events }),
     destroyJobs: new DestroyJobsService({ worktrees, events }),
-    github: new GitHubService({ git, gh: deps.gh ?? runGh, worktrees, review }),
+    github,
+    issues: new IssuesService({ gh, status: (cwd) => github.status(cwd, null) }),
     review,
     agents,
     turns: new TurnHub(),

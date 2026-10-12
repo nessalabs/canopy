@@ -260,3 +260,47 @@ export type PullRequestOptions = z.infer<typeof PullRequestOptions>
 
 export const PushResult = z.object({ upstream: UpstreamStatus })
 export type PushResult = z.infer<typeof PushResult>
+
+/** Issues and PRs share GitHub's numbering, and the `#` menu lists both. */
+export const IssueKind = z.enum(['issue', 'pr'])
+export type IssueKind = z.infer<typeof IssueKind>
+
+/** One issue or PR as the `#` menu lists it. */
+export const IssueSummary = z.object({
+  number: z.number().int(),
+  kind: IssueKind,
+  title: z.string(),
+  state: PullRequestState,
+  url: z.string(),
+  author: z.string().nullable(),
+  updatedAt: z.string()
+})
+export type IssueSummary = z.infer<typeof IssueSummary>
+
+/** The repository's issues and PRs matching a search, most recently updated first. */
+export const IssueSearchResponse = z.object({ gh: GhStatus, items: z.array(IssueSummary) })
+export type IssueSearchResponse = z.infer<typeof IssueSearchResponse>
+
+/**
+ * One entry of an issue's timeline: a comment (markdown, as written) or an event GitHub records —
+ * "closed this", "added the bug label" — already put into words.
+ */
+export const IssueTimelineItem = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('comment'), id: z.string(), author: z.string().nullable(), createdAt: z.string(), body: z.string(), url: z.string().nullable() }),
+  z.object({ type: z.literal('event'), id: z.string(), actor: z.string().nullable(), createdAt: z.string(), event: z.string(), text: z.string(), ref: z.number().int().nullable() })
+])
+export type IssueTimelineItem = z.infer<typeof IssueTimelineItem>
+
+/** An issue or PR to read: what it says and everything that happened on it since. */
+export const IssueThread = IssueSummary.extend({
+  body: z.string(),
+  createdAt: z.string(),
+  /** `owner/name`, for resolving `#N` and relative links in the text. */
+  repo: z.string(),
+  timeline: z.array(IssueTimelineItem)
+})
+export type IssueThread = z.infer<typeof IssueThread>
+
+/** A file attached to an issue or PR comment, fetched through the daemon. */
+export const GitHubAttachment = z.object({ url: z.string(), name: z.string(), contentType: z.string(), text: z.string() })
+export type GitHubAttachment = z.infer<typeof GitHubAttachment>
