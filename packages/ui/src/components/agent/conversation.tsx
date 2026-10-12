@@ -6,12 +6,14 @@ import type { TranscriptModel } from '@/lib/use-transcript-model'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
 import { AgentAvatar } from './agent-avatar'
+import { AgentWelcome } from './agent-welcome'
+import type { PreviewedAttachment } from './attachment-preview'
 import { AgentComposer } from './composer'
 import { FileRefLinks, type OpenFileRef } from './answer-links'
 import { TranscriptView, type TurnWrites } from './transcript'
 
 export function emptyMessage(agent: WorktreeAgent, worktree: Worktree): string {
-  if (agent.fresh) return `New ${agent.fresh === 'claude' ? 'Claude Code' : 'Codex'} session in ${worktree.path}. Your first message starts it.`
+  if (agent.fresh) return `A clean slate on ${worktree.branch ?? worktree.name}. Say what to build, fix or explain, and your first message gets it going.`
   if (agent.loading) return 'Looking for agent sessions that ran in this worktree…'
   if (agent.sessions.length === 0) {
     const none = `No Claude Code or Codex session has run in ${worktree.path} yet. Start one there and it shows up here.`
@@ -118,7 +120,8 @@ export function Conversation({
   staging,
   avatarSeed,
   onOpenRef,
-  starter
+  starter,
+  onOpenAttachment
 }: {
   worktree: Worktree
   agent: WorktreeAgent
@@ -133,7 +136,11 @@ export function Conversation({
   onOpenRef?: OpenFileRef
   /** What the conversation opens on while it is empty and ready to send. */
   starter?: Starter
+  /** Opens a staged text attachment to read beside the conversation. */
+  onOpenAttachment?: (attachment: PreviewedAttachment) => void
 }): React.JSX.Element {
+  const seed = avatarSeed ?? agent.selected?.sessionId ?? worktree.id
+  const note = emptyMessage(agent, worktree)
   return (
     <FileRefLinks onOpen={onOpenRef}>
       <div className="flex h-full min-h-0 flex-col gap-2 p-2">
@@ -150,13 +157,15 @@ export function Conversation({
           startedAt={agent.turn.startedAt}
           tokens={agent.turn.tokens}
           usage={agent.turn.usage}
-          avatarSeed={avatarSeed ?? agent.selected?.sessionId ?? worktree.id}
+          avatarSeed={seed}
           capabilities={agent.capabilities}
-          emptyMessage={emptyMessage(agent, worktree)}
+          emptyMessage={note}
           emptyState={
             starter && (agent.fresh || agent.selected) && !agent.turn.busy ? (
-              <StarterView agent={agent} seed={avatarSeed ?? agent.selected?.sessionId ?? worktree.id} note={starter.note ?? emptyMessage(agent, worktree)} starter={starter} />
-            ) : undefined
+              <StarterView agent={agent} seed={seed} note={starter.note ?? note} starter={starter} />
+            ) : (
+              <AgentWelcome agent={agent} note={note} />
+            )
           }
           writesByTurn={changes?.writesByTurn ?? NO_WRITES}
           openInTerminal={agent.history.data?.openInTerminal}
@@ -170,11 +179,11 @@ export function Conversation({
         <AgentComposer
           agent={agent}
           changedFiles={changedFiles}
-          placeholder={`Ask the agent about ${worktree.branch ?? worktree.name}`}
           latestChanges={changes?.latestChanges}
           staged={staging?.staged}
           onStaged={staging?.taken}
           context={model.context}
+          onOpenAttachment={onOpenAttachment}
         />
       </div>
     </FileRefLinks>

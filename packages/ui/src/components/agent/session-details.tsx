@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { StatusDot } from '@/components/ui/status-dot'
 import { plural } from '@/lib/format'
 
-const PROVIDER_NAMES: Record<AgentCapabilities['provider'], string> = { claude: 'Claude Code', codex: 'Codex' }
+import { PROVIDER_NAMES } from './provider-icon'
 
 const basename = (path: string | null | undefined): string | null => (path ? (path.split('/').filter(Boolean).at(-1) ?? null) : null)
 

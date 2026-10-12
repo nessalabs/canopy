@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { AtSign, Brain, FileDiff, Plus, Square, Users } from 'lucide-react'
+import { AtSign, Brain, FileDiff, Paperclip, Plus, Square, Users } from 'lucide-react'
 
 import { ImageMediaType, type ChangedFile, type Effort } from '@canopy/shared'
 import type { ContextUsage } from '@canopy/shared/agent-stream'
@@ -29,6 +29,7 @@ import { effortLevelsFor, modelGroupFor } from '@/lib/models'
 import type { StagedText } from '@/lib/use-staging'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
+import type { PreviewedAttachment } from './attachment-preview'
 import { ContextMeter } from './context-meter'
 
 
@@ -49,6 +50,20 @@ function readImage(file: File): Promise<Attachment | null> {
     reader.readAsDataURL(file)
   })
 }
+
+/** Text files are inlined whole; past this one would crowd the conversation out of the context. */
+const MAX_TEXT_BYTES = 256 * 1024
+
+/** A picked or dropped text file, inlined under its name; a binary or oversized one is not. */
+async function readTextFile(file: File): Promise<Attachment | null> {
+  if (file.size > MAX_TEXT_BYTES) return null
+  const text = await file.text().catch(() => null)
+  if (text === null || text.includes('\u0000')) return null
+  return attach('pasted-text', file.name, text)
+}
+
+/** Images go to the agent as images; anything else it can read as text. */
+const readFile = (file: File): Promise<Attachment | null> => (ImageMediaType.safeParse(file.type).success ? readImage(file) : readTextFile(file))
 
 const dataUrl = (image: NonNullable<Attachment['image']>): string => `data:${image.mediaType};base64,${image.data}`
 
@@ -83,15 +98,14 @@ function MentionRow({ item }: { item: MentionItem }): React.JSX.Element {
 export function AgentComposer({
   agent,
   changedFiles,
-  placeholder,
   latestChanges,
   staged,
   onStaged,
-  context = null
+  context = null,
+  onOpenAttachment
 }: {
   agent: WorktreeAgent
   changedFiles: ChangedFile[]
-  placeholder: string
   /** The changes panel: how many files the newest turn wrote, whether the panel is open, and the toggle. Absent where there is no panel to toggle. */
   latestChanges?: { count: number; shown: boolean; onToggle: () => void }
   /** Chips handed in from outside — quotes, dropped files, a PR. Each is staged once, then reported back as taken. */
@@ -99,6 +113,8 @@ export function AgentComposer({
   onStaged?: (ids: ReadonlySet<number>) => void
   /** How full the session's context window is, for the meter beside the model picker. */
   context?: ContextUsage | null
+  /** Opens a staged text attachment to read; given, those chips' names become buttons. */
+  onOpenAttachment?: (attachment: PreviewedAttachment) => void
 }): React.JSX.Element {
   const [draft, setDraft] = useState('')
   const [attachments, setAttachments] = useState<Attachment[]>([])
@@ -127,6 +143,9 @@ export function AgentComposer({
   const remove = (id: string): void => setAttachments((current) => current.filter((a) => a.id !== id))
 
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
+  // Names of the files the last pick or drop could not attach.
+  const [skipped, setSkipped] = useState<string[]>([])
 
   // Context from outside arrives as chips, with the cursor left in the input to ask about them.
   // The seen ids cover a repeat effect run; the owner dropping what was taken covers a remount.
@@ -146,6 +165,7 @@ export function AgentComposer({
     setDraft('')
     setAttachments([])
     setHint(undefined)
+    setSkipped([])
   }
 
   const submit = (): void => {
@@ -164,16 +184,25 @@ export function AgentComposer({
     clear()
   }
 
-  /** Images from the clipboard become numbered image attachments; text pastes stay with the input. */
-  const pasteImages = async (event: React.ClipboardEvent<HTMLTextAreaElement>): Promise<void> => {
+  /**
+   * Files from the picker, a drop or the clipboard: images numbered after the ones already
+   * staged, text files inlined, and the rest named back as skipped.
+   */
+  const attachFiles = async (files: File[]): Promise<void> => {
+    const read = await Promise.all(files.map(readFile))
+    setSkipped(files.filter((_, i) => !read[i]).map((file) => file.name))
+    setAttachments((current) => {
+      let images = current.filter((a) => a.image).length
+      return [...current, ...read.filter((a): a is Attachment => a !== null).map((a) => (a.image ? { ...a, label: `Image #${++images}` } : a))]
+    })
+  }
+
+  /** Images from the clipboard become attachments; text pastes stay with the input. */
+  const pasteImages = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
     const files = [...event.clipboardData.files].filter((file) => file.type.startsWith('image/'))
     if (files.length === 0) return
     event.preventDefault()
-    const read = (await Promise.all(files.map(readImage))).filter((a): a is Attachment => a !== null)
-    setAttachments((current) => {
-      const offset = current.filter((a) => a.image).length
-      return [...current, ...read.map((a, i) => ({ ...a, label: `Image #${offset + i + 1}` }))]
-    })
+    void attachFiles(files)
   }
 
   /**
@@ -194,7 +223,7 @@ export function AgentComposer({
 
   // The hint belongs to the command still in the input; typing something else retires it.
   const activeHint = hint && draft.trimStart().startsWith(`/${hint.name}`) ? hint.text : undefined
-  const inputPlaceholder = !ready ? 'Pick a session to chat' : (activeHint ?? `${placeholder} — / for commands, @ for files and agents`)
+  const inputPlaceholder = !ready ? 'Pick a session, or start a new one' : (activeHint ?? (agent.fresh ? 'What are we building today?' : 'Ask a follow-up, or / for commands'))
 
   /** Typing "@" is what opens the mention menu, so the + menu does exactly that. */
   const openMentions = (): void => {
@@ -204,11 +233,26 @@ export function AgentComposer({
 
   return (
     <ChatComposer
+      // Lifted off the pane it sits on: always bordered, a shade lighter, with a soft drop and a top highlight.
+      // Focus only firms up the border; the stock ring glow reads as a bright halo on the dark panes.
+      borderMode="always"
+      className="bg-muted/50 shadow-[inset_0_1px_0_rgb(255_255_255/0.05),0_12px_32px_-16px_rgb(0_0_0/0.6)] focus-within:border-foreground/25 focus-within:ring-0"
+      fileDrop={ready ? { onFiles: (files) => void attachFiles(files), label: 'Drop images or text files to attach' } : undefined}
       onSubmit={(event) => {
         event.preventDefault()
         submit()
       }}
     >
+      <input
+        ref={fileInput}
+        type="file"
+        multiple
+        hidden
+        onChange={(event) => {
+          void attachFiles([...(event.target.files ?? [])])
+          event.target.value = ''
+        }}
+      />
       {attachments.length > 0 ? (
         <ChatComposerAttachments>
           {attachments.map((attachment) => (
@@ -220,16 +264,29 @@ export function AgentComposer({
               className={attachment.image ? 'h-auto p-1' : undefined}
               onRemove={() => remove(attachment.id)}
             >
-              {attachment.image ? <img src={dataUrl(attachment.image)} alt={attachment.label} className="h-20 w-auto max-w-48 rounded-md object-cover" /> : attachment.label}
+              {attachment.image ? (
+                <img src={dataUrl(attachment.image)} alt={attachment.label} className="h-20 w-auto max-w-48 rounded-md object-cover" />
+              ) : onOpenAttachment && attachment.kind === 'pasted-text' ? (
+                <button type="button" title={`Open ${attachment.label}`} onClick={() => onOpenAttachment(attachment)} className="truncate underline-offset-2 outline-none hover:underline focus-visible:underline">
+                  {attachment.label}
+                </button>
+              ) : (
+                attachment.label
+              )}
             </ChatComposerAttachment>
           ))}
         </ChatComposerAttachments>
+      ) : null}
+      {skipped.length > 0 ? (
+        <p className="px-1 text-[11px] text-muted-foreground">
+          Not attached: {skipped.join(', ')}. Only images and text files under 256 KB reach the agent.
+        </p>
       ) : null}
       <ChatComposerInput
         ref={inputRef}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
-        onPaste={(event) => void pasteImages(event)}
+        onPaste={pasteImages}
         onPasteAttachment={(text) => add(attach('pasted-text', `Pasted text (${plural(text.split('\n').length, 'line')})`, text))}
         placeholder={inputPlaceholder}
         aria-label="Message the agent"
@@ -282,6 +339,9 @@ export function AgentComposer({
               </ChatComposerAction>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
+              <DropdownMenuItem onSelect={() => fileInput.current?.click()}>
+                <Paperclip aria-hidden="true" /> Attach files…
+              </DropdownMenuItem>
               <DropdownMenuItem onSelect={openMentions} disabled={changedFiles.length === 0}>
                 <AtSign aria-hidden="true" /> Mention a changed file…
               </DropdownMenuItem>
