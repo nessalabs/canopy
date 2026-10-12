@@ -41,6 +41,10 @@ export function TerminalView({ terminalId, active }: { terminalId: string; activ
   const api = useApi()
   const { openExternal } = usePlatform()
   const { theme } = useTheme()
+  // Read through a ref: the platform hands out a new function on some renders, and the shell's
+  // socket must not be torn down and reopened for that.
+  const openLink = useRef(openExternal)
+  openLink.current = openExternal
   const host = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal>(null)
   const fitRef = useRef<() => void>(() => undefined)
@@ -52,10 +56,11 @@ export function TerminalView({ terminalId, active }: { terminalId: string; activ
     const terminal = new Terminal({ fontFamily: font, fontSize: 12, lineHeight: 1.2, cursorBlink: true, scrollback: 5000, theme: themeFromPage() })
     const fit = new FitAddon()
     terminal.loadAddon(fit)
-    terminal.loadAddon(new WebLinksAddon((_event, uri) => openExternal(uri)))
+    terminal.loadAddon(new WebLinksAddon((_event, uri) => openLink.current(uri)))
     terminal.open(element)
     term.current = terminal
 
+    let disposed = false
     const socket = new WebSocket(api.terminalSocketUrl(terminalId))
     const send = (message: unknown): void => {
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
@@ -73,20 +78,26 @@ export function TerminalView({ terminalId, active }: { terminalId: string; activ
       if (message.type === 'output') terminal.write(message.data)
       else terminal.write(`\r\n\x1b[2m[process exited with code ${message.code}]\x1b[0m\r\n`)
     }
+    // A socket that never opened says so, rather than leaving a blank screen with a cursor.
+    let opened = false
+    socket.addEventListener('open', () => (opened = true))
     socket.onclose = (event) => {
       if (event.code === 4404) terminal.write('\r\n\x1b[2m[this terminal is gone]\x1b[0m\r\n')
+      else if (!opened) terminal.write(`\x1b[31mCould not connect to the terminal (code ${event.code}).\x1b[0m\r\nCanopy reaches it at ${api.terminalSocketUrl(terminalId).replace(/token=[^&]+/, 'token=…')}\r\n`)
+      else if (!disposed) terminal.write('\r\n\x1b[2m[disconnected from the daemon]\x1b[0m\r\n')
     }
     const input = terminal.onData((data) => send({ type: 'input', data }))
     const observer = new ResizeObserver(resize)
     observer.observe(element)
     return () => {
+      disposed = true
       observer.disconnect()
       input.dispose()
       socket.close()
       terminal.dispose()
       term.current = null
     }
-  }, [api, terminalId, openExternal])
+  }, [api, terminalId])
 
   // Light and dark repaint the terminal in place; the shell does not notice.
   useEffect(() => {

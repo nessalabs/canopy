@@ -8,6 +8,7 @@
  * shell ends with the daemon.
  */
 import { randomUUID } from 'node:crypto'
+import { userInfo } from 'node:os'
 import { basename } from 'node:path'
 
 import type { CreateTerminalInput, TerminalInfo, TerminalServerMessage } from '@canopy/shared'
@@ -33,6 +34,16 @@ export interface TerminalsDeps {
   /** The shell to run; the daemon's `$SHELL` by default. */
   shell?: string
   now?: () => Date
+}
+
+/** The user's shell: `$SHELL`, else the login shell their account names, else `sh`. */
+export function defaultShell(env: NodeJS.ProcessEnv = process.env): string {
+  if (env.SHELL) return env.SHELL
+  try {
+    return userInfo().shell ?? '/bin/sh'
+  } catch {
+    return '/bin/sh'
+  }
 }
 
 /** How much recent output a terminal keeps for a socket that attaches later. */
@@ -66,7 +77,7 @@ export class TerminalsService {
 
   create(worktreeId: string, { cols = 80, rows = 24 }: CreateTerminalInput): TerminalInfo {
     const cwd = this.deps.worktreePath(worktreeId)
-    const shell = this.deps.shell ?? process.env.SHELL ?? '/bin/bash'
+    const shell = this.deps.shell ?? defaultShell()
     const env = {
       ...(process.env as Record<string, string>),
       ...this.deps.worktreeEnv?.(worktreeId),
