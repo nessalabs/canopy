@@ -9,7 +9,7 @@ import { IdParams } from './params'
 
 /** `?fresh=1` waits for GitHub instead of answering from what the daemon holds. */
 const FreshQuery = z.object({ fresh: z.enum(['1', 'true']).optional() })
-const SearchQuery = IssueFilter.extend({ q: z.string().max(200).default('') })
+const SearchQuery = IssueFilter.extend({ q: z.string().max(200).default(''), limit: z.coerce.number().int().min(1).max(100).default(10) })
 const IssueParams = IdParams.extend({ number: z.coerce.number().int().positive() })
 const UrlQuery = z.object({ url: z.string().url() })
 
@@ -18,8 +18,8 @@ export function registerGitHubRoutes(app: FastifyInstance, { github, issues, pro
   const projectPath = (params: unknown): string => projects.get(IdParams.parse(params).id).path
 
   app.get(routes.projectIssues(':id'), async (request) => {
-    const { q, ...filter } = SearchQuery.parse(request.query)
-    return issues.search(projectPath(request.params), q, filter)
+    const { q, limit, ...filter } = SearchQuery.parse(request.query)
+    return issues.search(projectPath(request.params), q, filter, limit)
   })
 
   app.get(routes.projectIssue(':id', ':number'), async (request) => issues.read(projectPath(request.params), IssueParams.parse(request.params).number))

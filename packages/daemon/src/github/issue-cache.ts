@@ -34,7 +34,7 @@ export class IssueCache {
   }
 
   /** One kind, open only unless asked, matching a number or every word of the title; newest activity first. */
-  search(repo: string, q: string, { kind, state }: IssueFilter, limit = 50): IssueSummary[] {
+  search(repo: string, q: string, { kind, state }: IssueFilter, limit = 10): IssueSummary[] {
     const where = ['repo = ?', 'kind = ?']
     const params: Array<string | number> = [repo, kind]
     if (state === 'open') where.push("state = 'OPEN'")

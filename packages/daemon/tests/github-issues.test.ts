@@ -186,6 +186,14 @@ describe('IssueCache', () => {
     expect(cache.search('other/repo', '', open)).toEqual([])
   })
 
+  it('hands back the first ten, newest activity first, unless asked for more', () => {
+    const cache = new IssueCache(openDb(':memory:'))
+    cache.save('acme/app', Array.from({ length: 15 }, (_, i) => toIssueSummary({ ...RAW_ISSUE, number: i + 1, updated_at: `2026-09-${String(i + 1).padStart(2, '0')}T00:00:00Z` })))
+    const open = { kind: 'issue', state: 'open' } as const
+    expect(cache.search('acme/app', '', open).map((i) => i.number)).toEqual([15, 14, 13, 12, 11, 10, 9, 8, 7, 6])
+    expect(cache.search('acme/app', '', open, 20)).toHaveLength(15)
+  })
+
   it('lists closed ones only when asked', () => {
     const cache = new IssueCache(openDb(':memory:'))
     cache.save('acme/app', [toIssueSummary({ ...RAW_ISSUE, state: 'closed' })])

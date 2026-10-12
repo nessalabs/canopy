@@ -229,7 +229,8 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     mergeWorktree: (worktreeId: string, input: MergeInput) => post<MergeResult>(routes.merge(worktreeId), input),
     pullRequest: (worktreeId: string, fresh = false) => get<PullRequestResponse>(routes.pullRequest(worktreeId), fresh ? { fresh: '1' } : {}),
     projectPullRequests: (projectId: string) => get<ProjectPullRequests>(routes.projectPullRequests(projectId)),
-    searchIssues: (projectId: string, q: string, filter: IssueFilter) => get<IssueSearchResponse>(routes.projectIssues(projectId), { ...(q ? { q } : {}), kind: filter.kind, state: filter.state }),
+    searchIssues: (projectId: string, q: string, filter: IssueFilter, limit = 10) =>
+      get<IssueSearchResponse>(routes.projectIssues(projectId), { ...(q ? { q } : {}), kind: filter.kind, state: filter.state, limit }),
     issue: (projectId: string, number: number) => get<IssueThread>(routes.projectIssue(projectId, String(number))),
     githubAttachment: (projectId: string, url: string) => get<GitHubAttachment>(routes.githubAttachment(projectId), { url }),
     createPullRequest: (worktreeId: string, input: CreatePullRequestInput) =>

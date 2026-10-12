@@ -24,7 +24,7 @@ export const keys = {
   pullRequest: (worktreeId: string) => ['pull-request', worktreeId] as const,
   /** A project's recent PRs, one per head branch, for the Command Center's worktree list. */
   projectPullRequests: (projectId: string) => ['project-pull-requests', projectId] as const,
-  issueSearch: (projectId: string, q: string, filter: IssueFilter) => ['issue-search', projectId, filter.kind, filter.state, q] as const,
+  issueSearch: (projectId: string, q: string, filter: IssueFilter, limit: number) => ['issue-search', projectId, filter.kind, filter.state, q, limit] as const,
   issue: (projectId: string, number: number) => ['issue', projectId, number] as const,
   githubAttachment: (projectId: string, url: string) => ['github-attachment', projectId, url] as const,
   /** The repository's assignable users, labels and milestones, read when a sidebar picker opens. */
