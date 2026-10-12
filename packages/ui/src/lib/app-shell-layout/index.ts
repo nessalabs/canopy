@@ -32,6 +32,7 @@ export {
   insertRelativeTo,
   maximizePane,
   movePane,
+  closeView,
   openView,
   promoteRecentPane,
   removeNode,

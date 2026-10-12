@@ -8,6 +8,7 @@ import {
   maximizePane,
   movePane,
   normalizeAppShellLayout,
+  closeView,
   openView,
   resetPaneSizes,
   resizeDock,
@@ -122,6 +123,7 @@ type AppShellLayoutOperation =
   | "move"
   | "swap"
   | "open-view"
+  | "close-view"
   | "focus"
   | "maximize"
   | "restore"
@@ -247,6 +249,8 @@ interface UseAppShellResult {
   swapPanes: (options: { paneId: LayoutNodeId; withPaneId: LayoutNodeId }) => void
   /** Opens a view in a pane and focuses it. Defaults to the active pane. */
   openView: (options: { viewId: PaneViewId; paneId?: LayoutNodeId }) => void
+  /** Closes a view in a pane; its neighbour takes over. Defaults to the active pane. */
+  closeView: (options: { viewId: PaneViewId; paneId?: LayoutNodeId }) => void
   /** Focuses a pane. */
   focusPane: (options: { paneId: LayoutNodeId }) => void
   /** Maximizes a pane over the workspace. Defaults to the active pane. */
@@ -330,6 +334,8 @@ function useAppShell(): UseAppShellResult {
         settle("swap", (current) => swapPanes(current, options)),
       openView: (options: { viewId: PaneViewId; paneId?: LayoutNodeId }) =>
         settle("open-view", (current) => openView(current, options)),
+      closeView: (options: { viewId: PaneViewId; paneId?: LayoutNodeId }) =>
+        settle("close-view", (current) => closeView(current, options)),
       focusPane: (options: { paneId: LayoutNodeId }) =>
         settle("focus", (current) => focusPane(current, options)),
       maximizePane: (options?: { paneId?: LayoutNodeId }) =>
