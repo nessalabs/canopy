@@ -11,6 +11,7 @@ import type { EnvironmentService } from '../env/service'
 import type { GitAgentStore } from '../git-agent/store'
 import type { EventBus, LogStore } from '../env/types'
 import type { IssuesService } from '../github/issues'
+import type { TerminalsService } from '../terminals/service'
 import type { GitHubService } from '../github/service'
 import type { ProjectsService } from '../projects/service'
 import type { ReviewService } from '../review/service'
@@ -37,6 +38,7 @@ export interface Services {
   destroyJobs: DestroyJobsService
   github: GitHubService
   issues: IssuesService
+  terminals: TerminalsService
   trash: TrashService
   review: ReviewService
   agents: AgentRegistry

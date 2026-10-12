@@ -337,6 +337,14 @@ export class EnvironmentService {
     return rt.env
   }
 
+  /**
+   * The worktree's own variables for a shell started in it — its ports, database URLs and
+   * canopy.yaml env — as last resolved; nothing for a worktree that was never configured or run.
+   */
+  shellEnv(worktreeId: string): Record<string, string> {
+    return this.runtimes.get(worktreeId)?.resolved?.envMap ?? {}
+  }
+
   /** Re-checks the config on disk. Skipped mid-run: the pipeline is using the config it loaded. */
   private refreshConfigured(rt: Runtime): void {
     if (BUSY_STATES.includes(rt.env.state)) return

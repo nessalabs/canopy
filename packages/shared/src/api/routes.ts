@@ -66,6 +66,12 @@ export const routes = {
   pullRequestThreads: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/threads`,
   pullRequestFetch: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/fetch`,
   push: (id: string) => `${API_PREFIX}/worktrees/${id}/push`,
+  /** The worktree's in-app terminals: GET lists them, POST starts a shell in the worktree. */
+  terminals: (id: string) => `${API_PREFIX}/worktrees/${id}/terminals`,
+  /** One terminal: DELETE ends its shell and forgets it. */
+  terminal: (tid: string) => `${API_PREFIX}/terminals/${tid}`,
+  /** A WebSocket to one terminal; browsers cannot set headers on one, so it takes `?token=`. */
+  terminalSocket: (tid: string) => `${API_PREFIX}/terminals/${tid}/socket`,
   /** Locally hidden paths; read on its own because the changes poll must not pay for it. */
   hidden: (id: string) => `${API_PREFIX}/worktrees/${id}/hidden`,
   comments: (id: string) => `${API_PREFIX}/worktrees/${id}/comments`,

@@ -2,6 +2,7 @@ import { join } from 'node:path'
 
 
 import cors from '@fastify/cors'
+import websocket from '@fastify/websocket'
 import type { Database } from 'better-sqlite3'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { ZodError } from 'zod'
@@ -51,6 +52,9 @@ import { registerEnvironmentRoutes } from './routes/environment'
 import { registerFsRoutes } from './routes/fs'
 import { registerGitAgentRoutes } from './routes/git-agent'
 import { registerGitHubRoutes } from './routes/github'
+import { registerTerminalRoutes } from './routes/terminals'
+import { spawnPty } from './terminals/pty'
+import { TerminalsService, type PtySpawn } from './terminals/service'
 import { registerProjectRoutes } from './routes/projects'
 import { registerReviewRoutes } from './routes/review'
 import { registerStatic } from './routes/static'
@@ -71,6 +75,8 @@ export interface ServerDeps {
   git?: GitRunner
   /** Tests fake the GitHub CLI; production runs `gh`. */
   gh?: GhRunner
+  /** Starts the in-app terminal's shells; node-pty by default. */
+  spawnPty?: PtySpawn
   /** Tests inject fakes; production talks to the real docker CLI and `wt`. */
   docker?: DockerHelper
   worktreeBackend?: WorktreeBackend
@@ -164,6 +170,7 @@ export function buildServices(deps: ServerDeps): Services {
     destroyJobs: new DestroyJobsService({ worktrees, events }),
     github,
     issues: new IssuesService({ gh, status: (cwd) => github.status(cwd, null) }),
+    terminals: new TerminalsService({ spawn: deps.spawnPty ?? spawnPty, worktreePath: (id) => worktrees.location(id).path, worktreeEnv: (id) => environment.shellEnv(id) }),
     review,
     agents,
     turns: new TurnHub(),
@@ -193,6 +200,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['authorization', 'content-type']
   })
+  await app.register(websocket)
   registerAuth(app, deps.token)
   app.setErrorHandler((error, _request, reply) => {
     const { status, body } = errorBody(error)
@@ -205,6 +213,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   registerWorktreeRoutes(app, services)
   registerCommitRoutes(app, services)
   registerGitHubRoutes(app, services)
+  registerTerminalRoutes(app, services)
   registerReviewRoutes(app, services)
   registerGitAgentRoutes(app, services)
   registerAgentRoutes(app, services)
@@ -213,6 +222,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   await registerStatic(app, deps.config.webDist)
 
   app.addHook('onClose', async () => {
+    services.terminals.closeAll()
     services.watch.stopAll()
     await services.environment.shutdown()
   })

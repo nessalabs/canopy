@@ -1,6 +1,7 @@
 import { Maximize2, Minimize2, X } from 'lucide-react'
 
 import { FileBrowser } from '@/components/file-browser'
+import { TerminalPanel } from '@/components/terminal/terminal-panel'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -9,7 +10,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
  * terminal or browser later is one more row here; the chrome and the split are shared.
  */
 export const SIDE_PANELS = {
-  files: { label: 'Files', Body: FileBrowser }
+  files: { label: 'Files', Body: FileBrowser },
+  terminal: { label: 'Terminal', Body: ({ worktreeId }: { worktreeId: string }) => <TerminalPanel worktreeId={worktreeId} chrome={false} /> }
 } as const
 
 export type SidePanelId = keyof typeof SIDE_PANELS
