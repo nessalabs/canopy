@@ -148,7 +148,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     const summary = ref && everySession.find((s) => s.provider === ref.provider && s.sessionId === ref.sessionId)
     // A layout saved in another worktree can name a session this one does not have; the pane composes a new one instead.
     if (!ref || (!summary && !agent.loading)) return undefined
-    return { id: viewId, title: summary ? sessionTitle(summary) : ref.sessionId.slice(0, 8), icon: MessageSquare, render: () => <SessionPane worktree={worktree} session={ref} changedFiles={changedFiles} onOpenAttachment={openAttachment} /> }
+    return { id: viewId, title: summary ? sessionTitle(summary) : ref.sessionId.slice(0, 8), icon: MessageSquare, render: () => <SessionPane worktree={worktree} session={ref} changedFiles={changedFiles} onOpenAttachment={openAttachment} onOpenIssue={openIssue} /> }
   }
   const openBeside = (ref: SessionRef): void => setRequest({ id: sessionPanelId(ref), action: 'open', nonce: Date.now() })
 
@@ -157,6 +157,14 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   const reader = useReader()
   const openAttachment = (next: PreviewedAttachment): void => {
     reader.show(next.issue !== undefined ? { kind: 'issue', number: next.issue } : { kind: 'staged', attachment: next })
+    revealReader()
+  }
+  /** A `#123` the agent wrote: its tab, or with a modifier a new one. */
+  const openIssue = (number: number, newTab: boolean): void => {
+    reader.show({ kind: 'issue', number }, newTab)
+    revealReader()
+  }
+  const revealReader = (): void => {
     setRequest({ id: 'reader', action: 'open', nonce: Date.now() })
     setMobilePanel('reader')
   }
@@ -205,7 +213,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             latestChanges: { count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }
           }}
           staging={staging}
-          onOpenAttachment={openAttachment}
+          onOpenAttachment={openAttachment} onOpenIssue={openIssue}
         />
       )
     },
@@ -298,7 +306,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
           visible.includes('conversation') ? (
             <p className="p-4 text-xs text-muted-foreground">Drag a session here from Sessions, or close this panel.</p>
           ) : (
-            <SessionPane worktree={worktree} changedFiles={changedFiles} onCreated={(ref) => place(sessionPanelId(ref))} onOpenAttachment={openAttachment} />
+            <SessionPane worktree={worktree} changedFiles={changedFiles} onCreated={(ref) => place(sessionPanelId(ref))} onOpenAttachment={openAttachment} onOpenIssue={openIssue} />
           )
         }
         request={request}

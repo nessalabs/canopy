@@ -11,6 +11,7 @@ import { DataModel } from '@/components/ui/data-model'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { parseChangeMap, parseDrawing, partLabel, partRef, remarkDrawnBlocks, type DrawingSchema, type Located } from '@/lib/change-map'
 import { remarkFileRefs } from '@/lib/file-refs'
+import { parseIssueHref, remarkIssueRefs } from '@/lib/issue-refs'
 
 /**
  * Where a conversation sends a clicked link that names a file: the host answers whether it
@@ -20,6 +21,11 @@ import { remarkFileRefs } from '@/lib/file-refs'
 export type OpenFileRef = (href: string) => boolean
 
 const FileRefContext = createContext<OpenFileRef | null>(null)
+
+/** Where a conversation sends a clicked `#123`; `newTab` for a shift-, cmd- or ctrl-click. */
+export type OpenIssueRef = (number: number, newTab: boolean) => void
+
+const IssueRefContext = createContext<OpenIssueRef | null>(null)
 
 /**
  * A ```change-map block, drawn: the parts of the change as cards, each opening its code when
@@ -158,7 +164,7 @@ const DataModelBlock = drawnBlock(DataModelSpec, 'Drawing the data model…', ({
   />
 ))
 
-const PLUGINS = [remarkFileRefs, remarkDrawnBlocks]
+const FILE_PLUGINS = [remarkFileRefs, remarkDrawnBlocks]
 // Each drawn block is an element named for its language; react-markdown renders any element it is given a component for.
 const COMPONENTS = {
   'change-map': ChangeMapBlock,
@@ -170,11 +176,14 @@ const COMPONENTS = {
 } as Components
 
 /**
- * How an answer renders where a host opens files: references become links and change maps are
- * drawn. Elsewhere it renders as plain markdown.
+ * How an answer renders where a host opens files — references become links and change maps are
+ * drawn — and where it opens issues, `#123` becomes a link too. Elsewhere it is plain markdown.
  */
-export function useLinkedMarkdown(): { remarkPlugins?: typeof PLUGINS; components?: Components } {
-  return useContext(FileRefContext) ? { remarkPlugins: PLUGINS, components: COMPONENTS } : {}
+export function useLinkedMarkdown(): { remarkPlugins?: Array<typeof remarkIssueRefs>; components?: Components } {
+  const files = useContext(FileRefContext) !== null
+  const issues = useContext(IssueRefContext) !== null
+  if (!files && !issues) return {}
+  return { remarkPlugins: [...(files ? FILE_PLUGINS : []), ...(issues ? [remarkIssueRefs] : [])], ...(files ? { components: COMPONENTS } : {}) }
 }
 
 /** An answer's markdown: file references linked and change maps drawn wherever the host can open files. */
@@ -187,6 +196,25 @@ export function LinkedMarkdown(props: React.ComponentProps<typeof MessageMarkdow
  * plugin linked, and `click … href` links in a mermaid diagram alike, since all of them are
  * anchors by the time they are on screen.
  */
+/** Opens a `#123` clicked inside it in the host's reader; any other link passes through. */
+export function IssueRefLinks({ onOpen, children }: { onOpen?: OpenIssueRef; children: React.ReactNode }): React.JSX.Element {
+  if (!onOpen) return <>{children}</>
+  const claim = (event: React.MouseEvent): void => {
+    const number = parseIssueHref((event.target as Element).closest?.('a')?.getAttribute('href') ?? '')
+    if (number === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    onOpen(number, event.shiftKey || event.metaKey || event.ctrlKey)
+  }
+  return (
+    <IssueRefContext.Provider value={onOpen}>
+      <div className="contents" onClickCapture={claim}>
+        {children}
+      </div>
+    </IssueRefContext.Provider>
+  )
+}
+
 export function FileRefLinks({ onOpen, children }: { onOpen?: OpenFileRef; children: React.ReactNode }): React.JSX.Element {
   if (!onOpen) return <>{children}</>
   const claim = (event: React.MouseEvent): void => {

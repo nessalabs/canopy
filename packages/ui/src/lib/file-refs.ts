@@ -1,3 +1,5 @@
+import { linkText, type MdNode } from './remark-link-text'
+
 /**
  * File references in an agent's answer — `src/a.ts:42`, `src/a.ts:42-50`, `src/a.ts#L42-L50` —
  * the way Claude Code and Codex cite code. They become links, and a link becomes a jump to that
@@ -66,26 +68,11 @@ export function splitRefs(text: string): Array<string | { raw: string; ref: File
   return parts
 }
 
-/** The slice of mdast this touches. */
-interface MdNode {
-  type: string
-  value?: string
-  url?: string
-  children?: MdNode[]
-}
-
-const link = (url: string, child: MdNode): MdNode => ({ type: 'link', url, children: [child] })
-
-function linkify(node: MdNode): void {
-  if (!node.children || node.type === 'link' || node.type === 'linkReference') return
-  node.children = node.children.flatMap((child): MdNode[] => {
-    if (child.type === 'text' && child.value) return splitRefs(child.value).map((part) => (typeof part === 'string' ? { type: 'text', value: part } : link(part.raw, { type: 'text', value: part.raw })))
-    // A code span that is only a reference with lines: `src/a.ts:42`. A bare `a.ts` stays code.
-    if (child.type === 'inlineCode' && child.value && parseFileRef(child.value)?.lines) return [link(child.value.trim(), child)]
-    linkify(child)
-    return [child]
-  })
-}
-
 /** A remark plugin: every file reference in prose or in a code span of its own becomes a link to it. */
-export const remarkFileRefs = () => (tree: MdNode) => linkify(tree)
+export const remarkFileRefs = () => (tree: MdNode) =>
+  linkText(
+    tree,
+    (text) => splitRefs(text).map((part) => (typeof part === 'string' ? part : { raw: part.raw, url: part.raw })),
+    // A code span that is only a reference with lines: `src/a.ts:42`. A bare `a.ts` stays code.
+    (value) => (parseFileRef(value)?.lines ? value.trim() : null)
+  )

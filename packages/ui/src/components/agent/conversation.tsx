@@ -9,7 +9,7 @@ import { AgentAvatar } from './agent-avatar'
 import { AgentWelcome } from './agent-welcome'
 import type { PreviewedAttachment } from './attachment-preview'
 import { AgentComposer } from './composer'
-import { FileRefLinks, type OpenFileRef } from './answer-links'
+import { FileRefLinks, IssueRefLinks, type OpenFileRef, type OpenIssueRef } from './answer-links'
 import { TranscriptView, type TurnWrites } from './transcript'
 
 export function emptyMessage(agent: WorktreeAgent, worktree: Worktree): string {
@@ -121,7 +121,8 @@ export function Conversation({
   avatarSeed,
   onOpenRef,
   starter,
-  onOpenAttachment
+  onOpenAttachment,
+  onOpenIssue
 }: {
   worktree: Worktree
   agent: WorktreeAgent
@@ -138,55 +139,59 @@ export function Conversation({
   starter?: Starter
   /** Opens a staged text attachment to read beside the conversation. */
   onOpenAttachment?: (attachment: PreviewedAttachment) => void
+  /** Opens a `#123` the agent wrote; given, those become links. */
+  onOpenIssue?: OpenIssueRef
 }): React.JSX.Element {
   const seed = avatarSeed ?? agent.selected?.sessionId ?? worktree.id
   const note = emptyMessage(agent, worktree)
   return (
-    <FileRefLinks onOpen={onOpenRef}>
-      <div className="flex h-full min-h-0 flex-col gap-2 p-2">
-        <ErrorNote error={agent.error ?? agent.history.error ?? agent.turn.error} />
-        {agent.selected?.origin ? <OriginNote origin={agent.selected.origin} /> : null}
-        <TranscriptView
-          transcript={model.transcript}
-          previews={model.previews}
-          extras={model.extras}
-          pending={agent.turn.pending}
-          queued={agent.turn.queued}
-          streamingText={agent.turn.streamingText}
-          activity={agent.turn.activity}
-          startedAt={agent.turn.startedAt}
-          tokens={agent.turn.tokens}
-          usage={agent.turn.usage}
-          avatarSeed={seed}
-          capabilities={agent.capabilities}
-          emptyMessage={note}
-          emptyState={
-            starter && (agent.fresh || agent.selected) && !agent.turn.busy ? (
-              <StarterView agent={agent} seed={seed} note={starter.note ?? note} starter={starter} />
-            ) : (
-              <AgentWelcome agent={agent} note={note} />
-            )
-          }
-          writesByTurn={changes?.writesByTurn ?? NO_WRITES}
-          openInTerminal={agent.history.data?.openInTerminal}
-          onReviewTurn={changes?.onReviewTurn ?? (() => undefined)}
-          onRewindTurn={changes?.onRewindTurn}
-          onAnswerPermission={agent.turn.answerPermission}
-          onPickModel={agent.setModel}
-          onQuote={staging ? (text) => staging.stage({ text }) : undefined}
-          className="min-h-0 flex-1"
-        />
-        <AgentComposer
-          agent={agent}
-          changedFiles={changedFiles}
-          latestChanges={changes?.latestChanges}
-          staged={staging?.staged}
-          onStaged={staging?.taken}
-          context={model.context}
-          onOpenAttachment={onOpenAttachment}
-          projectId={worktree.projectId}
-        />
-      </div>
-    </FileRefLinks>
+    <IssueRefLinks onOpen={onOpenIssue}>
+      <FileRefLinks onOpen={onOpenRef}>
+        <div className="flex h-full min-h-0 flex-col gap-2 p-2">
+          <ErrorNote error={agent.error ?? agent.history.error ?? agent.turn.error} />
+          {agent.selected?.origin ? <OriginNote origin={agent.selected.origin} /> : null}
+          <TranscriptView
+            transcript={model.transcript}
+            previews={model.previews}
+            extras={model.extras}
+            pending={agent.turn.pending}
+            queued={agent.turn.queued}
+            streamingText={agent.turn.streamingText}
+            activity={agent.turn.activity}
+            startedAt={agent.turn.startedAt}
+            tokens={agent.turn.tokens}
+            usage={agent.turn.usage}
+            avatarSeed={seed}
+            capabilities={agent.capabilities}
+            emptyMessage={note}
+            emptyState={
+              starter && (agent.fresh || agent.selected) && !agent.turn.busy ? (
+                <StarterView agent={agent} seed={seed} note={starter.note ?? note} starter={starter} />
+              ) : (
+                <AgentWelcome agent={agent} note={note} />
+              )
+            }
+            writesByTurn={changes?.writesByTurn ?? NO_WRITES}
+            openInTerminal={agent.history.data?.openInTerminal}
+            onReviewTurn={changes?.onReviewTurn ?? (() => undefined)}
+            onRewindTurn={changes?.onRewindTurn}
+            onAnswerPermission={agent.turn.answerPermission}
+            onPickModel={agent.setModel}
+            onQuote={staging ? (text) => staging.stage({ text }) : undefined}
+            className="min-h-0 flex-1"
+          />
+          <AgentComposer
+            agent={agent}
+            changedFiles={changedFiles}
+            latestChanges={changes?.latestChanges}
+            staged={staging?.staged}
+            onStaged={staging?.taken}
+            context={model.context}
+            onOpenAttachment={onOpenAttachment}
+            projectId={worktree.projectId}
+          />
+        </div>
+      </FileRefLinks>
+    </IssueRefLinks>
   )
 }
