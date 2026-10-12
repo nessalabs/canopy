@@ -8,7 +8,7 @@ import { ErrorNote } from '@/components/error-note'
 import { Button } from '@/components/ui/button'
 import { ChatTabs } from '@/components/ui/chat-tabs'
 import { Input } from '@/components/ui/input'
-import { useIssueSearch } from '@/lib/api-hooks'
+import { useIssueAssignees, useIssueSearch } from '@/lib/api-hooks'
 import { relativeTime } from '@/lib/format'
 import { EMPTY_READER, readerSteps, type Reading, type ReaderTabs } from '@/lib/reader-tabs'
 import { useDebounced } from '@/lib/use-debounced'
@@ -63,6 +63,7 @@ function IssueListRow({ item, active, onPick }: { item: IssueSummary; active: bo
         </span>
         <span className="font-mono text-[11px] text-muted-foreground">
           {item.kind === 'pr' ? 'PR' : 'Issue'} #{item.number} · {item.author ?? 'ghost'} · {relativeTime(Date.parse(item.updatedAt))}
+          {item.assignees.length > 0 ? ` · → ${item.assignees.join(', ')}` : ''}
         </span>
       </button>
     </li>
@@ -78,6 +79,7 @@ function IssueList({ projectId, active, onPick }: { projectId: string; active: n
   // A new search starts from the first page again.
   useEffect(() => setLimit(PAGE), [settled, filter])
   const search = useIssueSearch(projectId, settled, filter, limit)
+  const assignees = useIssueAssignees(projectId)
   const items = search.data?.items ?? []
   const gh = search.data?.gh
   return (
@@ -86,7 +88,7 @@ function IssueList({ projectId, active, onPick }: { projectId: string; active: n
         <Search aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
         <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search issues and PRs, or #number" aria-label="Search issues and pull requests" className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0" />
       </label>
-      <IssueFilterBar filter={filter} onChange={setFilter} />
+      <IssueFilterBar filter={filter} onChange={setFilter} assignees={assignees.data} />
       {search.error ? <ErrorNote error={search.error} /> : null}
       {gh && gh.state !== 'ready' ? <p className="p-3 text-xs text-muted-foreground">GitHub is not set up for this repository ({gh.state}). The Pull request view shows how to connect it.</p> : null}
       <ul className="min-h-0 flex-1 overflow-y-auto" aria-busy={search.isFetching || undefined}>

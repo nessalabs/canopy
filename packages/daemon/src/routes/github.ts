@@ -22,6 +22,8 @@ export function registerGitHubRoutes(app: FastifyInstance, { github, issues, pro
     return issues.search(projectPath(request.params), q, filter, limit)
   })
 
+  app.get(routes.projectIssueAssignees(':id'), async (request) => issues.assignees(projectPath(request.params)))
+
   app.get(routes.projectIssue(':id', ':number'), async (request) => issues.read(projectPath(request.params), IssueParams.parse(request.params).number))
 
   app.get(routes.githubAttachment(':id'), async (request) => issues.attachment(projectPath(request.params), UrlQuery.parse(request.query).url))
