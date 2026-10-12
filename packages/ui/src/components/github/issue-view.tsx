@@ -43,7 +43,7 @@ export function IssueStateBadge({ state, kind, className }: { state: PullRequest
   const { label, className: tint, icon } = STATE[state]
   const Icon = icon[kind]
   return (
-    <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium', tint, className)}>
+    <span className={cn('inline-flex shrink-0 items-center gap-1 rounded-[4px] px-2 py-0.5 text-xs font-medium', tint, className)}>
       <Icon aria-hidden="true" className="size-3.5" />
       {label}
     </span>
@@ -85,7 +85,7 @@ function Avatar({ login }: { login: string | null }): React.JSX.Element {
 function Post({ author, at, verb, body, repoUrl }: { author: string | null; at: string; verb: string; body: string; repoUrl: string }): React.JSX.Element {
   const text = useMemo(() => linkIssueRefs(body.trim() || '_No description provided._', repoUrl), [body, repoUrl])
   return (
-    <article className="relative overflow-hidden rounded-lg border border-border bg-card">
+    <article className="relative overflow-hidden rounded-md border border-border bg-card">
       <header className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs">
         <Avatar login={author} />
         <span className="font-semibold text-foreground">{author ?? 'ghost'}</span>

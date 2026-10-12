@@ -13,6 +13,7 @@ import { useDebounced } from '@/lib/use-debounced'
 import { cn } from '@/lib/utils'
 
 import { attachmentName, GitHubAttachmentView } from './attachment-view'
+import { IssueFilterBar, OPEN_ISSUES } from './issue-filter'
 import { IssueStateBadge, IssueView } from './issue-view'
 
 /** What the reader shows: an issue or PR, a file attached on GitHub, or text staged in a composer. */
@@ -63,7 +64,8 @@ function IssueListRow({ item, active, onPick }: { item: IssueSummary; active: bo
 /** The repository's issues and PRs, searched on GitHub as the query settles. */
 function IssueList({ projectId, active, onPick }: { projectId: string; active: number | undefined; onPick: (number: number) => void }): React.JSX.Element {
   const [query, setQuery] = useState('')
-  const search = useIssueSearch(projectId, useDebounced(query.trim(), 250))
+  const [filter, setFilter] = useState(OPEN_ISSUES)
+  const search = useIssueSearch(projectId, useDebounced(query.trim(), 250), filter)
   const gh = search.data?.gh
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -71,6 +73,7 @@ function IssueList({ projectId, active, onPick }: { projectId: string; active: n
         <Search aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
         <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search issues and PRs, or #number" aria-label="Search issues and pull requests" className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0" />
       </label>
+      <IssueFilterBar filter={filter} onChange={setFilter} />
       {search.error ? <ErrorNote error={search.error} /> : null}
       {gh && gh.state !== 'ready' ? <p className="p-3 text-xs text-muted-foreground">GitHub is not set up for this repository ({gh.state}). The Pull request view shows how to connect it.</p> : null}
       <ul className="min-h-0 flex-1 overflow-y-auto" aria-busy={search.isFetching || undefined}>

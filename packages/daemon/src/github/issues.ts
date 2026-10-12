@@ -7,7 +7,7 @@
  * downloads, which work without a login for public repositories and are retried with `gh`'s
  * token for private ones.
  */
-import { isAttachmentUrl, type GhStatus, type GitHubAttachment, type IssueSearchResponse, type IssueSummary, type IssueThread, type IssueTimelineItem } from '@canopy/shared'
+import { isAttachmentUrl, type GhStatus, type GitHubAttachment, type IssueFilter, type IssueSearchResponse, type IssueSummary, type IssueThread, type IssueTimelineItem } from '@canopy/shared'
 
 import { ApiError, badRequest } from '../lib/errors'
 import type { GhRunner } from './gh'
@@ -105,8 +105,9 @@ export function toTimelineItem(raw: Raw, index: number): IssueTimelineItem | nul
   return { type: 'event', id, actor, createdAt, event, text, ref }
 }
 
-/** What GitHub search is asked: this repository, the words typed, newest activity first. */
-export const searchQuery = (repo: string, q: string): string => `repo:${repo} ${q}`.trim()
+/** What GitHub search is asked: this repository, the one kind, open only unless asked, the words typed. */
+export const searchQuery = (repo: string, q: string, { kind, state }: IssueFilter): string =>
+  [`repo:${repo}`, kind === 'pr' ? 'is:pr' : 'is:issue', state === 'open' ? 'is:open' : '', q].filter(Boolean).join(' ')
 
 /** `249` or `#249`: a number to look up directly rather than search for. */
 const asNumber = (q: string): number | null => (/^#?\d+$/.test(q.trim()) ? Number(q.trim().replace('#', '')) : null)
@@ -144,11 +145,11 @@ export class IssuesService {
       .map((line) => JSON.parse(line))
   }
 
-  async search(cwd: string, q: string): Promise<IssueSearchResponse> {
+  async search(cwd: string, q: string, filter: IssueFilter = { kind: 'issue', state: 'open' }): Promise<IssueSearchResponse> {
     const gh = await this.deps.status(cwd)
     if (gh.state !== 'ready' || !gh.repo) return { gh, items: [] }
     const repo = gh.repo
-    const items = await this.remember(`search:${repo}:${q}`, SEARCH_TTL_MS, async () => {
+    const items = await this.remember(`search:${repo}:${filter.kind}:${filter.state}:${q}`, SEARCH_TTL_MS, async () => {
       const number = asNumber(q)
       if (number !== null) {
         const one = await this.api(cwd, [`repos/${repo}/issues/${number}`]).catch((error: unknown) => {
@@ -157,7 +158,7 @@ export class IssuesService {
         })
         return one ? [toIssueSummary(one)] : []
       }
-      const found = await this.api(cwd, ['-X', 'GET', 'search/issues', '-f', `q=${searchQuery(repo, q)}`, '-f', 'sort=updated', '-f', `per_page=${SEARCH_LIMIT}`])
+      const found = await this.api(cwd, ['-X', 'GET', 'search/issues', '-f', `q=${searchQuery(repo, q, filter)}`, '-f', 'sort=updated', '-f', `per_page=${SEARCH_LIMIT}`])
       return ((found?.items ?? []) as Raw[]).map(toIssueSummary)
     })
     return { gh, items }

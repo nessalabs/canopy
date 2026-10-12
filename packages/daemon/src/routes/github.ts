@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify'
 
-import { CreatePullRequestInput, PullRequestAction, routes } from '@canopy/shared'
+import { CreatePullRequestInput, IssueFilter, PullRequestAction, routes } from '@canopy/shared'
 
 import type { Services } from './context'
 import { z } from 'zod'
@@ -9,7 +9,7 @@ import { IdParams } from './params'
 
 /** `?fresh=1` waits for GitHub instead of answering from what the daemon holds. */
 const FreshQuery = z.object({ fresh: z.enum(['1', 'true']).optional() })
-const SearchQuery = z.object({ q: z.string().max(200).default('') })
+const SearchQuery = IssueFilter.extend({ q: z.string().max(200).default('') })
 const IssueParams = IdParams.extend({ number: z.coerce.number().int().positive() })
 const UrlQuery = z.object({ url: z.string().url() })
 
@@ -17,7 +17,10 @@ const UrlQuery = z.object({ url: z.string().url() })
 export function registerGitHubRoutes(app: FastifyInstance, { github, issues, projects }: Services): void {
   const projectPath = (params: unknown): string => projects.get(IdParams.parse(params).id).path
 
-  app.get(routes.projectIssues(':id'), async (request) => issues.search(projectPath(request.params), SearchQuery.parse(request.query).q))
+  app.get(routes.projectIssues(':id'), async (request) => {
+    const { q, ...filter } = SearchQuery.parse(request.query)
+    return issues.search(projectPath(request.params), q, filter)
+  })
 
   app.get(routes.projectIssue(':id', ':number'), async (request) => issues.read(projectPath(request.params), IssueParams.parse(request.params).number))
 
