@@ -167,7 +167,7 @@ export function GitTab({
   // A chip in the Git Agent's composer — an issue mentioned with #, a staged file — opens in Issues' reader.
   const reader = useReader()
   const readChip = (attachment: PreviewedAttachment): void => {
-    reader.open(attachment.issue !== undefined ? { kind: 'issue', number: attachment.issue } : { kind: 'staged', attachment })
+    reader.show(attachment.issue !== undefined ? { kind: 'issue', number: attachment.issue } : { kind: 'staged', attachment })
     onPaneChange('issues')
   }
   const focusFor = (target: Pane): ExplorerFocus | undefined => (jump?.pane === target ? jump.focus : undefined)

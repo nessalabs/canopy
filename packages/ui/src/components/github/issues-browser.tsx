@@ -3,52 +3,57 @@ import { ArrowLeft, Search } from 'lucide-react'
 
 import type { IssueSummary } from '@canopy/shared'
 
-import { AttachmentPreview, type PreviewedAttachment } from '@/components/agent/attachment-preview'
+import { AttachmentPreview } from '@/components/agent/attachment-preview'
 import { ErrorNote } from '@/components/error-note'
 import { Button } from '@/components/ui/button'
+import { ChatTabs } from '@/components/ui/chat-tabs'
 import { Input } from '@/components/ui/input'
 import { useIssueSearch } from '@/lib/api-hooks'
 import { relativeTime } from '@/lib/format'
+import { EMPTY_READER, readerSteps, type Reading, type ReaderTabs } from '@/lib/reader-tabs'
 import { useDebounced } from '@/lib/use-debounced'
 import { cn } from '@/lib/utils'
 
 import { attachmentName, GitHubAttachmentView } from './attachment-view'
 import { IssueFilterBar, OPEN_ISSUES } from './issue-filter'
-import { IssueStateBadge, IssueView } from './issue-view'
-
-/** What the reader shows: an issue or PR, a file attached on GitHub, or text staged in a composer. */
-export type Reading = { kind: 'issue'; number: number } | { kind: 'github'; url: string } | { kind: 'staged'; attachment: PreviewedAttachment }
+import { IssueStateBadge, IssueView, opensNewTab } from './issue-view'
 
 /** How many the list shows to begin with, and how many more each Show more adds. */
 const PAGE = 10
 
-const sameReading = (a: Reading | undefined, b: Reading): boolean => JSON.stringify(a) === JSON.stringify(b)
-
 const titleOf = (reading: Reading): string =>
   reading.kind === 'issue' ? `#${reading.number}` : reading.kind === 'github' ? attachmentName(reading.url) : reading.attachment.label
 
-/**
- * What is open in the reader and how it got there: following a link pushes, Back pops, and
- * picking from the list starts over. `open` is how anything outside — a chip in the Git Agent —
- * puts something in front of the reader.
- */
-export function useReader(): { current: Reading | undefined; previous: Reading | undefined; open: (next: Reading) => void; follow: (next: Reading) => void; back: () => void } {
-  const [trail, setTrail] = useState<Reading[]>([])
+/** A reader's tabs and the steps that move them, for a pane that reads issues and attachments. */
+export function useReader() {
+  const [state, setState] = useState<ReaderTabs>(EMPTY_READER)
+  const step =
+    <Args extends unknown[]>(fn: (state: ReaderTabs, ...args: Args) => ReaderTabs) =>
+    (...args: Args): void =>
+      setState((current) => fn(current, ...args))
+  const tab = state.tabs.find((t) => t.id === state.active)
   return {
-    current: trail.at(-1),
-    previous: trail.at(-2),
-    open: (next) => setTrail([next]),
-    follow: (next) => setTrail((current) => (sameReading(current.at(-1), next) ? current : [...current, next])),
-    back: () => setTrail((current) => current.slice(0, -1))
+    state,
+    current: tab?.trail.at(-1),
+    previous: tab?.trail.at(-2),
+    show: step(readerSteps.show),
+    open: step(readerSteps.open),
+    follow: step(readerSteps.follow),
+    back: step(readerSteps.back),
+    select: step(readerSteps.select),
+    close: step(readerSteps.close)
   }
 }
 
-function IssueListRow({ item, active, onPick }: { item: IssueSummary; active: boolean; onPick: () => void }): React.JSX.Element {
+export type Reader = ReturnType<typeof useReader>
+
+function IssueListRow({ item, active, onPick }: { item: IssueSummary; active: boolean; onPick: (newTab: boolean) => void }): React.JSX.Element {
   return (
     <li>
       <button
         type="button"
-        onClick={onPick}
+        onClick={(event) => onPick(opensNewTab(event))}
+        title="Shift-click to open in a new tab"
         aria-current={active || undefined}
         className={cn('flex w-full flex-col gap-1 border-b border-border px-3 py-2.5 text-left outline-none hover:bg-accent focus-visible:bg-accent', active && 'bg-accent')}
       >
@@ -65,7 +70,7 @@ function IssueListRow({ item, active, onPick }: { item: IssueSummary; active: bo
 }
 
 /** The repository's issues and PRs, searched on GitHub as the query settles. */
-function IssueList({ projectId, active, onPick }: { projectId: string; active: number | undefined; onPick: (number: number) => void }): React.JSX.Element {
+function IssueList({ projectId, active, onPick }: { projectId: string; active: number | undefined; onPick: (number: number, newTab: boolean) => void }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState(OPEN_ISSUES)
   const [limit, setLimit] = useState(PAGE)
@@ -86,7 +91,7 @@ function IssueList({ projectId, active, onPick }: { projectId: string; active: n
       {gh && gh.state !== 'ready' ? <p className="p-3 text-xs text-muted-foreground">GitHub is not set up for this repository ({gh.state}). The Pull request view shows how to connect it.</p> : null}
       <ul className="min-h-0 flex-1 overflow-y-auto" aria-busy={search.isFetching || undefined}>
         {items.map((item) => (
-          <IssueListRow key={item.number} item={item} active={item.number === active} onPick={() => onPick(item.number)} />
+          <IssueListRow key={item.number} item={item} active={item.number === active} onPick={(newTab) => onPick(item.number, newTab)} />
         ))}
         {search.data && items.length === 0 && gh?.state === 'ready' ? <li className="p-3 text-xs text-muted-foreground">Nothing matches.</li> : null}
         {items.length === limit ? (
@@ -102,42 +107,70 @@ function IssueList({ projectId, active, onPick }: { projectId: string; active: n
   )
 }
 
-/** One reading, with the links inside an issue followed into the same reader. */
-export function ReadingView({ projectId, reading, onFollow }: { projectId: string; reading: Reading; onFollow: (next: Reading) => void }): React.JSX.Element {
+/** One reading, with the links inside an issue followed into the same reader — or a new tab of it. */
+export function ReadingView({ projectId, reading, onFollow }: { projectId: string; reading: Reading; onFollow: (next: Reading, newTab: boolean) => void }): React.JSX.Element {
   if (reading.kind === 'issue') {
-    return <IssueView projectId={projectId} number={reading.number} onOpenIssue={(number) => onFollow({ kind: 'issue', number })} onOpenAttachment={(url) => onFollow({ kind: 'github', url })} />
+    return (
+      <IssueView
+        projectId={projectId}
+        number={reading.number}
+        onOpenIssue={(number, newTab) => onFollow({ kind: 'issue', number }, newTab)}
+        onOpenAttachment={(url, newTab) => onFollow({ kind: 'github', url }, newTab)}
+      />
+    )
   }
   if (reading.kind === 'github') return <GitHubAttachmentView projectId={projectId} url={reading.url} />
   return <AttachmentPreview attachment={reading.attachment} />
 }
 
+/** A reader: its tabs once there is more than one, Back along the tab's trail, and what it shows. */
+export function ReaderPane({ projectId, reader, empty }: { projectId: string; reader: Reader; empty: React.ReactNode }): React.JSX.Element {
+  const { state, current, previous } = reader
+  return (
+    <section className="flex h-full min-w-0 flex-1 flex-col">
+      {state.tabs.length > 1 ? (
+        <ChatTabs
+          tabs={state.tabs.map((t) => ({ id: t.id, title: titleOf(t.trail.at(-1)!), closeable: true }))}
+          value={state.active ?? null}
+          onValueChange={reader.select}
+          onClose={reader.close}
+          label="Open issues and files"
+          className="shrink-0 border-b border-border px-2 py-1 [&_[data-slot=chat-tab]]:rounded-[4px]"
+        />
+      ) : null}
+      {previous ? (
+        <div className="shrink-0 border-b border-border px-2 py-1">
+          <Button size="sm" variant="ghost" className="h-7 rounded-[4px] text-xs" onClick={reader.back}>
+            <ArrowLeft aria-hidden="true" /> Back to {titleOf(previous)}
+          </Button>
+        </div>
+      ) : null}
+      <div className="min-h-0 flex-1 overflow-y-auto">{current ? <ReadingView key={state.active} projectId={projectId} reading={current} onFollow={reader.follow} /> : empty}</div>
+    </section>
+  )
+}
+
 /**
  * The Git tab's Issues view: the repository's issues and PRs on the left, the one picked on the
- * right, read as GitHub shows it. Issue links and attachments inside it open in place, with Back.
+ * right, read as GitHub shows it. A pick replaces what the reader shows, a shift-click opens a
+ * tab of its own, and links inside an issue open in place with Back.
  */
-export function IssuesBrowser({ projectId, reader }: { projectId: string; reader: ReturnType<typeof useReader> }): React.JSX.Element {
-  const { current, previous } = reader
+export function IssuesBrowser({ projectId, reader }: { projectId: string; reader: Reader }): React.JSX.Element {
+  const { current } = reader
   return (
     <div className="flex min-h-0 flex-1">
       <aside className="w-80 shrink-0 border-r border-border">
-        <IssueList projectId={projectId} active={current?.kind === 'issue' ? current.number : undefined} onPick={(number) => reader.open({ kind: 'issue', number })} />
+        <IssueList
+          projectId={projectId}
+          active={current?.kind === 'issue' ? current.number : undefined}
+          onPick={(number, newTab) => (newTab ? reader.follow({ kind: 'issue', number }, true) : reader.open({ kind: 'issue', number }))}
+        />
       </aside>
-      <section className="flex min-w-0 flex-1 flex-col">
-        {previous ? (
-          <div className="shrink-0 border-b border-border px-2 py-1">
-            <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={reader.back}>
-              <ArrowLeft aria-hidden="true" /> {titleOf(previous)}
-            </Button>
-          </div>
-        ) : null}
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {current ? (
-            <ReadingView projectId={projectId} reading={current} onFollow={reader.follow} />
-          ) : (
-            <p className="p-6 text-xs text-muted-foreground">Pick an issue or pull request to read it here. In any composer, type # to hand one to the agent.</p>
-          )}
-        </div>
-      </section>
+      <ReaderPane
+        projectId={projectId}
+        reader={reader}
+        empty={<p className="p-6 text-xs text-muted-foreground">Pick an issue or pull request to read it here; shift-click to open it in a new tab. In any composer, type # to hand one to the agent.</p>}
+      />
     </div>
   )
 }

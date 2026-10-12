@@ -28,9 +28,12 @@ import { usePlatform } from '@/providers/platform'
 
 /** What a reader of an issue can do with the links in it: open another one, or read an attachment. */
 export interface IssueLinkHandlers {
-  onOpenIssue: (number: number) => void
-  onOpenAttachment: (url: string) => void
+  onOpenIssue: (number: number, newTab: boolean) => void
+  onOpenAttachment: (url: string, newTab: boolean) => void
 }
+
+/** Shift-, Cmd- or Ctrl-click opens a link in a tab of its own rather than in place. */
+export const opensNewTab = (event: React.MouseEvent): boolean => event.shiftKey || event.metaKey || event.ctrlKey
 
 /** Open, closed and merged, as GitHub colours them, for issues and PRs alike. */
 const STATE: Record<PullRequestState, { label: string; className: string; icon: Record<IssueKind, LucideIcon> }> = {
@@ -98,7 +101,9 @@ function Post({ author, at, verb, body, repoUrl }: { author: string | null; at: 
   )
 }
 
-function Event({ item, onOpenIssue }: { item: Extract<IssueTimelineItem, { type: 'event' }>; onOpenIssue: (number: number) => void }): React.JSX.Element {
+function Event({ item, onOpenIssue }: { item: Extract<IssueTimelineItem, { type: 'event' }>; onOpenIssue: IssueLinkHandlers['onOpenIssue'] }): React.JSX.Element {
+  // The issue an event points at is a link where the text names it: "mentioned this in #158".
+  const [before, after] = item.ref !== null ? item.text.split(`#${item.ref}`) : [item.text]
   const Icon = EVENT_ICON[item.event]
   return (
     <div className="relative flex items-center gap-2 py-1.5 pl-1 text-xs text-muted-foreground">
@@ -107,11 +112,14 @@ function Event({ item, onOpenIssue }: { item: Extract<IssueTimelineItem, { type:
       </span>
       <Avatar login={item.actor} />
       <span className="min-w-0">
-        <span className="font-semibold text-foreground">{item.actor ?? 'Someone'}</span> {item.text}
+        <span className="font-semibold text-foreground">{item.actor ?? 'Someone'}</span> {before}
         {item.ref !== null ? (
-          <button type="button" onClick={() => onOpenIssue(item.ref!)} className="ml-1 text-primary underline-offset-2 hover:underline">
-            open #{item.ref}
-          </button>
+          <>
+            <button type="button" title="Shift-click to open in a new tab" onClick={(event) => onOpenIssue(item.ref!, opensNewTab(event))} className="font-medium text-foreground underline-offset-2 hover:underline">
+              #{item.ref}
+            </button>
+            {after}
+          </>
         ) : null}{' '}
         <span className="whitespace-nowrap">on {day(item.createdAt)}</span>
       </span>
@@ -126,14 +134,15 @@ function Event({ item, onOpenIssue }: { item: Extract<IssueTimelineItem, { type:
  */
 function useThreadLinks(repoUrl: string, { onOpenIssue, onOpenAttachment }: IssueLinkHandlers): (event: React.MouseEvent) => void {
   return (event) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey) return
+    if (event.button !== 0) return
     const anchor = (event.target as Element).closest('a[href]')
     if (!(anchor instanceof HTMLAnchorElement)) return
     const link = classifyGitHubLink(anchor.href, repoUrl)
     if (link.kind === 'external') return
     event.preventDefault()
-    if (link.kind === 'issue') onOpenIssue(link.number)
-    else onOpenAttachment(link.url)
+    const newTab = opensNewTab(event)
+    if (link.kind === 'issue') onOpenIssue(link.number, newTab)
+    else onOpenAttachment(link.url, newTab)
   }
 }
 

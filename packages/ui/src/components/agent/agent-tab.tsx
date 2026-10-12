@@ -1,12 +1,11 @@
 import { useMemo, useState } from 'react'
-import { CircleDot, FileDiff, FileText, MessageSquare, Users } from 'lucide-react'
+import { BookOpen, FileDiff, MessageSquare, Users } from 'lucide-react'
 
 import type { AgentProvider, RewindResult, SessionRef, Worktree } from '@canopy/shared'
 import type { Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
-import { attachmentName, GitHubAttachmentView } from '@/components/github/attachment-view'
-import { IssueView } from '@/components/github/issue-view'
+import { ReaderPane, useReader } from '@/components/github/issues-browser'
 import { PanelShell, type PanelDef, type PanelRequest } from '@/components/panel-shell'
 import { ShellSlot } from '@/components/shell-slots'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
@@ -20,7 +19,7 @@ import { useStaging } from '@/lib/use-staging'
 import { useTranscriptModel } from '@/lib/use-transcript-model'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
 
-import { AttachmentPreview, type PreviewedAttachment } from './attachment-preview'
+import type { PreviewedAttachment } from './attachment-preview'
 import { Conversation } from './conversation'
 import { NewSessionButton } from './new-session-button'
 import { RewindDialog } from './rewind-dialog'
@@ -30,14 +29,12 @@ import { SessionRail, sessionTitle } from './session-rail'
 import type { TurnWrites } from './transcript'
 import { TurnChanges, type TurnReview } from './turn-changes'
 
-/** The attachment panel's content: text staged in a composer, or a file attached on GitHub. */
-type Reading = { kind: 'staged'; attachment: PreviewedAttachment } | { kind: 'github'; url: string }
 
 const LAYOUT_KEY = 'canopy-agent-layout-v3'
 
 const REMOVED_CHECKOUT = 'This session ran in a worktree that has been removed'
 
-type PanelId = 'sessions' | 'conversation' | 'changes' | 'attachment' | 'issue'
+type PanelId = 'sessions' | 'conversation' | 'changes' | 'reader'
 
 /** Sessions | conversation, 1 : 3. The changes panel opens on demand to the right of the conversation. */
 function buildAgentLayout(): AppShellLayout {
@@ -152,26 +149,13 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   }
   const openBeside = (ref: SessionRef): void => setRequest({ id: sessionPanelId(ref), action: 'open', nonce: Date.now() })
 
-  // What is being read beside the conversation: one issue, and one attachment — staged text, or a
-  // file attached on GitHub — each in its own panel to the right.
-  const [attachment, setAttachment] = useState<Reading>()
-  const [issue, setIssue] = useState<number>()
-  const reveal = (id: 'attachment' | 'issue'): void => {
-    setRequest({ id, action: 'open', nonce: Date.now() })
-    setMobilePanel(id)
-  }
-  const openIssue = (number: number): void => {
-    setIssue(number)
-    reveal('issue')
-  }
-  const readGitHubFile = (url: string): void => {
-    setAttachment({ kind: 'github', url })
-    reveal('attachment')
-  }
+  // Issues and attachments opened from any composer here — chips, links inside an issue — are read
+  // in one Reader panel to the right, a tab each.
+  const reader = useReader()
   const openAttachment = (next: PreviewedAttachment): void => {
-    if (next.issue !== undefined) return openIssue(next.issue)
-    setAttachment({ kind: 'staged', attachment: next })
-    reveal('attachment')
+    reader.show(next.issue !== undefined ? { kind: 'issue', number: next.issue } : { kind: 'staged', attachment: next })
+    setRequest({ id: 'reader', action: 'open', nonce: Date.now() })
+    setMobilePanel('reader')
   }
 
   // A new session is composed in the main conversation, so that panel comes on screen with it.
@@ -243,19 +227,8 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
         )
     },
     // Listed only once something has been opened, so the top bar does not offer an empty reader.
-    ...(issue !== undefined
-      ? [{ id: 'issue', title: `#${issue}`, icon: CircleDot, render: () => <IssueView projectId={worktree.projectId} number={issue} onOpenIssue={openIssue} onOpenAttachment={readGitHubFile} /> }]
-      : []),
-    ...(attachment
-      ? [
-          {
-            id: 'attachment',
-            title: attachment.kind === 'staged' ? attachment.attachment.label : attachmentName(attachment.url),
-            icon: FileText,
-            render: () =>
-              attachment.kind === 'staged' ? <AttachmentPreview attachment={attachment.attachment} /> : <GitHubAttachmentView projectId={worktree.projectId} url={attachment.url} />
-          }
-        ]
+    ...(reader.state.tabs.length > 0
+      ? [{ id: 'reader', title: 'Reader', icon: BookOpen, render: () => <ReaderPane projectId={worktree.projectId} reader={reader} empty={null} /> }]
       : [])
   ]
 
