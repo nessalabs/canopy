@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ArrowLeft, Search } from 'lucide-react'
 
 import type { IssueSummary } from '@canopy/shared'
@@ -18,6 +18,9 @@ import { IssueStateBadge, IssueView } from './issue-view'
 
 /** What the reader shows: an issue or PR, a file attached on GitHub, or text staged in a composer. */
 export type Reading = { kind: 'issue'; number: number } | { kind: 'github'; url: string } | { kind: 'staged'; attachment: PreviewedAttachment }
+
+/** How many the list shows to begin with, and how many more each Show more adds. */
+const PAGE = 10
 
 const sameReading = (a: Reading | undefined, b: Reading): boolean => JSON.stringify(a) === JSON.stringify(b)
 
@@ -65,7 +68,12 @@ function IssueListRow({ item, active, onPick }: { item: IssueSummary; active: bo
 function IssueList({ projectId, active, onPick }: { projectId: string; active: number | undefined; onPick: (number: number) => void }): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState(OPEN_ISSUES)
-  const search = useIssueSearch(projectId, useDebounced(query.trim(), 250), filter)
+  const [limit, setLimit] = useState(PAGE)
+  const settled = useDebounced(query.trim(), 250)
+  // A new search starts from the first page again.
+  useEffect(() => setLimit(PAGE), [settled, filter])
+  const search = useIssueSearch(projectId, settled, filter, limit)
+  const items = search.data?.items ?? []
   const gh = search.data?.gh
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -77,10 +85,17 @@ function IssueList({ projectId, active, onPick }: { projectId: string; active: n
       {search.error ? <ErrorNote error={search.error} /> : null}
       {gh && gh.state !== 'ready' ? <p className="p-3 text-xs text-muted-foreground">GitHub is not set up for this repository ({gh.state}). The Pull request view shows how to connect it.</p> : null}
       <ul className="min-h-0 flex-1 overflow-y-auto" aria-busy={search.isFetching || undefined}>
-        {(search.data?.items ?? []).map((item) => (
+        {items.map((item) => (
           <IssueListRow key={item.number} item={item} active={item.number === active} onPick={() => onPick(item.number)} />
         ))}
-        {search.data && search.data.items.length === 0 && gh?.state === 'ready' ? <li className="p-3 text-xs text-muted-foreground">Nothing matches.</li> : null}
+        {search.data && items.length === 0 && gh?.state === 'ready' ? <li className="p-3 text-xs text-muted-foreground">Nothing matches.</li> : null}
+        {items.length === limit ? (
+          <li className="p-2">
+            <Button size="sm" variant="ghost" className="h-7 w-full text-xs" disabled={search.isFetching} onClick={() => setLimit((current) => current + PAGE)}>
+              Show more
+            </Button>
+          </li>
+        ) : null}
         {search.isPending ? <li className="p-3 text-xs text-muted-foreground">Searching GitHub…</li> : null}
       </ul>
     </div>

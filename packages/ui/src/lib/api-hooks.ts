@@ -845,15 +845,17 @@ export const useUnhide = (worktreeId: string) => {
   return useHiding(worktreeId, (input: UnhideInput) => api.unhidePaths(worktreeId, input))
 }
 
-/** The repository's issues and PRs matching what was typed after `#`; the last answer stays up while the next loads. */
-export const useIssueSearch = (projectId: string, q: string, filter: IssueFilter, enabled = true) => {
+/**
+ * The first `limit` of the repository's issues or PRs matching what was typed, newest activity
+ * first. Nothing polls: each query the debounced typing settles on is one request, answered from
+ * the daemon's local copy, and the last answer stays up while the next loads.
+ */
+export const useIssueSearch = (projectId: string, q: string, filter: IssueFilter, limit = 10) => {
   const api = useApi()
   return useQuery({
-    queryKey: keys.issueSearch(projectId, q, filter),
-    queryFn: () => api.searchIssues(projectId, q, filter),
-    enabled,
-    // The daemon answers from its local copy and keeps that current, so asking it again is cheap.
-    staleTime: 5_000,
+    queryKey: keys.issueSearch(projectId, q, filter, limit),
+    queryFn: () => api.searchIssues(projectId, q, filter, limit),
+    staleTime: 30_000,
     placeholderData: keepPreviousData,
     retry: false
   })

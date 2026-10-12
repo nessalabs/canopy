@@ -173,7 +173,7 @@ export class IssuesService {
     await Promise.race([catchUp, new Promise((resolve) => setTimeout(resolve, CATCH_UP_WAIT_MS))])
   }
 
-  async search(cwd: string, q: string, filter: IssueFilter = { kind: 'issue', state: 'open' }): Promise<IssueSearchResponse> {
+  async search(cwd: string, q: string, filter: IssueFilter = { kind: 'issue', state: 'open' }, limit = 10): Promise<IssueSearchResponse> {
     const gh = await this.deps.status(cwd)
     if (gh.state !== 'ready' || !gh.repo) return { gh, items: [] }
     const repo = gh.repo
@@ -187,7 +187,7 @@ export class IssuesService {
       })
       if (one) this.deps.cache.save(repo, [toIssueSummary(one)])
     }
-    return { gh, items: this.deps.cache.search(repo, q, filter) }
+    return { gh, items: this.deps.cache.search(repo, q, filter, limit) }
   }
 
   /** The thread as last read while its issue says nothing changed; read from GitHub otherwise. */
