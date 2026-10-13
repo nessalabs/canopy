@@ -43,6 +43,8 @@ export const keys = {
   /** Every capability read of one worktree — the prefix a finished turn invalidates. */
   capabilitiesOf: (worktreeId: string) => ['agent-capabilities', worktreeId] as const,
   providers: ['providers'] as const,
+  /** Every agent across all projects, for the Agents panel. */
+  fleet: ['agent-fleet'] as const,
   // ---- environment & resources ----
   host: ['host'] as const,
   appSettings: ['app-settings'] as const,

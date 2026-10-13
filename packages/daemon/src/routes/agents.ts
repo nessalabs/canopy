@@ -6,6 +6,7 @@ import type { FastifyInstance } from 'fastify'
 import { AgentProvider, CapabilitiesQuery, LiveControlsInput, NewSessionInput, PermissionDecisionInput, QueueMessageInput, RewindInput, SendMessageInput, SessionRef, routes } from '@canopy/shared'
 
 import { ClaudeHookPayload } from '../agents/edit-diffs/hook'
+import { listFleet } from '../agents/fleet'
 
 import { ApiError } from '../lib/errors'
 import { streamSse } from '../lib/sse'
@@ -13,8 +14,20 @@ import { now } from '../lib/ids'
 import type { Services } from './context'
 import { CwdQuery, IdParams, LimitQuery, SessionParams } from './params'
 
-export function registerAgentRoutes(app: FastifyInstance, { agents, turns, worktrees, review, editDiffs, presence, sessions }: Services): void {
+export function registerAgentRoutes(app: FastifyInstance, { agents, turns, worktrees, review, editDiffs, presence, sessions, gitAgent }: Services): void {
   app.get(routes.providers(), async () => ({ providers: await agents.availableProviders() }))
+
+  app.get(routes.agentFleet(), async () => ({
+    agents: await listFleet({
+      worktrees,
+      sessions,
+      gitAgent,
+      live: {
+        running: (provider, sid) => turns.isRunning(provider, sid),
+        awaiting: (provider, sid) => agents.adapterFor(provider).awaitingPermission?.(sid) === true
+      }
+    })
+  }))
 
   app.get(routes.agentSessions(':id'), async (request) => {
     const worktree = await worktrees.get(IdParams.parse(request.params).id)
