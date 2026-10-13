@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Activity, ArrowDown, ArrowUp, FolderGit2, GitBranch, GitMerge, ListTree, Play, RotateCw, Square, Trash2, X } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, FolderGit2, GitBranch, GitMerge, ListTree, Play, RotateCw, Sparkles, Square, Trash2, X } from 'lucide-react'
 import { Link, useLocation } from 'wouter'
 
 import { environmentDot, formatMem, isLive, serviceResources, type PullRequestSummary, type Worktree } from '@canopy/shared'
 
+import { AgentsPanel } from '@/components/agents/agents-panel'
 import { CHECK_ICON, REVIEW_LABEL, STATE_LOOK } from '@/components/git/pull-request/parts'
 import { BulkDestroyDialog } from '@/components/environment/bulk-destroy-dialog'
 import { MergedMark } from '@/components/merged-mark'
@@ -722,16 +723,18 @@ function UsagePanel(): React.JSX.Element {
   )
 }
 
-/** Worktrees take the width and the height; usage sits in a column on the right. */
+/** Worktrees take the width and the height; agents over usage sit in a column on the right. */
 function buildCommandCenterLayout(): AppShellLayout {
   let layout = createAppShellLayout({ initialPaneId: 'pane-worktrees', views: ['worktrees'], openDocks: [] })
   layout = splitPane(layout, { paneId: 'pane-worktrees', direction: PaneSplitDirection.Right, newPaneId: 'pane-usage', views: ['usage'] })
   layout = setSplitWeights(layout, { splitId: 'split:pane-usage', weights: [0.76, 0.24] })
+  layout = splitPane(layout, { paneId: 'pane-usage', direction: PaneSplitDirection.Up, newPaneId: 'pane-agents', views: ['agents'] })
   return layout
 }
 
 const PANELS: PanelDef[] = [
   { id: 'worktrees', title: 'Worktrees', icon: ListTree, render: () => <WorktreesPanel /> },
+  { id: 'agents', title: 'Agents', icon: Sparkles, render: () => <AgentsPanel /> },
   { id: 'usage', title: 'Usage', icon: Activity, render: () => <UsagePanel /> }
 ]
 
@@ -754,7 +757,7 @@ export function CommandCenterScreen(): React.JSX.Element {
         <h1 className="text-xl font-semibold tracking-tight">Command Center</h1>
         <p className="mt-0.5 text-sm text-muted-foreground">Every worktree on this daemon, what it's running, and what it costs.</p>
       </div>
-      <PanelShell storageKey="canopy-cc-layout-v7" buildDefaultLayout={buildCommandCenterLayout} panels={PANELS} className="min-h-0 flex-1" />
+      <PanelShell storageKey="canopy-cc-layout-v8" buildDefaultLayout={buildCommandCenterLayout} panels={PANELS} className="min-h-0 flex-1" />
     </div>
   )
 }

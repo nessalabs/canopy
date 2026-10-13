@@ -21,12 +21,11 @@ describe('fleet filters', () => {
   const agents = [agent('a', { activity: 'approval' }), agent('b', { activity: 'running' }), agent('c', { activity: 'running' }), agent('d')]
 
   it('counts what each filter would show', () => {
-    expect(fleetCounts(agents)).toEqual({ all: 4, working: 3, done: 1 })
+    expect(fleetCounts(agents)).toEqual({ all: 4, approval: 1, running: 2, done: 1 })
   })
 
-  it('keeps working agents, those awaiting approval among them, or done ones, or everything', () => {
-    expect(filterFleet(agents, 'working').map((a) => a.sessionId)).toEqual(['a', 'b', 'c'])
-    expect(filterFleet(agents, 'done').map((a) => a.sessionId)).toEqual(['d'])
+  it('keeps only the chosen activity, or everything', () => {
+    expect(filterFleet(agents, 'running').map((a) => a.sessionId)).toEqual(['b', 'c'])
     expect(filterFleet(agents, 'all')).toHaveLength(4)
   })
 })
