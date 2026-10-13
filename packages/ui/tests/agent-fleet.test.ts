@@ -49,8 +49,8 @@ describe('fleetSections', () => {
 })
 
 describe('agentHref', () => {
-  it('opens the Git Agent in the Git tab and any other session in the Agent tab', () => {
-    expect(agentHref(agent('g', { kind: 'canopy' }))).toBe('/worktrees/w1?tab=git')
-    expect(agentHref(agent('s'))).toBe('/worktrees/w1?tab=agent')
+  it('opens the Git Agent in the Git tab and any other session in the Agent tab, each on its own conversation', () => {
+    expect(agentHref(agent('g', { kind: 'canopy' }))).toBe('/worktrees/w1?tab=git&session=claude%3Ag')
+    expect(agentHref(agent('s'))).toBe('/worktrees/w1?tab=agent&session=claude%3As')
   })
 })

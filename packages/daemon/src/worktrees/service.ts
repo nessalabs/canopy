@@ -322,9 +322,11 @@ export class WorktreesService {
    * ordinary way to destroy a worktree — the UI sets `force` for you whenever there is
    * anything uncommitted — and what it discards has never been committed anywhere, so no
    * reflog, no dangling object and no `fsck` will bring it back. A commit under
-   * `refs/canopy/salvage/` costs nothing and turns that into something recoverable.
+   * `refs/canopy/salvage/` costs nothing and turns that into something recoverable. A worktree
+   * Canopy made to throw away — the Canopy Agent's check — passes `salvage: false`: what it wrote
+   * there was never anyone's work.
    */
-  async destroy(id: string, force: boolean, deleteBranch?: 'never' | 'if-merged' | 'always'): Promise<DestroyResult> {
+  async destroy(id: string, force: boolean, deleteBranch?: 'never' | 'if-merged' | 'always', { salvage = true }: { salvage?: boolean } = {}): Promise<DestroyResult> {
     const row = this.row(id)
     if (row.is_main) throw conflict('cannot_destroy_main', 'the primary checkout cannot be destroyed')
     const project = this.deps.projects.get(row.project_id)
@@ -335,7 +337,7 @@ export class WorktreesService {
       if (status && status.dirtyTotal > 0 && !force) {
         throw conflict('worktree_dirty', `${row.name} has ${status.dirtyTotal} uncommitted change(s); pass force=true`, status)
       }
-      if (status && status.dirtyTotal > 0) salvaged = await this.salvage(row)
+      if (status && status.dirtyTotal > 0 && salvage) salvaged = await this.salvage(row)
     }
     const settings = this.environment?.settings(project.id)
     const policy = deleteBranch ?? (settings?.cleanup.deleteBranch === 'if-merged' ? 'if-merged' : 'never')

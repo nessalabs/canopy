@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { Against, GitHubNote, GitHubThread, ReviewComment, Worktree } from '@canopy/shared'
 
@@ -14,7 +14,7 @@ import { reviewedKey, reviewSections } from '@/lib/change-groups'
 import { snippetSource, useSnippetDrag } from '@/lib/dom-selection'
 import { parseFileRef, resolvePath } from '@/lib/file-refs'
 import { plural } from '@/lib/format'
-import { GIT_PANES, linkQuery, parseGitLink, type GitPane } from '@/lib/environment-ui'
+import { GIT_PANES, linkQuery, parseGitLink, parseSessionLink, parseTab, type GitPane } from '@/lib/environment-ui'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
 import { useChangeGroups } from '@/lib/use-change-groups'
 import { useGitAgent } from '@/lib/use-git-agent'
@@ -97,6 +97,11 @@ export function GitTab({
   // both — as cards under the local comments, and on their lines in the PR's Files changed.
   const showsThreads = pane === 'comments' || pane === 'pr'
   const gitAgent = useGitAgent(worktree.id)
+  // A link to one Git Agent conversation opens it in its tab, whatever tab was left open here.
+  useEffect(() => {
+    const session = parseTab(linkQuery()) === 'git' ? parseSessionLink(linkQuery()) : undefined
+    if (session) gitAgent.show(session)
+  }, [])
   const agentSeed = `git-agent:${worktree.id}`
   const prQuery = usePullRequest(worktree.id, showsThreads)
   const host = prQuery.data?.gh.host ?? null

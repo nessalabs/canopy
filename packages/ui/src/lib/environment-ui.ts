@@ -3,7 +3,7 @@
  * timestamps, dotenv rendering, meter scales and the memory-bar math. No DOM, no hooks —
  * the components stay thin and this file is unit-tested.
  */
-import type { Against, DbInstanceInfo, EnvSource, EnvVar, HostSample } from '@canopy/shared'
+import { AgentProvider, type Against, type DbInstanceInfo, type EnvSource, type EnvVar, type HostSample, type SessionRef } from '@canopy/shared'
 
 export type DashboardTab = 'environment' | 'git' | 'agent'
 
@@ -73,6 +73,20 @@ export function parseGitLink(hash: string): GitLink {
     against: against === 'head' || against === 'base' ? against : undefined,
     commit: commit && /^[0-9a-f]{4,40}$/i.test(commit) ? commit : undefined
   }
+}
+
+/** How a link names one conversation: `session=claude:<id>`. */
+export const sessionParam = (ref: SessionRef): string => `${ref.provider}:${ref.sessionId}`
+
+/**
+ * The conversation a link opens — the Agents panel's rows link to theirs — in whichever tab the
+ * link names. Anything that does not read as a provider and an id is dropped.
+ */
+export function parseSessionLink(hash: string): SessionRef | undefined {
+  const [provider, ...rest] = (hashParam(hash, 'session') ?? '').split(':')
+  const sessionId = rest.join(':')
+  const parsed = AgentProvider.safeParse(provider)
+  return parsed.success && sessionId ? { provider: parsed.data, sessionId } : undefined
 }
 
 /** The route for a worktree's Git tab opened at `link`. */

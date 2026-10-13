@@ -25,7 +25,8 @@ function checkDeps({ projects, worktrees, environment, logs }: Services, project
     provision: async (id) => void (await environment.provision(id, { from: 'copy-files', autoStart: true })),
     environment: (id) => environment.environmentOf(id),
     logTail: async (id, stream) => (await logs.read(id, stream, 0, 10_000)).lines.slice(-TAIL_LINES).map((line) => line.text),
-    destroy: async (id) => void (await worktrees.destroy(id, true, 'always')),
+    // The checkout is throwaway: the canopy.yaml copied in is no one's work to keep in the Trash.
+    destroy: async (id) => void (await worktrees.destroy(id, true, 'always', { salvage: false })),
     sleep: (ms) => sleep(ms),
     now: () => Date.now()
   }
