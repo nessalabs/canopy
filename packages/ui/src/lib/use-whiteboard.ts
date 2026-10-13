@@ -76,6 +76,8 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
     if (notesCount(notes) === 0) return
     const { title, brief } = notesMessage(view.state, notes)
     if (approval && isEvent(approval, AgentEventType.PermissionRequested)) agent.turn.answerPermission({ requestId: approval.payload.requestId, behavior: 'deny', message: `Not yet — keep planning. ${brief}` })
+    // A turn that cannot take the message keeps the notes, for when it can.
+    else if (waiting) return
     else send(taskMessage(title, brief), title)
     setNotes({})
   }
