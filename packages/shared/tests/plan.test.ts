@@ -193,6 +193,14 @@ describe('applyCall', () => {
     expect(applyCall(drawn(), 'draw_board', { ...detail, parent: 'overview/zzz' }).problems).toEqual(['board "overview" has no box "zzz"'])
   })
 
+  it('refuses a parent that would put a board inside its own detail boards', () => {
+    const a = { ...overview, id: 'a', parent: 'overview/d', mermaid: 'flowchart TD\n  y[Y]', notes: { y: note() } }
+    const b = { ...overview, id: 'b', parent: 'a/y', mermaid: 'flowchart TD\n  z[Z]', notes: { z: note() } }
+    const nested = applyCall(applyCall(drawn(), 'draw_board', a).state, 'draw_board', b).state
+    expect(applyCall(nested, 'draw_board', { ...a, parent: 'b/z' }).problems).toEqual(['a board cannot be inside itself: "b" is inside "a"'])
+    expect(applyCall(nested, 'draw_board', { ...a, parent: 'a/y' }).problems).toEqual(['a board cannot be inside itself: "a" is inside "a"'])
+  })
+
   it('edits only what the lines name, keeps the old version and outlines what changed', () => {
     const { state, problems, summary } = applyCall(drawn(), 'edit_board', {
       id: 'overview',
@@ -301,7 +309,7 @@ describe('foldPlan', () => {
     expect(view.state.order).toEqual(['overview'])
     expect(view.threads).toEqual({ 'overview/d': ['e6'] })
     expect(view.drawing).toBe(true)
-    expect(view.approved).toBe(false)
+    expect(view.approvals).toBe(0)
   })
 
   it('knows the plan was approved once ExitPlanMode went through', () => {
@@ -309,8 +317,9 @@ describe('foldPlan', () => {
       event(seq, { type: 'tool_call_started', callId, name: 'ExitPlanMode', kind: 'other', input: {}, title: '' }),
       event(seq + 1, { type: 'tool_call_completed', callId, result: result(isError) })
     ]
-    expect(foldPlan(exit('x1', true, 0)).approved).toBe(false)
-    expect(foldPlan([...exit('x1', true, 0), ...exit('x2', false, 2)]).approved).toBe(true)
+    expect(foldPlan(exit('x1', true, 0)).approvals).toBe(0)
+    expect(foldPlan([...exit('x1', true, 0), ...exit('x2', false, 2)]).approvals).toBe(1)
+    expect(foldPlan([...exit('x1', false, 0), ...exit('x2', false, 2)]).approvals).toBe(2)
   })
 })
 
@@ -364,6 +373,16 @@ describe('today and after', () => {
     expect(today.type === 'change-map' && today.spec.nodes.find((n) => n.id === 'old')?.status).toBe('deleted')
     expect(today.type === 'change-map' && today.spec.nodes.find((n) => n.id === 'ui')?.status).toBe('external')
     expect(applyCall(EMPTY_PLAN, 'draw_board', { ...change, notes: overview.notes }).followUps).toContain('box "old" has no note; every box needs one that explains it in plain words')
+  })
+
+  it('keeps the note of a box an edit takes away while today\'s picture still shows it', () => {
+    const both = { ...change, mermaid: `${overview.mermaid}\n  d --> old[Old queue]` }
+    const edited = applyCall(applyCall(EMPTY_PLAN, 'draw_board', both).state, 'edit_board', { id: 'overview', remove: ['old'] })
+    expect(edited.problems).toEqual([])
+    expect(edited.followUps).toEqual([])
+    const now = currentVersion(edited.state.boards.overview!)
+    expect(now.graph.nodes.some((n) => n.id === 'old')).toBe(false)
+    expect(now.notes.old).toEqual({ explain: 'Goes away.', status: 'removed' })
   })
 
   it('wants today drawn as the same kind of diagram, and keeps it across edits', () => {
@@ -437,7 +456,7 @@ describe('whiteboard messages', () => {
 describe('the decision trail', () => {
   it('reads the answers Claude Code reports for questions it asked', () => {
     const text = 'Your questions have been answered: "Bad code?"="Ignore it (Recommended)", "Say \\"hi\\"?"="Yes". You can now continue.'
-    expect(answersIn(text)).toEqual({ 'Bad code?': 'Ignore it (Recommended)', 'Say \\"hi\\"?': 'Yes' })
+    expect(answersIn(text)).toEqual({ 'Bad code?': 'Ignore it (Recommended)', 'Say "hi"?': 'Yes' })
   })
 
   it('keeps the agent’s chat questions with their answers, and how each decision was built', () => {

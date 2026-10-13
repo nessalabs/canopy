@@ -108,8 +108,15 @@ const parentProblems = (state: PlanState, parent: string | undefined, id: string
   const ref = parseBoxKey(parent)
   const board = ref && state.boards[ref.board]
   if (!ref || !board) return [`parent "${parent}" should be "board/box" naming a board already drawn`]
-  if (ref.board === id) return ['a board cannot be its own parent']
+  if (ref.board === id || ancestorsOf(state, ref.board).includes(id)) return [`a board cannot be inside itself: "${ref.board}" is inside "${id}"`]
   return currentVersion(board).graph.nodes.some((node) => node.id === ref.box) ? [] : [`board "${ref.board}" has no box "${ref.box}"`]
+}
+
+/** The boards a board sits inside, nearest first. */
+const ancestorsOf = (state: PlanState, boardId: string): string[] => {
+  const chain: string[] = []
+  for (let next = state.boards[boardId]?.parent?.board; next && !chain.includes(next); next = state.boards[next]?.parent?.board) chain.push(next)
+  return chain
 }
 
 const failed = (state: PlanState, problems: string[]): Applied => ({ state, problems, followUps: [], summary: '' })
@@ -188,7 +195,8 @@ function editBoard(state: PlanState, input: EditBoardInput): Applied {
     story: input.story ?? current.story,
     graph: merged.graph,
     ...(before ? { before } : {}),
-    notes: mergeNotes(current.notes, input.notes, input.remove),
+    // A box taken away that today's picture still shows keeps its note: it is drawn there as removed.
+    notes: mergeNotes(current.notes, input.notes, (input.remove ?? []).filter((id) => !before?.nodes.some((node) => node.id === id))),
     changed: []
   }
   version.changed = changedBoxes(current, version)

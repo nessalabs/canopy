@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { isAbsolute, join, relative } from 'node:path'
+import { isAbsolute, join, relative, sep } from 'node:path'
 
 import { applyCall, EMPTY_PLAN, planReply, type WhiteboardMode, PLAN_SERVER, PLAN_TOOL_DESCRIPTIONS, PLAN_TOOL_NAMES, planToolSchema, refProblems, WHITEBOARD_INSTRUCTIONS, type PlanState, type PlanTool } from '@canopy/shared'
 
@@ -19,12 +19,17 @@ export interface WhiteboardDeps {
   exists?: (path: string) => boolean
 }
 
-/** A file check rooted at the checkout, refusing paths that climb out of it. */
+/**
+ * A file check rooted at the checkout. A reference is a path from the repository root — the file
+ * viewer reads it that way — so an absolute path or one that climbs out of the checkout is not a file
+ * the reader can open, whether or not it exists.
+ */
 export const checkoutFiles =
   (cwd: string) =>
   (path: string): boolean => {
-    const full = isAbsolute(path) ? path : join(cwd, path)
-    return !relative(cwd, full).startsWith('..') && existsSync(full)
+    if (isAbsolute(path)) return false
+    const inside = relative(cwd, join(cwd, path))
+    return inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside) && existsSync(join(cwd, inside))
   }
 
 /** The notes a call cites code in — a draw's and an edit's alike. */

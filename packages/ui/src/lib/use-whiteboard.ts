@@ -26,12 +26,14 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
   const view: PlanView = useMemo(() => foldPlan(relevant), [signature])
 
   // Approving the plan (in the transcript or on the board) starts the build: later turns say so. Only
-  // the moment of approval switches, so the reader can still go back to planning afterwards.
-  const wasApproved = useRef(view.approved)
+  // the moment of approval switches, so the reader can still go back to planning afterwards — and
+  // approve again, which counts as a new moment.
+  const sessionId = agent.selected?.sessionId
+  const seen = useRef({ sessionId, approvals: view.approvals })
   useEffect(() => {
-    if (view.approved && !wasApproved.current) agent.setWhiteboard(nextMode(agent.whiteboard, true))
-    wasApproved.current = view.approved
-  }, [view.approved])
+    if (seen.current.sessionId === sessionId && view.approvals > seen.current.approvals) agent.setWhiteboard(nextMode(agent.whiteboard, true))
+    seen.current = { sessionId, approvals: view.approvals }
+  }, [view.approvals, sessionId])
 
   const approval = model.transcript.pendingAsks.find((ask) => ask.agentPath.length === 0 && isEvent(ask, AgentEventType.PermissionRequested) && ask.payload.toolName === 'ExitPlanMode')
 
@@ -49,7 +51,6 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
   }
 
   // Notes and where boards were dragged stay in this browser, per session.
-  const sessionId = agent.selected?.sessionId
   const [notes, setNotesState] = useState<BoxNotes>(() => readNotes(sessionId))
   const [moved, setMoved] = useState<BoardLayout>(() => readLayout(sessionId))
   useEffect(() => {

@@ -137,8 +137,6 @@ and a status bar (panel toggles, worktree branch/sync/changes, logs, health, the
 - Codex: serve the three board tools to Codex through its MCP config (a stdio server the daemon
   starts, sharing `applyCall`), and a `submit_plan` tool for approval in place of `ExitPlanMode`.
   The composer offers the whiteboard to Claude sessions only until then.
-- "See what the build changed" opens the latest turn's changes; narrow it to the box's own files
-  (its `ref`s) once `TurnChanges` takes a file filter.
 - A box's note is written at plan time ("new file, does not exist yet") and reads stale once the
   build is done; let `set_progress` carry a short "what was done" line, shown under the note.
 - The inspector covers the right of the canvas; pan so the picked box stays in view.

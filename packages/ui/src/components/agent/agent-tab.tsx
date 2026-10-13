@@ -200,6 +200,9 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     setCodeRef(ref)
     reveal('code', 'code')
   }
+  // A box cites files relative to the checkout its session runs in, which need not be the one on screen.
+  const origin = agent.selected?.origin
+  const codeWorktree = origin ? (worktrees.data?.find((other) => other.id === origin.worktreeId || other.path === origin.runIn) ?? worktree) : worktree
   const openBoard = (board: string): void => reveal(boardPanelId(board), 'whiteboard')
   // Turning a mode on, or the first board arriving, brings the whiteboard on screen.
   const drawingOn = agent.whiteboard !== undefined
@@ -300,7 +303,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
         />
       )
     },
-    ...(codeRef ? [{ id: 'code', title: 'Code', icon: FileCode2, render: () => <CodePane worktreeId={worktree.id} codeRef={codeRef} /> }] : []),
+    ...(codeRef ? [{ id: 'code', title: 'Code', icon: FileCode2, render: () => <CodePane worktreeId={codeWorktree.id} codeRef={codeRef} /> }] : []),
     // Listed only once something has been opened, so the top bar does not offer an empty reader.
     ...(reader.state.tabs.length > 0
       ? [
