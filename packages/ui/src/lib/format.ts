@@ -8,10 +8,14 @@ const UNITS: Array<[number, Intl.RelativeTimeFormatUnit]> = [
   [Number.POSITIVE_INFINITY, 'year']
 ]
 
-const rtf = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+const FORMATS = {
+  long: new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' }),
+  narrow: new Intl.RelativeTimeFormat(undefined, { numeric: 'auto', style: 'narrow' })
+}
 
-/** "3 hours ago" style label for an epoch-ms timestamp. */
-export function relativeTime(at: number, now = Date.now()): string {
+/** "3 hours ago" style label for an epoch-ms timestamp; `narrow` says "3h ago" where room is short. */
+export function relativeTime(at: number, now = Date.now(), style: keyof typeof FORMATS = 'long'): string {
+  const rtf = FORMATS[style]
   let value = (at - now) / 1000
   for (const [step, unit] of UNITS) {
     if (Math.abs(value) < step) return rtf.format(Math.round(value), unit)

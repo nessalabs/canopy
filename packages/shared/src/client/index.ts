@@ -43,6 +43,7 @@ import type {
   DraftInput,
   GroupInput,
   ChangeGrouping,
+  FleetAgent,
   GitAgentSession,
   GroupingPatch,
   GroupingStarted,
@@ -259,6 +260,7 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     deleteComment: (worktreeId: string, commentId: string) => del(routes.comment(worktreeId, commentId)),
 
     providers: () => get<{ providers: AgentProvider[] }>(routes.providers()).then((r) => r.providers),
+    agentFleet: () => get<{ agents: FleetAgent[] }>(routes.agentFleet()).then((r) => r.agents),
     agentSessions: (worktreeId: string, limit = 25) => get<SessionsResponse>(routes.agentSessions(worktreeId), { limit }),
     gitAgentSessions: (worktreeId: string) => get<{ sessions: GitAgentSession[] }>(routes.gitAgentSessions(worktreeId)).then((r) => r.sessions),
     rememberGitAgentSession: (worktreeId: string, ref: SessionRef) => post<void>(routes.gitAgentSessions(worktreeId), ref),

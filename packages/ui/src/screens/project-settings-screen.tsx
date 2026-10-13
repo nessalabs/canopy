@@ -18,6 +18,7 @@ import { WorktreeTab } from '@/components/settings/worktree-tab'
 import { YamlTab } from '@/components/settings/yaml-tab'
 import { useProjects } from '@/lib/api-hooks'
 import { SETTINGS_TAB_LABEL, parseSettingsTab, settingsHref, type SettingsTabId } from '@/lib/settings-ui'
+import { cn } from '@/lib/utils'
 
 type TabIcon = React.ComponentType<{ className?: string }>
 
@@ -61,8 +62,10 @@ function ProjectSettings({ project }: { project: Project }): React.JSX.Element {
     window.history.replaceState(null, '', settingsHref(window.location.href, next))
   }
 
+  // canopy.yaml fills the screen so its agent can run full height; every other tab scrolls as a page.
+  const fill = tab === 'yaml'
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-6 py-8">
+    <div className={cn('flex w-full flex-col gap-6 px-6 py-8', fill && 'min-h-0 flex-1')}>
       <div>
         <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
           <FolderGit2 className="size-5 text-primary" />
@@ -72,7 +75,7 @@ function ProjectSettings({ project }: { project: Project }): React.JSX.Element {
         <p className="mt-1 font-mono text-xs text-muted-foreground">{project.path}</p>
       </div>
 
-      <div className="flex flex-col gap-6 sm:flex-row">
+      <div className={cn('flex flex-col gap-6 sm:flex-row', fill && 'min-h-0 flex-1')}>
         <nav className="flex shrink-0 flex-row gap-1 overflow-x-auto sm:w-52 sm:flex-col" aria-label="Settings sections">
           <p className="hidden px-3 pb-1 text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase sm:block">project</p>
           {PROJECT_TABS.map((entry) => (
@@ -80,7 +83,7 @@ function ProjectSettings({ project }: { project: Project }): React.JSX.Element {
           ))}
         </nav>
 
-        <div className="min-w-0 flex-1">
+        <div className={cn('min-w-0 flex-1', fill && 'flex min-h-0 flex-col')}>
           {tab === 'general' ? <GeneralTab key={`${project.name}:${project.defaultBase}`} project={project} draft={draft} /> : null}
           {tab === 'worktree' ? <WorktreeTab project={project} draft={draft} /> : null}
           {tab === 'yaml' ? <YamlTab project={project} /> : null}

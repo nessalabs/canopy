@@ -35,6 +35,11 @@ export const TurnOptions = z.object({
    */
   whiteboard: WhiteboardMode.optional(),
   /**
+   * The turn is the Canopy Agent's, on a project's canopy.yaml page: it gets the tools that propose
+   * a canopy.yaml and check its services in a throwaway worktree. Claude only.
+   */
+  configAgent: z.object({ projectId: z.string().min(1) }).optional(),
+  /**
    * Where the turn's event numbering starts: the `nextSeq` of the transcript the client already
    * holds, so live events extend that log instead of colliding with it. Defaults to 0.
    */
@@ -413,3 +418,24 @@ export type SessionsResponse = z.infer<typeof SessionsResponse>
  */
 export const GitAgentSession = SessionRef.extend({ title: z.string(), createdAt: Millis, updatedAt: Millis })
 export type GitAgentSession = z.infer<typeof GitAgentSession>
+
+/**
+ * Where an agent is, as the Agents panel sorts them: parked on a "may I run this tool?" ask,
+ * working through a turn, or finished with it (a terminal waiting for input counts as finished).
+ */
+export const AgentActivity = z.enum(['approval', 'running', 'done'])
+export type AgentActivity = z.infer<typeof AgentActivity>
+
+/**
+ * One agent in the daemon-wide listing. `canopy` agents are the ones Canopy runs for itself (the
+ * Git Agent's conversations); `project` agents are everyone else's sessions in a project's checkouts.
+ */
+export const FleetAgent = SessionRef.extend({
+  title: z.string(),
+  kind: z.enum(['canopy', 'project']),
+  projectId: z.string(),
+  worktreeId: z.string(),
+  activity: AgentActivity,
+  updatedAt: Millis
+})
+export type FleetAgent = z.infer<typeof FleetAgent>

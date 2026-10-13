@@ -1,20 +1,25 @@
 /** The canopy.yaml editor: live lint with the daemon's own validator, plus a key reference. */
 import { useState } from 'react'
-import { Check, FileCode, Sparkles, X } from 'lucide-react'
+import { BookOpen, Bot, Check, FileCode, Sparkles, X } from 'lucide-react'
 
-import { STARTER_CANOPY_YAML, parseCanopyYaml, reportFor, type Project } from '@canopy/shared'
+import { STARTER_CANOPY_YAML, parseCanopyYaml, reportFor, type ConfigProposal, type Project } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
+import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator, type SplitViewLayout } from '@/components/split-view'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CodeBlock } from '@/components/ui/code-block'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { useProjectConfig, useScaffoldProjectConfig, useWriteProjectConfig } from '@/lib/api-hooks'
+import { ToolCallDiff } from '@/components/ui/tool-call'
+import { useProjectConfig, useScaffoldProjectConfig, useWorktrees, useWriteProjectConfig } from '@/lib/api-hooks'
 
+import { ConfigAgentPanel } from './config-agent'
 import { TabHeader } from './settings-chrome'
 import { plural } from '@/lib/format'
+import { readStored, writeStored } from '@/lib/local-store'
 
 interface ReferenceEntry {
   key: string
@@ -67,12 +72,21 @@ const YAML_REFERENCE: ReferenceEntry[] = [
 ]
 
 /** The canopy.yaml tab. */
+/** How wide the editor and the agent were left, kept across visits. */
+const SPLIT_KEY = 'canopy-yaml-agent-split'
+const DEFAULT_SPLIT: SplitViewLayout = { editor: 62, agent: 38 }
+
 export function YamlTab({ project }: { project: Project }): React.JSX.Element {
   const config = useProjectConfig(project.id)
   const write = useWriteProjectConfig(project.id)
   const scaffold = useScaffoldProjectConfig(project.id)
   const [view, setView] = useState<'preview' | 'edit'>('preview')
   const [draft, setDraft] = useState<string | null>(null)
+  // The Canopy Agent's proposal on screen as the draft, and the last one the user saved.
+  const [proposal, setProposal] = useState<ConfigProposal | null>(null)
+  const [savedProposal, setSavedProposal] = useState<string>()
+  const [split] = useState(() => readStored<SplitViewLayout>(SPLIT_KEY) ?? DEFAULT_SPLIT)
+  const main = useWorktrees().data?.find((worktree) => worktree.projectId === project.id && worktree.isMain)
 
   const stored = config.data?.raw ?? null
   const text = draft ?? stored ?? ''
@@ -91,29 +105,47 @@ export function YamlTab({ project }: { project: Project }): React.JSX.Element {
     setDraft(content)
     setView('edit')
   }
+  const propose = (next: ConfigProposal): void => {
+    setProposal(next)
+    setDraft(next.yaml)
+    setView('preview')
+  }
+  const revert = (): void => {
+    setDraft(null)
+    setProposal(null)
+  }
+  const save = (): void =>
+    write.mutate(text, {
+      onSuccess: () => {
+        // Saved as the agent proposed it: the agent hears so and goes on to check it.
+        if (proposal && proposal.yaml === text) setSavedProposal(proposal.callId)
+        revert()
+      }
+    })
 
   // Only once the read has actually landed: an error must not read as "no file".
   const missing = config.data !== undefined && config.data.raw === null
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
       <TabHeader
         title="canopy.yaml"
         description="What this project runs: ports, databases, setup and services. Committed with the repo."
         action={
           <>
-            <Button type="button" variant="ghost" size="sm" disabled={!dirty} onClick={() => setDraft(null)}>
+            <Button type="button" variant="ghost" size="sm" disabled={!dirty} onClick={revert}>
               Revert
             </Button>
-            <Button type="button" size="sm" disabled={!dirty || !valid || write.isPending} onClick={() => write.mutate(text, { onSuccess: () => setDraft(null) })}>
+            <Button type="button" size="sm" disabled={!dirty || !valid || write.isPending} onClick={save}>
               {write.isPending ? 'Saving…' : 'Save'}
             </Button>
           </>
         }
       />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="flex min-w-0 flex-col gap-3">
+      {/* The page's full height, split: the file scrolls on its own and the agent runs top to bottom, as wide as it was dragged. */}
+      <SplitView orientation={SplitViewOrientation.Horizontal} defaultLayout={split} onLayoutCommit={(layout) => writeStored(SPLIT_KEY, layout)} className="min-h-0 flex-1">
+        <SplitViewPanel id="editor" minSize={30} className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-3">
           {missing ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 p-3 text-xs">
               <span className="text-muted-foreground">
@@ -181,7 +213,18 @@ export function YamlTab({ project }: { project: Project }): React.JSX.Element {
           <ErrorNote error={config.error} />
           <ErrorNote error={write.error} />
 
-          {view === 'preview' ? (
+          {proposal && dirty ? (
+            <p className="flex items-start gap-1.5 rounded-lg border border-border bg-muted/40 p-3 text-xs">
+              <Bot className="mt-px size-3.5 shrink-0" />
+              <span>
+                <span className="font-medium">Proposed by the Canopy Agent:</span> {proposal.summary} Review the diff, then Save.
+              </span>
+            </p>
+          ) : null}
+
+          {view === 'preview' && dirty ? (
+            <ToolCallDiff from={stored ?? ''} to={text} filename="canopy.yaml" language="yaml" />
+          ) : view === 'preview' ? (
             <CodeBlock code={text === '' ? '# no canopy.yaml yet' : text} language="yaml" filename={config.data?.path ?? 'canopy.yaml'} />
           ) : (
             <Textarea
@@ -214,23 +257,38 @@ export function YamlTab({ project }: { project: Project }): React.JSX.Element {
               'no file yet'
             )}
           </p>
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-2">
-          <p className="text-[10px] font-medium tracking-[0.12em] text-muted-foreground uppercase">reference</p>
-          <Accordion type="multiple" className="rounded-lg border border-border px-3">
-            {YAML_REFERENCE.map((entry) => (
-              <AccordionItem key={entry.key} value={entry.key}>
-                <AccordionTrigger className="font-mono text-xs">{entry.key}:</AccordionTrigger>
-                <AccordionContent>
-                  <p className="text-xs text-muted-foreground">{entry.summary}</p>
-                  <pre className="mt-2 overflow-x-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">{entry.example}</pre>
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </div>
-      </div>
+        </SplitViewPanel>
+        <SplitViewSeparator />
+        <SplitViewPanel id="agent" minSize={20} className="flex min-h-0 min-w-0 pl-3">
+          <Tabs defaultValue="agent" className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+            <TabsList className="self-start">
+              <TabsTrigger value="agent" icon={<Bot className="size-3.5" />}>
+                Agent
+              </TabsTrigger>
+              <TabsTrigger value="reference" icon={<BookOpen className="size-3.5" />}>
+                Reference
+              </TabsTrigger>
+            </TabsList>
+            {/* Mounted while hidden, so a turn keeps streaming while the reference is open. */}
+            <TabsContent value="agent" forceMount className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-card data-[state=inactive]:hidden">
+              {main ? <ConfigAgentPanel projectId={project.id} worktree={main} onProposal={propose} saved={savedProposal} /> : null}
+            </TabsContent>
+            <TabsContent value="reference" className="min-h-0 flex-1 overflow-y-auto">
+              <Accordion type="multiple" className="rounded-lg border border-border px-3">
+                {YAML_REFERENCE.map((entry) => (
+                  <AccordionItem key={entry.key} value={entry.key}>
+                    <AccordionTrigger className="font-mono text-xs">{entry.key}:</AccordionTrigger>
+                    <AccordionContent>
+                      <p className="text-xs text-muted-foreground">{entry.summary}</p>
+                      <pre className="mt-2 overflow-x-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">{entry.example}</pre>
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+            </TabsContent>
+          </Tabs>
+        </SplitViewPanel>
+      </SplitView>
     </div>
   )
 }

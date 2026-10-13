@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import type { DbInstanceInfo, EnvVar, HostSample } from '@canopy/shared'
 
-import { cpuScale, dotenv, lineage, logTime, memBreakdown, memScale, gitHref, linkQuery, niceScale, parseGitLink, parseTab, seriesVar, shortId, sparkline, uptime } from '../src/lib/environment-ui'
+import { cpuScale, dotenv, lineage, logTime, memBreakdown, memScale, gitHref, linkQuery, niceScale, parseGitLink, parseSessionLink, parseTab, seriesVar, shortId, sparkline, uptime } from '../src/lib/environment-ui'
 import { ENV_STATE_BADGE } from '../src/lib/status'
 
 const MINUTE = 60_000
@@ -209,5 +209,15 @@ describe('formatting', () => {
     expect(seriesVar(0)).toBe('var(--nessa-chart-1)')
     expect(seriesVar(6)).toBe('var(--nessa-chart-1)')
     expect(seriesVar(7)).toBe('var(--nessa-chart-2)')
+  })
+})
+
+describe('parseSessionLink', () => {
+  it('reads the conversation a link names, and drops what is not one', () => {
+    expect(parseSessionLink('#/worktrees/w1?tab=agent&session=claude%3Aabc-1')).toEqual({ provider: 'claude', sessionId: 'abc-1' })
+    expect(parseSessionLink('?tab=git&session=codex:t:2')).toEqual({ provider: 'codex', sessionId: 't:2' })
+    expect(parseSessionLink('?session=gemini:abc')).toBeUndefined()
+    expect(parseSessionLink('?session=claude:')).toBeUndefined()
+    expect(parseSessionLink('?tab=agent')).toBeUndefined()
   })
 })

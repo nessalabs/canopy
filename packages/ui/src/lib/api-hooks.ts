@@ -186,6 +186,12 @@ export const useAgentSessions = (worktreeId: string) => {
   return useQuery({ queryKey: keys.sessions(worktreeId), queryFn: () => api.agentSessions(worktreeId), refetchInterval: POLL_MS, refetchIntervalInBackground: false })
 }
 
+/** Every agent across all projects; polled while the Agents panel is open, since that is the only reader. */
+export const useAgentFleet = () => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.fleet, queryFn: api.agentFleet, refetchInterval: 5_000, refetchIntervalInBackground: false })
+}
+
 export const useGitAgentSessions = (worktreeId: string) => {
   const api = useApi()
   return useQuery({ queryKey: keys.gitAgentSessions(worktreeId), queryFn: () => api.gitAgentSessions(worktreeId) })

@@ -6,15 +6,30 @@ import type { FastifyInstance } from 'fastify'
 import { AgentProvider, CapabilitiesQuery, LiveControlsInput, NewSessionInput, PermissionDecisionInput, QueueMessageInput, RewindInput, SendMessageInput, SessionRef, routes } from '@canopy/shared'
 
 import { ClaudeHookPayload } from '../agents/edit-diffs/hook'
+import { listFleet } from '../agents/fleet'
 
 import { ApiError } from '../lib/errors'
 import { streamSse } from '../lib/sse'
 import { now } from '../lib/ids'
 import type { Services } from './context'
+import { withConfigAgent } from './config-agent'
 import { CwdQuery, IdParams, LimitQuery, SessionParams } from './params'
 
-export function registerAgentRoutes(app: FastifyInstance, { agents, turns, worktrees, review, editDiffs, presence, sessions }: Services): void {
+export function registerAgentRoutes(app: FastifyInstance, services: Services): void {
+  const { agents, turns, worktrees, review, editDiffs, presence, sessions, gitAgent } = services
   app.get(routes.providers(), async () => ({ providers: await agents.availableProviders() }))
+
+  app.get(routes.agentFleet(), async () => ({
+    agents: await listFleet({
+      worktrees,
+      sessions,
+      gitAgent,
+      live: {
+        running: (provider, sid) => turns.isRunning(provider, sid),
+        awaiting: (provider, sid) => agents.adapterFor(provider).awaitingPermission?.(sid) === true
+      }
+    })
+  }))
 
   app.get(routes.agentSessions(':id'), async (request) => {
     const worktree = await worktrees.get(IdParams.parse(request.params).id)
@@ -30,7 +45,7 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, turns, workt
     const worktree = await worktrees.get(IdParams.parse(request.params).id)
     const { provider, text, ...options } = NewSessionInput.parse(request.body)
     const adapter = agents.adapterFor(provider)
-    const turn = turns.start(provider, null, adapter.send(null, text, { ...options, cwd: worktree.path }))
+    const turn = turns.start(provider, null, adapter.send(null, text, withConfigAgent(services, { ...options, cwd: worktree.path })))
     await streamSse(request, reply, (signal) => turn.follow(signal))
   })
 
@@ -70,7 +85,7 @@ export function registerAgentRoutes(app: FastifyInstance, { agents, turns, workt
     // asked to run in the directory that is gone, the provider would fail to spawn with no reason given.
     if (options.cwd !== undefined && !existsSync(options.cwd)) throw new ApiError(409, 'checkout_gone', `${options.cwd} no longer exists; continue this session from a checkout that does`)
     const adapter = agents.adapterFor(provider)
-    const turn = turns.start(adapter.provider, sid, adapter.send(sid, text, options))
+    const turn = turns.start(adapter.provider, sid, adapter.send(sid, text, withConfigAgent(services, options)))
     await streamSse(request, reply, (signal) => turn.follow(signal))
   })
 

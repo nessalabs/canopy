@@ -20,6 +20,8 @@ import type {
   TurnOptions
 } from '@canopy/shared'
 
+import type { Toolkit } from './toolkit'
+
 export type { AgentCapabilities, AgentProvider, AgentSessionSummary, AgentStreamEvent, TranscriptResponse }
 
 export interface SendOptions extends TurnOptions {
@@ -28,6 +30,8 @@ export interface SendOptions extends TurnOptions {
   /** Images to send as content blocks after the text. */
   images?: Array<Omit<TurnImage, 'label'>>
   signal?: AbortSignal
+  /** Tools the surface the turn was sent from serves it — the Canopy Agent's. Claude only. */
+  toolkit?: Toolkit
 }
 
 export interface AgentAdapter {
@@ -49,6 +53,8 @@ export interface AgentAdapter {
    * was waiting under that request id. Providers that never park on a prompt leave this undefined.
    */
   answerPermission?(sessionId: string, input: PermissionDecisionInput): boolean
+  /** True while a live turn in this session is parked on a permission ask nobody has answered. */
+  awaitingPermission?(sessionId: string): boolean
   /**
    * Everything a session in this checkout can do — commands, skills, subagents, models, MCP
    * servers, hooks. Read lazily (never at boot) and cached by the adapter; `refresh` bypasses that

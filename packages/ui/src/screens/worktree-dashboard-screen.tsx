@@ -14,7 +14,7 @@ import { ShellSlot } from '@/components/shell-slots'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useProjects, useWorktree } from '@/lib/api-hooks'
-import { forgetLinkQuery, linkQuery, parseGitLink, parseTab, type DashboardTab, type GitPane } from '@/lib/environment-ui'
+import { forgetLinkQuery, linkQuery, parseGitLink, parseSessionLink, parseTab, type DashboardTab, type GitPane } from '@/lib/environment-ui'
 import { useHotkeys } from '@/lib/use-hotkeys'
 import { useWorktreeAgent } from '@/lib/use-worktree-agent'
 import { cn } from '@/lib/utils'
@@ -55,6 +55,11 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
   useHotkeys(Object.fromEntries(TABS.map(({ value }, index) => [String(index + 1), () => setTab(value)])))
   const [destroyOpen, setDestroyOpen] = useState(false)
   const agent = useWorktreeAgent(worktree, undefined, { compose: true })
+  // A link to one conversation in the Agent tab opens it, once the worktree's sessions are known.
+  const [linked] = useState(() => (tab === 'agent' ? parseSessionLink(linkQuery()) : undefined))
+  useEffect(() => {
+    if (linked && !agent.loading) agent.select(linked)
+  }, [agent.loading])
   const openChanges = (): void => {
     setTab('git')
     setGitPane('changes')
@@ -75,7 +80,7 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
         <WorktreeStatus worktree={worktree} projectName={projectName} onDestroy={() => setDestroyOpen(true)} onOpenChanges={openChanges} />
       </ShellSlot>
       <ShellSlot name="statusEnd">
-        <WorktreeStatusTools worktree={worktree} onOpenAgent={() => setTab('agent')} />
+        <WorktreeStatusTools worktree={worktree} />
       </ShellSlot>
       <TabsContent value="environment" className="flex min-h-0 flex-1 flex-col">
         <EnvironmentTab worktree={worktree} />

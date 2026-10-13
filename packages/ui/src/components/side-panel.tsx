@@ -1,5 +1,6 @@
 import { Maximize2, Minimize2, X } from 'lucide-react'
 
+import { AgentsPanel } from '@/components/agents/agents-panel'
 import { FileBrowser } from '@/components/file-browser'
 import { TerminalPanel } from '@/components/terminal/terminal-panel'
 import { Button } from '@/components/ui/button'
@@ -7,14 +8,19 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 
 /**
  * Tools that dock to the right of the main content, ChatGPT/Codex-desktop style. Adding a
- * terminal or browser later is one more row here; the chrome and the split are shared.
+ * terminal or browser later is one more row here; the chrome and the split are shared. Most are
+ * the open worktree's; an `app` one is about all of Canopy and opens with no worktree on screen.
  */
 export const SIDE_PANELS = {
   files: { label: 'Files', Body: FileBrowser },
-  terminal: { label: 'Terminal', Body: ({ worktreeId }: { worktreeId: string }) => <TerminalPanel worktreeId={worktreeId} chrome={false} /> }
+  terminal: { label: 'Terminal', Body: ({ worktreeId }: { worktreeId: string }) => <TerminalPanel worktreeId={worktreeId} chrome={false} /> },
+  agents: { label: 'Agents', Body: AgentsPanel, app: true }
 } as const
 
 export type SidePanelId = keyof typeof SIDE_PANELS
+
+/** Whether a panel can open with no worktree on screen. */
+export const isAppPanel = (id: SidePanelId): boolean => 'app' in SIDE_PANELS[id]
 
 /**
  * The docked panel itself: title bar with full-screen and close, then the tool for the current
@@ -23,12 +29,13 @@ export type SidePanelId = keyof typeof SIDE_PANELS
  */
 export function SidePanel({ id, worktreeId, full, onToggleFull, onClose }: {
   id: SidePanelId
-  worktreeId: string
+  worktreeId: string | undefined
   full: boolean
   onToggleFull: () => void
   onClose: () => void
 }): React.JSX.Element {
-  const { label, Body } = SIDE_PANELS[id]
+  const entry = SIDE_PANELS[id]
+  const { label } = entry
   const fullLabel = full ? 'Exit full screen' : `${label} full screen`
   return (
     <div className="flex h-full min-h-0 flex-col bg-card">
@@ -49,7 +56,7 @@ export function SidePanel({ id, worktreeId, full, onToggleFull, onClose }: {
         </span>
       </div>
       <div className="min-h-0 flex-1">
-        <Body key={worktreeId} worktreeId={worktreeId} />
+        {'app' in entry ? <entry.Body /> : worktreeId ? <entry.Body key={worktreeId} worktreeId={worktreeId} /> : null}
       </div>
     </div>
   )

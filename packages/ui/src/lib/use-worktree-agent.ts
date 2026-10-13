@@ -19,12 +19,13 @@ export const sameRef = (a: SessionRef | undefined, b: SessionRef | undefined): b
  * neither follows nor moves the worktree's pin. `follow: false` keeps a conversation to the
  * sessions picked in it — a Git Agent tab — starting from none and never moving the pin.
  * `instructions` ride along with every turn, added to the provider's own system prompt.
+ * `configAgent` makes every turn the Canopy Agent's, with its tools for that project's canopy.yaml.
  * `compose` makes a conversation with no session to show a new one, ready for its first message.
  */
 export function useWorktreeAgent(
   worktree: Worktree,
   fixed?: SessionRef,
-  { follow = true, instructions, compose = false }: { follow?: boolean; instructions?: string; compose?: boolean } = {}
+  { follow = true, instructions, configAgent, compose = false }: { follow?: boolean; instructions?: string; configAgent?: TurnOptions['configAgent']; compose?: boolean } = {}
 ) {
   const sessions = useAgentSessions(worktree.id)
   const providers = useProviders().data ?? []
@@ -104,9 +105,14 @@ export function useWorktreeAgent(
   // shown, not sent: the provider applies it anyway, and a later settings change should still win.
   const model = picked ?? modelAlias(capabilities.data?.defaultModel)
   const effort = effortOverride ?? detected.effort
-  // Only Claude draws on the whiteboard so far; Codex turns go out as they always have.
-  const drawing = (selected?.provider ?? fresh) === 'claude' ? whiteboard : undefined
-  const options = useMemo<TurnOptions>(() => ({ autonomy, model: picked, effort, instructions, ...(drawing ? { whiteboard: drawing } : {}) }), [autonomy, picked, effort, instructions, drawing])
+  // Only Claude draws on the whiteboard so far; Codex turns go out as they always have. The Canopy
+  // Agent's turns carry its own tools, which a whiteboard turn would replace.
+  const canDraw = (selected?.provider ?? fresh) === 'claude' && !configAgent
+  const drawing = canDraw ? whiteboard : undefined
+  const options = useMemo<TurnOptions>(
+    () => ({ autonomy, model: picked, effort, instructions, ...(drawing ? { whiteboard: drawing } : {}), ...(configAgent ? { configAgent } : {}) }),
+    [autonomy, picked, effort, instructions, drawing, configAgent?.projectId]
+  )
   const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options, selected?.running === true)
   busyRef.current = turn.busy
 
@@ -148,7 +154,7 @@ export function useWorktreeAgent(
     setEffort,
     /** The whiteboard mode turns are sent in; undefined is an ordinary conversation. Claude only. */
     whiteboard: drawing,
-    canDraw: (selected?.provider ?? fresh) === 'claude',
+    canDraw,
     setWhiteboard,
     loading: sessions.isPending,
     error: sessions.error,
