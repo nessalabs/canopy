@@ -22,8 +22,7 @@ import { IssueStateBadge, IssueView, opensNewTab } from './issue-view'
 /** How many the list shows to begin with, and how many more each Show more adds. */
 const PAGE = 10
 
-const titleOf = (reading: Reading): string =>
-  reading.kind === 'issue' ? `#${reading.number}` : reading.kind === 'github' ? attachmentName(reading.url) : reading.attachment.label
+const titleOf = (reading: Reading): string => (reading.kind === 'issue' ? `#${reading.number}` : reading.kind === 'github' ? attachmentName(reading.url) : reading.kind === 'plan' ? 'Plan' : reading.attachment.label)
 
 /** A reader's tabs and the steps that move them, for a pane that reads issues and attachments. */
 export function useReader() {
@@ -87,7 +86,13 @@ function IssueList({ projectId, active, onPick }: { projectId: string; active: n
     <div className="flex h-full min-h-0 flex-col">
       <label className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2">
         <Search aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-        <Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search issues and PRs, or #number" aria-label="Search issues and pull requests" className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0" />
+        <Input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search issues and PRs, or #number"
+          aria-label="Search issues and pull requests"
+          className="h-7 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
+        />
       </label>
       <IssueFilterBar filter={filter} onChange={setFilter} assignees={assignees.data} />
       {search.error ? <ErrorNote error={search.error} /> : null}
@@ -110,8 +115,12 @@ function IssueList({ projectId, active, onPick }: { projectId: string; active: n
   )
 }
 
-/** One reading, with the links inside an issue followed into the same reader — or a new tab of it. */
-export function ReadingView({ projectId, reading, onFollow }: { projectId: string; reading: Reading; onFollow: (next: Reading, newTab: boolean) => void }): React.JSX.Element {
+/**
+ * One reading, with the links inside an issue followed into the same reader — or a new tab of it.
+ * The plan belongs to whoever hosts the reader, so it comes in drawn as `plan`.
+ */
+export function ReadingView({ projectId, reading, onFollow, plan }: { projectId: string; reading: Reading; onFollow: (next: Reading, newTab: boolean) => void; plan?: React.ReactNode }): React.JSX.Element {
+  if (reading.kind === 'plan') return <>{plan}</>
   if (reading.kind === 'issue') {
     return (
       <IssueView
@@ -127,7 +136,7 @@ export function ReadingView({ projectId, reading, onFollow }: { projectId: strin
 }
 
 /** A reader: its tabs once there is more than one, Back along the tab's trail, and what it shows. */
-export function ReaderPane({ projectId, reader, empty }: { projectId: string; reader: Reader; empty: React.ReactNode }): React.JSX.Element {
+export function ReaderPane({ projectId, reader, empty, plan }: { projectId: string; reader: Reader; empty: React.ReactNode; plan?: React.ReactNode }): React.JSX.Element {
   const { state, current, previous } = reader
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col">
@@ -149,7 +158,7 @@ export function ReaderPane({ projectId, reader, empty }: { projectId: string; re
         </div>
       ) : null}
       <div {...(state.tabs.length > 1 && state.active && current ? tabPanelProps(state.active, titleOf(current)) : {})} className="min-h-0 flex-1 overflow-y-auto">
-        {current ? <ReadingView key={state.active} projectId={projectId} reading={current} onFollow={reader.follow} /> : empty}
+        {current ? <ReadingView key={state.active} projectId={projectId} reading={current} onFollow={reader.follow} plan={plan} /> : empty}
       </div>
     </section>
   )

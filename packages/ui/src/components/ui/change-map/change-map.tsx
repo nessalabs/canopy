@@ -2,12 +2,12 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-import { Arrowheads, CARD_BUTTON, DiagramFrame, STATUS, shorten, statusItems, useMeasure, useWidth, type ChangeMapStatus } from "./diagram-parts"
+import { Arrowheads, CARD_BUTTON, DiagramFrame, cardLook, shorten, statusItems, useMeasure, useWidth, type ChangeMapStatus, type StatusLabels } from "./diagram-parts"
 
 import { gridColumns, layoutChangeMapGrid } from "./change-map-grid"
 import { layoutChangeMap } from "./change-map-layout"
 
-export type { ChangeMapStatus }
+export type { ChangeMapStatus, StatusLabels }
 
 export interface ChangeMapNode {
   id: string
@@ -38,6 +38,8 @@ export interface ChangeMapProps extends Omit<React.ComponentProps<"section">, "t
   title?: React.ReactNode
   /** A line under the map — where the edges came from, what a click does. */
   caption?: React.ReactNode
+  /** Words for the legend's statuses in place of the built-in ones ("Added", "Modified", …); colours stay. */
+  statusLabels?: StatusLabels
   /** The block shown as picked; its edges are drawn in full. */
   selectedId?: string
   /** Makes every block a button. Without it the map is a picture. */
@@ -50,6 +52,8 @@ export interface ChangeMapProps extends Omit<React.ComponentProps<"section">, "t
    * order matters more than flow, or where few cards are linked.
    */
   arrangement?: "flow" | "grid"
+  /** `bare` draws only the diagram at its natural size — no frame, header or scrolling — for hosts that frame it themselves (a canvas). */
+  bare?: boolean
 }
 
 const SIZE = { nodeHeight: 60, columnGap: 72, rowGap: 32, labelHeight: 18 }
@@ -66,14 +70,15 @@ const LABEL_CHARS = 36
  * coloured by whether each was added, modified, deleted or only affected. Cards size to their
  * names and gaps to their labels, so no label sits on a card. With `onSelect` each
  * block is a button — the place to open that block's diff. The map scrolls sideways when it is
- * wider than its column.
+ * wider than its column. Each block carries `data-node-id` so a host can find it.
  */
-function ChangeMap({ nodes, edges, title, caption, selectedId, onSelect, cardSize, arrangement = "flow", className, ...props }: ChangeMapProps) {
+function ChangeMap({ nodes, edges, title, caption, statusLabels, selectedId, onSelect, cardSize, arrangement = "flow", bare, className, ...props }: ChangeMapProps) {
   // Cards and gaps are sized to their text, measured once the map has an element to read fonts from.
   const root = React.useRef<HTMLElement>(null)
   const measure = useMeasure(root)
-  // A grid wraps to the width it is given, so it follows its column as that is resized.
-  const across = useWidth(root, arrangement === "grid") - PAD * 2
+  // A grid wraps to the width it is given, so it follows its column as that is resized; bare, it
+  // has no column to follow and takes its balanced shape.
+  const across = useWidth(root, arrangement === "grid" && !bare) - PAD * 2
   const grid = { width: cardSize?.width ?? GRID.width, height: cardSize?.height ?? SIZE.nodeHeight }
   const layout = React.useMemo(
     () =>
@@ -142,7 +147,6 @@ function ChangeMap({ nodes, edges, title, caption, selectedId, onSelect, cardSiz
           {nodes.map((node) => {
             const at = layout.boxes.get(node.id)!
             const picked = node.id === selectedId
-            const look = STATUS[node.status]
             const body = (
               <>
                 {node.children ?? (
@@ -157,17 +161,16 @@ function ChangeMap({ nodes, edges, title, caption, selectedId, onSelect, cardSiz
             const box = cn(
               "absolute flex flex-col gap-0.5 rounded-xl border-2 px-3 text-left transition-[border-color,box-shadow]",
               node.children ? "justify-start py-3" : "justify-center",
-              look.card,
-              picked && cn(look.picked, "shadow-md ring-4 ring-ring/15")
+              cardLook(node.status, picked)
             )
             const place = { left: at.x + PAD, top: at.y + PAD, width: at.width, height: at.height }
             const hover = { onPointerEnter: () => setHovered(node.id), onPointerLeave: () => setHovered(undefined) }
             return onSelect ? (
-              <button key={node.id} type="button" aria-pressed={picked} aria-label={node.children ? node.label : undefined} {...hover} className={cn(box, CARD_BUTTON)} style={place} onClick={() => onSelect(node)}>
+              <button key={node.id} data-node-id={node.id} type="button" aria-pressed={picked} aria-label={node.children ? node.label : undefined} {...hover} className={cn(box, CARD_BUTTON)} style={place} onClick={() => onSelect(node)}>
                 {body}
               </button>
             ) : (
-              <div key={node.id} className={box} style={place} aria-label={node.children ? node.label : undefined} {...hover}>
+              <div key={node.id} data-node-id={node.id} className={box} style={place} aria-label={node.children ? node.label : undefined} {...hover}>
                 {body}
               </div>
             )
@@ -180,11 +183,12 @@ function ChangeMap({ nodes, edges, title, caption, selectedId, onSelect, cardSiz
       rootRef={root}
       slot="change-map"
       title={title ?? "Change map"}
-      legend={statusItems(nodes.map((node) => node.status))}
+      legend={statusItems(nodes.map((node) => node.status), statusLabels)}
       caption={caption}
       canvas={canvas}
       refitKey={layout}
       expandLabel="Expand map"
+      bare={bare}
       className={className}
       {...props}
     />

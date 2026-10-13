@@ -22,6 +22,9 @@ export const STATUS: Record<ChangeMapStatus, { label: string; card: string; pick
   external: { label: "External", card: "border-border bg-muted/60 text-muted-foreground", picked: "border-foreground" },
 }
 
+/** Classes for a card by its status; the picked one gets its full-strength border, a lift and a ring. */
+export const cardLook = (status: ChangeMapStatus, picked: boolean): string => cn(STATUS[status].card, picked && cn(STATUS[status].picked, "shadow-md ring-4 ring-ring/15"))
+
 export const STATUS_ORDER: readonly ChangeMapStatus[] = ["added", "modified", "deleted", "affected", "external"]
 
 /** A line's tint for a change that is not a card: an arrow, a field, a marker. */
@@ -40,10 +43,13 @@ export interface LegendItem {
   swatch: string
 }
 
-/** The legend items for the statuses a diagram actually uses, in a fixed order. */
-export const statusItems = (used: Iterable<ChangeMapStatus>): LegendItem[] => {
+/** Legend words that replace the built-in ones per status, for a diagram that is not a change (a plan, an explanation). */
+export type StatusLabels = Partial<Record<ChangeMapStatus, string>>
+
+/** The legend items for the statuses a diagram actually uses, in a fixed order, named by `labels` where given. */
+export const statusItems = (used: Iterable<ChangeMapStatus>, labels?: StatusLabels): LegendItem[] => {
   const set = new Set(used)
-  return STATUS_ORDER.filter((status) => set.has(status)).map((status) => ({ key: status, label: STATUS[status].label, swatch: STATUS[status].card }))
+  return STATUS_ORDER.filter((status) => set.has(status)).map((status) => ({ key: status, label: labels?.[status] ?? STATUS[status].label, swatch: STATUS[status].card }))
 }
 
 export function Legend({ items }: { items: readonly LegendItem[] }) {
@@ -86,7 +92,7 @@ export function useMeasure(root: React.RefObject<HTMLElement | null>): Measure {
   return measure
 }
 
-/** The inner width of `root`, followed as it is resized; 0 until measured or when not `enabled`. */
+/** The inner width of `root`, followed as it is resized; 0 until measured or while not `enabled`. */
 export function useWidth(root: React.RefObject<HTMLElement | null>, enabled = true): number {
   const [width, setWidth] = React.useState(0)
   React.useLayoutEffect(() => {
@@ -100,7 +106,7 @@ export function useWidth(root: React.RefObject<HTMLElement | null>, enabled = tr
     observer.observe(element)
     return () => observer.disconnect()
   }, [enabled, root])
-  return width
+  return enabled ? width : 0
 }
 
 /** Text past `max` characters cut with an ellipsis; give the whole text as a `title`. */
@@ -135,6 +141,11 @@ export interface DiagramFrameProps extends Omit<React.ComponentProps<"section">,
   refitKey?: unknown
   /** What the expand control is called, e.g. "Expand map". */
   expandLabel?: string
+  /**
+   * Only the drawing at its natural size, in an element that neither scrolls nor clips: no
+   * border, header, caption or expand viewer — for hosts that frame it themselves (a canvas).
+   */
+  bare?: boolean
 }
 
 /**
@@ -142,8 +153,14 @@ export interface DiagramFrameProps extends Omit<React.ComponentProps<"section">,
  * that opens the drawing in the full-screen viewer, the drawing itself (scrolling sideways when
  * wider than its column), and an optional caption.
  */
-export function DiagramFrame({ rootRef, slot, title, legend = [], caption, canvas, refitKey, expandLabel = "Expand diagram", className, ...props }: DiagramFrameProps) {
+export function DiagramFrame({ rootRef, slot, title, legend = [], caption, canvas, refitKey, expandLabel = "Expand diagram", bare = false, className, ...props }: DiagramFrameProps) {
   const { viewer, expand } = useDiagramViewer(rootRef)
+  if (bare)
+    return (
+      <section ref={rootRef as React.RefObject<HTMLElement>} data-slot={slot} className={cn("w-max text-card-foreground", className)} {...props}>
+        {canvas}
+      </section>
+    )
   return (
     <section
       ref={rootRef as React.RefObject<HTMLElement>}

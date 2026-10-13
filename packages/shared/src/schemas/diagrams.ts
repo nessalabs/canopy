@@ -81,3 +81,19 @@ export const DataModelSpec = z.object({
   relations: z.array(Link.extend({ cardinality: ScalarText.optional() })).default([])
 })
 export type DataModelSpec = z.infer<typeof DataModelSpec>
+
+/** States and the events that move between them, for anything with a lifecycle — a turn, a job, a connection. */
+export const StateMachineSpec = z.object({
+  ...Framed,
+  states: z.array(Part.extend({ status: PartStatus.optional(), kind: z.enum(['initial', 'final', 'normal']).optional() })).min(1),
+  transitions: z.array(Link.extend({ guard: z.string().optional() })).default([])
+})
+export type StateMachineSpec = z.infer<typeof StateMachineSpec>
+
+/** Steps, decisions and parallel branches in order: a workflow, an algorithm, a request's handling. */
+export const ActivitySpec = z.object({
+  ...Framed,
+  steps: z.array(Part.extend({ status: PartStatus.optional(), kind: z.enum(['start', 'end', 'action', 'decision', 'fork', 'join']).default('action') })).min(1),
+  flows: z.array(Link).default([])
+})
+export type ActivitySpec = z.infer<typeof ActivitySpec>

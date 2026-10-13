@@ -37,6 +37,7 @@ import { cn } from '@/lib/utils'
 
 import type { PreviewedAttachment } from './attachment-preview'
 import { ContextMeter } from './context-meter'
+import { modePlaceholder, WhiteboardModeControl } from './whiteboard/mode-control'
 
 
 /** The `/`, `@` and `#` menus: square-cornered, like the rest of Canopy's surfaces. */
@@ -291,7 +292,7 @@ export function AgentComposer({
 
   // The hint belongs to the command still in the input; typing something else retires it.
   const activeHint = hint && draft.trimStart().startsWith(`/${hint.name}`) ? hint.text : undefined
-  const inputPlaceholder = !ready ? 'Pick a session, or start a new one' : (activeHint ?? (agent.fresh ? 'What are we building today?' : 'Ask a follow-up, or / for commands'))
+  const inputPlaceholder = !ready ? 'Pick a session, or start a new one' : (activeHint ?? modePlaceholder(agent.whiteboard) ?? (agent.fresh ? 'What are we building today?' : 'Ask a follow-up, or / for commands'))
 
   /** Typing "@" is what opens the mention menu, so the + menu does exactly that. */
   const openMentions = (): void => {
@@ -428,6 +429,7 @@ export function AgentComposer({
             </DropdownMenuContent>
           </DropdownMenu>
           <ComposerAccessMode value={AUTONOMY_TO_ACCESS[agent.autonomy]} onValueChange={(value) => agent.setAutonomy(ACCESS_TO_AUTONOMY[value])} aria-label="Agent access mode" />
+          {agent.canDraw ? <WhiteboardModeControl value={agent.whiteboard} onValueChange={agent.setWhiteboard} /> : null}
         </ChatComposerActions>
         <ChatComposerActions className="justify-end">
           {latestChanges ? (

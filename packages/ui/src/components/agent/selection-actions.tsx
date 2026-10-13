@@ -98,12 +98,14 @@ function useSelectionIn(host: React.RefObject<HTMLElement | null>): { selected: 
  * clipboard, or hand it to an agent's composer as context for the next turn. Floats just above the selection —
  * below it near the top of the window — and stays out of the way until there is one.
  */
-export function SelectionActions({ host, onAsk, askLabel = 'Ask agent' }: {
+export function SelectionActions({ host, onAsk, askLabel = 'Ask agent', askHint = 'Stage this text as context for your next message' }: {
   host: React.RefObject<HTMLElement | null>
   /** Stages the selected text as context on the composer; the range says where it was taken from. */
   onAsk?: (text: string, range: Range) => void
   /** Names the agent the text goes to. */
   askLabel?: string
+  /** What asking does, on the action's tooltip. */
+  askHint?: string
 }): React.JSX.Element | null {
   const { selected, release } = useSelectionIn(host)
   const [copied, setCopied] = useState(false)
@@ -172,7 +174,7 @@ export function SelectionActions({ host, onAsk, askLabel = 'Ask agent' }: {
           <SelectionTooltipSeparator />
           <SelectionTooltipAction
             aria-label={`${askLabel} about the selected text`}
-            tooltip="Stage this text as context for your next message"
+            tooltip={askHint}
             onClick={() => {
               onAsk(selected.text, selected.range)
               release()

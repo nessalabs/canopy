@@ -125,6 +125,23 @@ and a status bar (panel toggles, worktree branch/sync/changes, logs, health, the
   message (seen 2026-09-02: an agent-written diagram with a stray `)` on one line). Upstream
   an "unparseable diagram" note in the fallback so readers know it is the source, not us.
 
+## Whiteboard (plan mode, 2026-10-12 — see docs/plans/plan-mode.md)
+
+- Codex: serve the three board tools to Codex through its MCP config (a stdio server the daemon
+  starts, sharing `applyCall`), and a `submit_plan` tool for approval in place of `ExitPlanMode`.
+  The composer offers the whiteboard to Claude sessions only until then.
+- "See what the build changed" opens the latest turn's changes; narrow it to the box's own files
+  (its `ref`s) once `TurnChanges` takes a file filter.
+- A box's note is written at plan time ("new file, does not exist yet") and reads stale once the
+  build is done; let `set_progress` carry a short "what was done" line, shown under the note.
+- The inspector covers the right of the canvas; pan so the picked box stays in view.
+- Detail boards are tied to their parent by a board-to-board line (now labelled with the box);
+  anchoring its end at the box itself needs box geometry from the diagrams.
+- `link_decision` refs are not checked against the checkout the way box notes are.
+- Choices made in the chat's question card are linked to code by the question's text; a question
+  re-asked with different wording starts a new trail entry.
+- Diagram kinds not yet drawable: deployment, timing, package, use case (plan doc lists them).
+
 ## Git Diff / explorer
 
 - Markdown previews resolve links themselves (`doc-links.ts`): a relative link opens that file

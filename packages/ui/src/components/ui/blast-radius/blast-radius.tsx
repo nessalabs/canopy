@@ -2,7 +2,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-import { Arrowheads, CARD_BUTTON, DiagramFrame, STATUS, statusItems, type ChangeMapStatus } from "../change-map/diagram-parts"
+import { Arrowheads, CARD_BUTTON, DiagramFrame, STATUS, statusItems, type ChangeMapStatus, type StatusLabels } from "../change-map/diagram-parts"
 import { layoutBlastRadius, type BlastRadiusColumn } from "./blast-radius-layout"
 
 export interface BlastRadiusItem {
@@ -35,8 +35,12 @@ export interface BlastRadiusProps extends Omit<React.ComponentProps<"section">, 
   links: readonly BlastRadiusLink[]
   title?: React.ReactNode
   caption?: React.ReactNode
+  /** Words for the legend's statuses in place of the built-in ones ("Added", "Modified", …); colours stay. */
+  statusLabels?: StatusLabels
   /** Makes every card a button — the place to open its code. */
   onSelect?: (item: BlastRadiusItem) => void
+  /** `bare` draws only the diagram at its natural size — no frame, header or scrolling — for hosts that frame it themselves (a canvas). */
+  bare?: boolean
 }
 
 const SIZE = { cardWidth: 240, cardHeight: 58, columnGap: 56, rowGap: 28, maxRows: 5, headerHeight: 28 }
@@ -46,9 +50,10 @@ const COLUMN_NAME: Record<BlastRadiusColumn, string> = { upstream: "Callers", ch
 /**
  * What a change can reach: the parts that call into it on the left, the changed parts in the
  * middle, what they call on the right, and the tests that cover them underneath. A changed part
- * no test covers says so. Hovering a card lights the edges that touch it.
+ * no test covers says so. Hovering a card lights the edges that touch it. Each card carries
+ * `data-node-id` so a host can find it.
  */
-function BlastRadius({ changed, upstream, downstream, tests, links, title, caption, onSelect, className, ...props }: BlastRadiusProps) {
+function BlastRadius({ changed, upstream, downstream, tests, links, title, caption, statusLabels, onSelect, className, ...props }: BlastRadiusProps) {
   const root = React.useRef<HTMLElement>(null)
   const covers = React.useMemo(() => tests.flatMap((test) => test.covers.map((target) => ({ test: test.id, target }))), [tests])
   const layout = React.useMemo(
@@ -131,11 +136,11 @@ function BlastRadius({ changed, upstream, downstream, tests, links, title, capti
         const place = { left: at.x + PAD, top: at.y + PAD, width: at.width, height: at.height }
         const hover = { onPointerEnter: () => setHovered(item.id), onPointerLeave: () => setHovered(undefined) }
         return onSelect ? (
-          <button key={item.id} type="button" title={item.detail ?? item.label} className={cn(box, CARD_BUTTON)} style={place} onClick={() => onSelect(item)} {...hover}>
+          <button key={item.id} data-node-id={item.id} type="button" title={item.detail ?? item.label} className={cn(box, CARD_BUTTON)} style={place} onClick={() => onSelect(item)} {...hover}>
             {body}
           </button>
         ) : (
-          <div key={item.id} title={item.detail ?? item.label} className={box} style={place} {...hover}>
+          <div key={item.id} data-node-id={item.id} title={item.detail ?? item.label} className={box} style={place} {...hover}>
             {body}
           </div>
         )
@@ -150,7 +155,7 @@ function BlastRadius({ changed, upstream, downstream, tests, links, title, capti
       slot="blast-radius"
       title={title ?? "Blast radius"}
       legend={[
-        ...statusItems(items.map((item) => item.status)),
+        ...statusItems(items.map((item) => item.status), statusLabels),
         ...(untestedCount > 0 ? [{ key: "untested", label: "No test covers it", swatch: "border-0 bg-nessa-diff-deletion" }] : []),
       ]}
       caption={caption}

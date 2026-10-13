@@ -2,7 +2,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-import { Arrowheads, CARD_BUTTON, DiagramFrame, STATUS, shorten, statusItems, useWidth, type ChangeMapStatus, type LegendItem } from "../change-map/diagram-parts"
+import { Arrowheads, CARD_BUTTON, DiagramFrame, cardLook, shorten, statusItems, useWidth, type ChangeMapStatus, type LegendItem, type StatusLabels } from "../change-map/diagram-parts"
 import { ENTITY_ROWS, layoutDataModel } from "./data-model-layout"
 
 export interface DataModelField {
@@ -37,8 +37,14 @@ export interface DataModelProps extends Omit<React.ComponentProps<"section">, "t
   relations: readonly DataModelRelation[]
   title?: React.ReactNode
   caption?: React.ReactNode
+  /** Words for the legend's statuses in place of the built-in ones ("Added", "Modified", …); colours stay. */
+  statusLabels?: StatusLabels
+  /** The entity shown as picked; its relations are drawn in full. */
+  selectedId?: string
   /** Makes every card a button — the place to open its definition. */
   onSelectEntity?: (entity: DataModelEntity) => void
+  /** `bare` draws only the diagram at its natural size — no frame, header or scrolling — for hosts that frame it themselves (a canvas). */
+  bare?: boolean
 }
 
 const CARD_WIDTH = 260
@@ -57,21 +63,25 @@ const MARK_TONE = { added: "text-nessa-diff-addition", changed: "text-nessa-diff
  * The tables and types a change touches, as cards in a grid that reads across and down: each
  * lists its fields with their types, new fields tinted, changed ones marked, removed ones struck
  * through, keys flagged. Relations run along the gaps between cards, labelled with their
- * cardinality; hovering a card lights its relations.
+ * cardinality; hovering a card lights its relations. Each card carries `data-node-id` so a host
+ * can find it.
  */
-function DataModel({ entities, relations, title, caption, onSelectEntity, className, ...props }: DataModelProps) {
+function DataModel({ entities, relations, title, caption, statusLabels, selectedId, onSelectEntity, bare, className, ...props }: DataModelProps) {
   const root = React.useRef<HTMLElement>(null)
-  const width = useWidth(root) - PAD * 2
+  // The grid wraps to its column's width; bare, it has no column to follow and takes its balanced shape.
+  const width = useWidth(root, !bare) - PAD * 2
   const layout = React.useMemo(
     () => layoutDataModel({ entities: entities.map((entity) => ({ id: entity.id, fields: entity.fields.length })), relations, width, cardWidth: CARD_WIDTH, gap: GAP }),
     [entities, relations, width],
   )
+  // Hovering a card lights its relations and dims the rest; otherwise the picked card's relations are drawn in full.
   const [hovered, setHovered] = React.useState<string>()
+  const focus = hovered ?? selectedId
   const arrow = React.useId()
-  const touches = (relation: DataModelRelation) => hovered !== undefined && (relation.from === hovered || relation.to === hovered)
+  const touches = (relation: DataModelRelation) => focus !== undefined && (relation.from === focus || relation.to === focus)
   const changes = new Set(entities.flatMap((entity) => entity.fields.flatMap((field) => (field.change ? [field.change] : []))))
   const legend: LegendItem[] = [
-    ...statusItems(entities.map((entity) => entity.status)),
+    ...statusItems(entities.map((entity) => entity.status), statusLabels),
     ...(["added", "changed", "removed"] as const).filter((change) => changes.has(change)).map((change) => ({ key: `field-${change}`, label: FIELD_LOOK[change].word, swatch: cn("border-0", change === "removed" ? "bg-nessa-diff-deletion/40" : change === "added" ? "bg-nessa-diff-addition/40" : "bg-nessa-diff-modification/40") })),
   ]
 
@@ -114,6 +124,7 @@ function DataModel({ entities, relations, title, caption, onSelectEntity, classN
       {entities.map((entity) => {
         const at = layout.boxes.get(entity.id)
         if (!at) return null
+        const picked = entity.id === selectedId
         const body = (
           <>
             <span className="flex shrink-0 flex-col justify-center gap-0.5 px-3" style={{ height: ENTITY_ROWS.header - 8 }}>
@@ -139,15 +150,15 @@ function DataModel({ entities, relations, title, caption, onSelectEntity, classN
             })}
           </>
         )
-        const box = cn("absolute flex flex-col overflow-hidden rounded-xl border-2 text-left", STATUS[entity.status].card)
+        const box = cn("absolute flex flex-col overflow-hidden rounded-xl border-2 text-left transition-[border-color,box-shadow]", cardLook(entity.status, picked))
         const place = { left: at.x + PAD, top: at.y + PAD, width: at.width, height: at.height }
         const hover = { onPointerEnter: () => setHovered(entity.id), onPointerLeave: () => setHovered(undefined) }
         return onSelectEntity ? (
-          <button key={entity.id} type="button" aria-label={entity.label} className={cn(box, CARD_BUTTON)} style={place} onClick={() => onSelectEntity(entity)} {...hover}>
+          <button key={entity.id} data-node-id={entity.id} type="button" aria-pressed={picked} aria-label={entity.label} className={cn(box, CARD_BUTTON)} style={place} onClick={() => onSelectEntity(entity)} {...hover}>
             {body}
           </button>
         ) : (
-          <div key={entity.id} aria-label={entity.label} className={box} style={place} {...hover}>
+          <div key={entity.id} data-node-id={entity.id} aria-label={entity.label} className={box} style={place} {...hover}>
             {body}
           </div>
         )
@@ -156,7 +167,7 @@ function DataModel({ entities, relations, title, caption, onSelectEntity, classN
   )
 
   return (
-    <DiagramFrame rootRef={root} slot="data-model" title={title ?? "Data model"} legend={legend} caption={caption} canvas={canvas} refitKey={layout} expandLabel="Expand data model" className={className} {...props} />
+    <DiagramFrame rootRef={root} slot="data-model" title={title ?? "Data model"} legend={legend} caption={caption} canvas={canvas} refitKey={layout} expandLabel="Expand data model" bare={bare} className={className} {...props} />
   )
 }
 

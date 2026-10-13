@@ -13,7 +13,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { ShellSlot } from '@/components/shell-slots'
 import { IconAction } from '@/components/icon-action'
 import { pruneLayout } from '@/lib/prune-layout'
-import { PaneSplitDirection, closePane as closePaneOp, collectPanes, splitPane, type AppShellLayout, type PaneNode } from '@/lib/app-shell-layout'
+import { PaneSplitDirection, closePane as closePaneOp, collectPanes, setSplitWeights, splitPane, type AppShellLayout, type LayoutNode, type PaneNode, type SplitNode } from '@/lib/app-shell-layout'
 import { placementOf, reinsertPane, type Placement } from '@/lib/panel-placement'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -23,6 +23,30 @@ export interface PanelRequest {
   id: string
   action: 'open' | 'close' | 'toggle'
   nonce: number
+  /** For a panel opened fresh beside the active one: the share of that space it takes (0–1). Half by default. */
+  share?: number
+}
+
+/** The split holding `paneId`, and where in it the pane sits. */
+function parentOf(node: LayoutNode, paneId: string): { split: SplitNode; index: number } | undefined {
+  if (node.type === 'pane') return undefined
+  const index = node.children.findIndex((child) => child.id === paneId)
+  return index !== -1 ? { split: node, index } : node.children.reduce<ReturnType<typeof parentOf>>((found, child) => found ?? parentOf(child, paneId), undefined)
+}
+
+/**
+ * A pane just split off its neighbour takes `share` of the space the two now hold together. A
+ * split always halves; a panel that needs room (a whiteboard beside a conversation) asks for more.
+ */
+function giveShare(layout: AppShellLayout, paneId: string, share: number): AppShellLayout {
+  const found = parentOf(layout.workspace.root, paneId)
+  const neighbour = found && (found.index > 0 ? found.index - 1 : found.index + 1)
+  if (!found || neighbour === undefined || !found.split.children[neighbour]) return layout
+  const weights = found.split.children.map((child) => child.weight)
+  const together = weights[found.index]! + weights[neighbour]!
+  weights[found.index] = together * share
+  weights[neighbour] = together * (1 - share)
+  return setSplitWeights(layout, { splitId: found.split.id, weights })
 }
 
 export interface PanelDef {
@@ -215,12 +239,15 @@ export function PanelShell({
 
   /** Puts a closed panel back where it was, or beside the active pane when that spot is gone. */
   const openPanel = useCallback(
-    (id: string) =>
+    (id: string, share?: number) =>
       apply((current) => {
         if (paneOf(current, id)) return current
         const paneId = `pane-${id}-${Date.now()}`
         const remembered = closedAt.current.get(id)
-        return (remembered && reinsertPane(current, id, remembered, paneId)) ?? splitPane(current, { paneId: current.workspace.activePaneId, direction: PaneSplitDirection.Right, newPaneId: paneId, views: [id] })
+        const reinserted = remembered && reinsertPane(current, id, remembered, paneId)
+        if (reinserted) return reinserted
+        const split = splitPane(current, { paneId: current.workspace.activePaneId, direction: PaneSplitDirection.Right, newPaneId: paneId, views: [id] })
+        return share === undefined ? split : giveShare(split, paneId, share)
       }),
     [apply]
   )
@@ -232,13 +259,13 @@ export function PanelShell({
       }),
     [apply]
   )
-  const REQUESTS: Record<PanelRequest['action'], (id: string) => void> = {
+  const REQUESTS: Record<PanelRequest['action'], (id: string, share?: number) => void> = {
     open: openPanel,
     close: closePanel,
-    toggle: (id) => (visible.includes(id) ? closePanel(id) : openPanel(id))
+    toggle: (id, share) => (visible.includes(id) ? closePanel(id) : openPanel(id, share))
   }
   useEffect(() => {
-    if (request) REQUESTS[request.action](request.id)
+    if (request) REQUESTS[request.action](request.id, request.share)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request?.id, request?.action, request?.nonce])
 

@@ -9,6 +9,10 @@ export type AgentProvider = z.infer<typeof AgentProvider>
 export const Autonomy = z.enum(['read-only', 'edit', 'full'])
 export type Autonomy = z.infer<typeof Autonomy>
 
+/** What a whiteboard turn is for: understanding code, planning a change, or building the plan. */
+export const WhiteboardMode = z.enum(['explain', 'plan', 'build'])
+export type WhiteboardMode = z.infer<typeof WhiteboardMode>
+
 /** Reasoning effort, as the Claude Agent SDK names it. */
 export const Effort = z.enum(['low', 'medium', 'high', 'xhigh', 'max'])
 export type Effort = z.infer<typeof Effort>
@@ -24,6 +28,12 @@ export const TurnOptions = z.object({
    * to the provider's own system prompt for this turn, never shown as part of the conversation.
    */
   instructions: z.string().min(1).optional(),
+  /**
+   * The turn draws on the whiteboard. `explain` shows how part of the codebase works; `plan` reads
+   * but changes nothing and ends at the plan's approval; `build` works through an approved plan and
+   * marks its progress on the same boards.
+   */
+  whiteboard: WhiteboardMode.optional(),
   /**
    * Where the turn's event numbering starts: the `nextSeq` of the transcript the client already
    * holds, so live events extend that log instead of colliding with it. Defaults to 0.
@@ -197,7 +207,12 @@ export const PermissionDecisionInput = z.object({
   requestId: z.string().min(1),
   behavior: z.enum(['allow', 'deny']),
   message: z.string().optional(),
-  updatedInput: z.record(z.string(), z.unknown()).optional()
+  updatedInput: z.record(z.string(), z.unknown()).optional(),
+  /**
+   * Allowing `ExitPlanMode` with this switches the running turn to editing, so approving a plan
+   * starts the build. Only `edit`: a turn that asks before it acts cannot be handed `full`.
+   */
+  autonomy: z.literal('edit').optional()
 })
 export type PermissionDecisionInput = z.infer<typeof PermissionDecisionInput>
 
