@@ -191,18 +191,19 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
 
   // The whiteboard: the boards this conversation drew, the code its boxes cite, and boards opened beside it.
   const whiteboard = useWhiteboard(agent, model)
-  const [codeRef, setCodeRef] = useState<string>()
+  // A reference keeps the checkout it was opened from, so picking another session does not reread it in that one's.
+  const [code, setCode] = useState<{ ref: string; worktreeId: string }>()
   const reveal = (id: string, panel?: PanelId, share?: number): void => {
     setRequest({ id, action: 'open', nonce: Date.now(), ...(share ? { share } : {}) })
     if (panel) setMobilePanel(panel)
   }
-  const openRef = (ref: string): void => {
-    setCodeRef(ref)
-    reveal('code', 'code')
-  }
   // A box cites files relative to the checkout its session runs in, which need not be the one on screen.
   const origin = agent.selected?.origin
   const codeWorktree = origin ? (worktrees.data?.find((other) => other.id === origin.worktreeId || other.path === origin.runIn) ?? worktree) : worktree
+  const openRef = (ref: string): void => {
+    setCode({ ref, worktreeId: codeWorktree.id })
+    reveal('code', 'code')
+  }
   const openBoard = (board: string): void => reveal(boardPanelId(board), 'whiteboard')
   // Turning a mode on, or the first board arriving, brings the whiteboard on screen.
   const drawingOn = agent.whiteboard !== undefined
@@ -303,7 +304,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
         />
       )
     },
-    ...(codeRef ? [{ id: 'code', title: 'Code', icon: FileCode2, render: () => <CodePane worktreeId={codeWorktree.id} codeRef={codeRef} /> }] : []),
+    ...(code ? [{ id: 'code', title: 'Code', icon: FileCode2, render: () => <CodePane worktreeId={code.worktreeId} codeRef={code.ref} /> }] : []),
     // Listed only once something has been opened, so the top bar does not offer an empty reader.
     ...(reader.state.tabs.length > 0
       ? [
