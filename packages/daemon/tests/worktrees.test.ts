@@ -145,6 +145,14 @@ describe('worktrees', () => {
       expect(await repo.git('show', `${body.salvaged.sha}:new-file.ts`)).toBe('export const rescued = true')
     })
 
+    it('saves nothing from a throwaway worktree, dirty or not', async () => {
+      const wt = await dirtyWorktree('throwaway')
+      const { salvaged } = await server.app.services.worktrees.destroy(wt.id, true, 'always', { salvage: false })
+      expect(salvaged).toBeNull()
+      expect(existsSync(wt.path)).toBe(false)
+      expect((await repo.git('for-each-ref', '--format=%(refname)', 'refs/canopy/salvage')).trim()).toBe('')
+    })
+
     it('saves nothing when there was nothing uncommitted', async () => {
       const clean = await settled(server, (await server.call('POST', routes.projectWorktrees(projectId), { name: 'tidy', branch: { mode: 'new', name: 'feat/tidy', base: 'main' } })).body.worktree.id)
       const { body } = await server.call('DELETE', routes.worktree(clean.id))

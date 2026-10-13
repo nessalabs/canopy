@@ -5,6 +5,8 @@
  */
 import type { AgentActivity, FleetAgent, Project } from '@canopy/shared'
 
+import { sessionParam } from './environment-ui'
+
 export type FleetFilter = 'all' | AgentActivity
 
 /** In the order the panel offers them; labels stay short so the row fits a narrow panel. */
@@ -43,5 +45,6 @@ export function fleetSections(agents: FleetAgent[], projects: Project[]): FleetS
   return sections.filter((section) => section.agents.length > 0).map((section) => ({ ...section, agents: [...section.agents].sort(byUrgency) }))
 }
 
-/** Where opening an agent lands: the Git Agent lives in the Git tab, every other session in the Agent tab. */
-export const agentHref = (agent: FleetAgent): string => `/worktrees/${agent.worktreeId}?tab=${agent.kind === 'canopy' ? 'git' : 'agent'}`
+/** Where opening an agent lands: its own conversation, in the Git tab for the Git Agent and the Agent tab for every other. */
+export const agentHref = (agent: FleetAgent): string =>
+  `/worktrees/${agent.worktreeId}?${new URLSearchParams({ tab: agent.kind === 'canopy' ? 'git' : 'agent', session: sessionParam(agent) }).toString()}`
