@@ -275,6 +275,16 @@ export function notesMessage(state: PlanState, notes: BoxNotes): { title: string
 /** The mode the next turn runs in: a plan once approved is being built. */
 export const nextMode = (mode: WhiteboardMode | undefined, approved: boolean): WhiteboardMode | undefined => (mode === 'plan' && approved ? 'build' : mode)
 
+/**
+ * What a session's approval count means against the count already acted on. With none stored yet,
+ * the count is where the session stands — its history, not a new approval. Above the stored count it
+ * is a new approval, whether it landed on screen or while another session was.
+ */
+export function approvalStep(acted: number | undefined, approvals: number): { acted: number; approved: boolean } {
+  if (acted === undefined) return { acted: approvals, approved: false }
+  return { acted: Math.max(acted, approvals), approved: approvals > acted }
+}
+
 /** What a box's code reference opens: the path, and the lines when the ref names them. */
 export function refTarget(ref: string): { path: string; lines?: string } {
   const [path, lines] = ref.split(':')
@@ -305,6 +315,10 @@ const isNotes = (value: unknown): value is BoxNotes =>
 /** The whiteboard mode a session's turns run in. */
 export const readMode = (sessionId: string | undefined): WhiteboardMode | undefined => (sessionId ? readStored(`canopy-whiteboard:${sessionId}`, isMode) : undefined)
 export const writeMode = (sessionId: string, mode: WhiteboardMode | undefined): void => writeStored(`canopy-whiteboard:${sessionId}`, mode)
+
+/** How many of a session's plan approvals have switched its mode, so each switches once. */
+export const readApprovals = (sessionId: string): number | undefined => readStored(`canopy-whiteboard-approvals:${sessionId}`, (value): value is number => typeof value === 'number')
+export const writeApprovals = (sessionId: string, count: number): void => writeStored(`canopy-whiteboard-approvals:${sessionId}`, count)
 
 /** Where the reader dragged a session's boards, by board id. */
 export type BoardLayout = Record<string, { x: number; y: number }>
