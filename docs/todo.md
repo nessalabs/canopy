@@ -125,6 +125,13 @@ and a status bar (panel toggles, worktree branch/sync/changes, logs, health, the
   message (seen 2026-09-02: an agent-written diagram with a stray `)` on one line). Upstream
   an "unparseable diagram" note in the fallback so readers know it is the source, not us.
 
+## Canopy Agent (canopy.yaml page, 2026-10-13)
+
+- [ ] Live progress while `check_services` runs (it takes minutes and the chat only shows the call); stream the throwaway worktree's provision steps into the tool call.
+- [ ] Option to keep the check worktree running for the user to poke at, instead of always destroying it.
+- [ ] Codex: serve the same two tools over Codex's MCP config so the agent is not Claude-only.
+- [ ] A proposal the user edits before saving no longer tells the agent it was saved; decide whether "saved with changes" should.
+
 ## Whiteboard (plan mode, 2026-10-12 — see docs/plans/plan-mode.md)
 
 - Codex: serve the three board tools to Codex through its MCP config (a stdio server the daemon

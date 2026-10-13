@@ -20,6 +20,8 @@ import type {
   TurnOptions
 } from '@canopy/shared'
 
+import type { Toolkit } from './toolkit'
+
 export type { AgentCapabilities, AgentProvider, AgentSessionSummary, AgentStreamEvent, TranscriptResponse }
 
 export interface SendOptions extends TurnOptions {
@@ -28,6 +30,8 @@ export interface SendOptions extends TurnOptions {
   /** Images to send as content blocks after the text. */
   images?: Array<Omit<TurnImage, 'label'>>
   signal?: AbortSignal
+  /** Tools the surface the turn was sent from serves it — the Canopy Agent's. Claude only. */
+  toolkit?: Toolkit
 }
 
 export interface AgentAdapter {

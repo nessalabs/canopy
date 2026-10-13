@@ -35,6 +35,11 @@ export const TurnOptions = z.object({
    */
   whiteboard: WhiteboardMode.optional(),
   /**
+   * The turn is the Canopy Agent's, on a project's canopy.yaml page: it gets the tools that propose
+   * a canopy.yaml and check its services in a throwaway worktree. Claude only.
+   */
+  configAgent: z.object({ projectId: z.string().min(1) }).optional(),
+  /**
    * Where the turn's event numbering starts: the `nextSeq` of the transcript the client already
    * holds, so live events extend that log instead of colliding with it. Defaults to 0.
    */
