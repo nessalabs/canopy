@@ -31,6 +31,7 @@ import type {
   ProvisionInput,
   RewindInput,
   ServiceAction,
+  PermissionDecisionInput,
   SessionRef,
   StartDestroyJobInput,
   UpdateProjectInput
@@ -190,6 +191,19 @@ export const useAgentSessions = (worktreeId: string) => {
 export const useAgentFleet = () => {
   const api = useApi()
   return useQuery({ queryKey: keys.fleet, queryFn: api.agentFleet, refetchInterval: 5_000, refetchIntervalInBackground: false })
+}
+
+/**
+ * Answers an ask from outside its conversation. The turn's own stream carries the answer back to
+ * any chat showing it; the fleet is reread so the ask leaves the panel at once.
+ */
+export const useAnswerAsk = () => {
+  const api = useApi()
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ ref, input }: { ref: SessionRef; input: PermissionDecisionInput }) => api.answerPermission(ref, input),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: keys.fleet })
+  })
 }
 
 export const useGitAgentSessions = (worktreeId: string) => {

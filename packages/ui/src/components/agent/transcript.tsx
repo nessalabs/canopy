@@ -435,11 +435,12 @@ function RunSheetBody({ call, transcript }: { call: BeatCall; transcript: Folded
  * as a permission ask, and drawing it as one would put a multiple-choice question on screen as
  * JSON. The answer goes back as the tool's rewritten input.
  */
-function QuestionCard({ requestId, input, questions, onAnswer }: {
+function QuestionCard({ requestId, input, questions, onAnswer, className }: {
   requestId: string
   input: unknown
   questions: AskQuestion[]
   onAnswer: (decision: PermissionDecisionInput) => void
+  className?: string
 }): React.JSX.Element {
   const [picks, setPicks] = useState<Record<string, string[]>>({})
   const [others, setOthers] = useState<Record<string, string>>({})
@@ -492,7 +493,7 @@ function QuestionCard({ requestId, input, questions, onAnswer }: {
     <div
       aria-label="Answer the agent's question"
       data-answered={answered ? 'true' : undefined}
-      className="ml-10 max-w-[92%] rounded-xl border border-border bg-card p-4 data-[answered=true]:pointer-events-none data-[answered=true]:opacity-60"
+      className={cn('rounded-xl border border-border bg-card p-4 data-[answered=true]:pointer-events-none data-[answered=true]:opacity-60', className)}
     >
       <Questionnaire>
         <StepTabs steps={steps} index={index} onIndex={setIndex}>
@@ -522,15 +523,22 @@ function QuestionCard({ requestId, input, questions, onAnswer }: {
   )
 }
 
-/** A tool the agent wants to run and may not without the user. Answered once; the card then goes inert until its event lands. */
-function AskCard({ ask, onAnswer }: { ask: AgentEvent; onAnswer: (input: PermissionDecisionInput) => void }): React.JSX.Element | null {
+/**
+ * A tool the agent wants to run and may not without the user. Answered once; the card then goes
+ * inert until its event lands. `className` places it: indented under the avatar in a transcript.
+ */
+export function AskCard({ ask, onAnswer, className = 'ml-10 max-w-[92%]' }: {
+  ask: AgentEvent
+  onAnswer: (input: PermissionDecisionInput) => void
+  className?: string
+}): React.JSX.Element | null {
   const [resolution, setResolution] = useState<ToolApprovalResolution | null>(null)
   if (!isEvent(ask, AgentEventType.PermissionRequested)) return null
   const { requestId, toolName, input, displayName, description, reason } = ask.payload
   const questions = toolName === 'AskUserQuestion' ? parseAskQuestions(input) : null
-  if (questions) return <QuestionCard requestId={requestId} input={input} questions={questions} onAnswer={onAnswer} />
+  if (questions) return <QuestionCard requestId={requestId} input={input} questions={questions} onAnswer={onAnswer} className={className} />
   // Leaving plan mode is the plan's approval, not a tool to allow.
-  if (toolName === 'ExitPlanMode') return <PlanApproval ask={ask} onAnswer={onAnswer} className="ml-10 max-w-[92%]" />
+  if (toolName === 'ExitPlanMode') return <PlanApproval ask={ask} onAnswer={onAnswer} className={className} />
   const kind = toolKind(toolName)
   const name = displayName ?? toolName
   const what = toolTitle(toolName, input)
@@ -540,7 +548,7 @@ function AskCard({ ask, onAnswer }: { ask: AgentEvent; onAnswer: (input: Permiss
     onAnswer(behavior === 'allow' ? { requestId, behavior } : { requestId, behavior, message: `The user declined this ${toolName} call.` })
   }
   return (
-    <ToolApproval variant="docked" resolution={resolution} aria-label={`Allow ${name}?`} className="ml-10 max-w-[92%]">
+    <ToolApproval variant="docked" resolution={resolution} aria-label={`Allow ${name}?`} className={className}>
       <ToolApprovalHeader>
         <ToolApprovalIcon>{TOOL_ICON[kind]}</ToolApprovalIcon>
         <ToolApprovalHeading>

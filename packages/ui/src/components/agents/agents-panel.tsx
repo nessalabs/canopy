@@ -4,18 +4,36 @@ import { useLocation } from 'wouter'
 import type { FleetAgent, Worktree } from '@canopy/shared'
 
 import { ProviderIcon } from '@/components/agent/provider-icon'
+import { AskCard } from '@/components/agent/transcript'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { StatusDot, type StatusDotProps } from '@/components/ui/status-dot'
 import { agentHref, FLEET_FILTERS, filterFleet, fleetCounts, fleetSections, type FleetFilter } from '@/lib/agent-fleet'
-import { useAgentFleet, useProjects, useWorktrees } from '@/lib/api-hooks'
+import { useAgentFleet, useAnswerAsk, useProjects, useWorktrees } from '@/lib/api-hooks'
 import { relativeTime } from '@/lib/format'
 
 const ACTIVITY_LOOK: Record<FleetAgent['activity'], { label: string; dot: NonNullable<StatusDotProps['status']> }> = {
   approval: { label: 'Needs approval', dot: 'attention' },
   running: { label: 'Running', dot: 'running' },
   done: { label: 'Completed', dot: 'idle' }
+}
+
+/**
+ * What the agent is waiting on, answerable right here with the same cards its chat shows. The
+ * answer reaches that chat too, through the turn's own stream.
+ */
+function Asks({ agent }: { agent: FleetAgent }): React.JSX.Element | null {
+  const answer = useAnswerAsk()
+  if (agent.asks.length === 0) return null
+  const ref = { provider: agent.provider, sessionId: agent.sessionId }
+  return (
+    <div className="flex flex-col gap-2 px-2 pt-1 pb-2">
+      {agent.asks.map((ask) => (
+        <AskCard key={ask.id} ask={ask} className="w-full" onAnswer={(input) => answer.mutate({ ref, input })} />
+      ))}
+    </div>
+  )
 }
 
 function AgentRow({ agent, where }: { agent: FleetAgent; where: string }): React.JSX.Element {
@@ -46,6 +64,7 @@ function AgentRow({ agent, where }: { agent: FleetAgent; where: string }): React
           </span>
         </span>
       </button>
+      <Asks agent={agent} />
     </li>
   )
 }
