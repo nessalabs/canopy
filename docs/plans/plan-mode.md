@@ -145,9 +145,10 @@ already renders (`lib/ask-questions.ts`).
 
 Claude's own plan mode ends when the agent calls `ExitPlanMode`, which arrives through
 `canUseTool` like any other request for permission. Canopy shows it as an **Approve plan** bar
-over the whiteboard instead of a markdown block. Approving answers `allow` and calls
-`setPermissionMode('acceptEdits')` on the live turn, the same control the composer already uses.
-"Keep planning" answers `deny` with your note.
+over the whiteboard instead of a markdown block. Approving answers `allow` with `autonomy: edit`,
+which the daemon turns into the SDK's `updatedPermissions: [{ type: 'setMode', mode: 'acceptEdits' }]`
+on that very answer, so the same turn goes on to build. "Keep planning" answers `deny` with your
+note.
 
 Codex has no `ExitPlanMode`, so for Codex a `submit_plan` tool will raise the same approval
 request. The approval bar takes a plain `{ approve, reject }` pair and does not care which agent

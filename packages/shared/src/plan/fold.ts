@@ -46,15 +46,15 @@ export interface PlanView {
   asked: Asked[]
   /** A plan tool call still running, so the board can show it is being drawn. */
   drawing: boolean
-  /** The plan was approved (`ExitPlanMode` allowed): what follows is the build. */
-  approved: boolean
+  /** How many times a plan was approved (`ExitPlanMode` allowed); each one starts a build. */
+  approvals: number
   /** The plan document the agent asked approval with, newest last. */
   document?: string
   /** The questions the agent asked in the chat, in order. */
   questions: ChatQuestions[]
 }
 
-export const EMPTY_VIEW: PlanView = { state: EMPTY_PLAN, threads: {}, asked: [], drawing: false, approved: false, questions: [] }
+export const EMPTY_VIEW: PlanView = { state: EMPTY_PLAN, threads: {}, asked: [], drawing: false, approvals: 0, questions: [] }
 
 const EXIT_PLAN = 'ExitPlanMode'
 const ASK = 'AskUserQuestion'
@@ -69,7 +69,10 @@ const askedQuestions = (input: unknown): ChatQuestions['questions'] => {
 
 /** The answers Claude Code reports back: `"question"="answer"` pairs. */
 export const answersIn = (result: string): Record<string, string> =>
-  Object.fromEntries([...result.matchAll(/"((?:[^"\\]|\\.)*)"="((?:[^"\\]|\\.)*)"/g)].map(([, question, answer]) => [question!, answer!]))
+  Object.fromEntries([...result.matchAll(/"((?:[^"\\]|\\.)*)"="((?:[^"\\]|\\.)*)"/g)].map(([, question, answer]) => [unescaped(question!), unescaped(answer!)]))
+
+/** The text inside a quoted pair, with its `\"` and `\\` escapes undone, so it matches the question as asked. */
+const unescaped = (text: string): string => text.replace(/\\(.)/g, '$1')
 
 /** What a reader's message does to the plan: their choices settle those decisions. */
 function readerSaid(state: PlanState, message: WhiteboardMessage): PlanState {
@@ -110,7 +113,7 @@ const STEPS: { [T in 'tool_call_started' | 'tool_call_completed' | 'user_message
     if (payload.result.isError) return
     const asked = view.questions.find((entry) => entry.callId === payload.callId)
     if (asked) asked.answers = answersIn(payload.result.text)
-    if (exits.has(payload.callId)) view.approved = true
+    if (exits.has(payload.callId)) view.approvals += 1
     if (call) view.state = applyCall(view.state, call.tool, call.input).state
   },
   user_message: ({ view }, payload, { id, seq }) => {

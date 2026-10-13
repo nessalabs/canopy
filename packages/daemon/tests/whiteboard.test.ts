@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { EMPTY_PLAN, type PlanState } from '@canopy/shared'
 
-import { whiteboardHandler } from '../src/agents/whiteboard'
+import { checkoutFiles, whiteboardHandler } from '../src/agents/whiteboard'
 
 const board = {
   id: 'overview',
@@ -11,6 +11,18 @@ const board = {
   mermaid: 'flowchart LR\n  ui[Composer] --> d[Daemon]',
   notes: { ui: { explain: 'Where you type.', ref: 'src/composer.tsx:1-9' }, d: { explain: 'Runs agents.', status: 'new', ref: 'src/new.ts' } }
 }
+
+describe('checkoutFiles', () => {
+  it('knows files by their path from the repository root, and nothing outside or absolute', () => {
+    const exists = checkoutFiles(process.cwd())
+    expect(exists('package.json')).toBe(true)
+    expect(exists('./package.json')).toBe(true)
+    expect(exists('nope/package.json')).toBe(false)
+    expect(exists('../package.json')).toBe(false)
+    expect(exists('..')).toBe(false)
+    expect(exists(`${process.cwd()}/package.json`)).toBe(false)
+  })
+})
 
 describe('whiteboard tools', () => {
   it('draws, answers in one line and keeps the plan for the next call', async () => {
