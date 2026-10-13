@@ -6,7 +6,7 @@ import type { FastifyInstance } from 'fastify'
 import { AgentProvider, CapabilitiesQuery, LiveControlsInput, NewSessionInput, PermissionDecisionInput, QueueMessageInput, RewindInput, SendMessageInput, SessionRef, routes } from '@canopy/shared'
 
 import { ClaudeHookPayload } from '../agents/edit-diffs/hook'
-import { listFleet } from '../agents/fleet'
+import { listFleet, openAsks } from '../agents/fleet'
 
 import { ApiError } from '../lib/errors'
 import { streamSse } from '../lib/sse'
@@ -26,7 +26,7 @@ export function registerAgentRoutes(app: FastifyInstance, services: Services): v
       gitAgent,
       live: {
         running: (provider, sid) => turns.isRunning(provider, sid),
-        awaiting: (provider, sid) => agents.adapterFor(provider).awaitingPermission?.(sid) === true
+        asks: (provider, sid) => openAsks(turns.find(provider, sid)?.events ?? [])
       }
     })
   }))

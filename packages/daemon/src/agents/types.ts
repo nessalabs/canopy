@@ -53,8 +53,6 @@ export interface AgentAdapter {
    * was waiting under that request id. Providers that never park on a prompt leave this undefined.
    */
   answerPermission?(sessionId: string, input: PermissionDecisionInput): boolean
-  /** True while a live turn in this session is parked on a permission ask nobody has answered. */
-  awaitingPermission?(sessionId: string): boolean
   /**
    * Everything a session in this checkout can do — commands, skills, subagents, models, MCP
    * servers, hooks. Read lazily (never at boot) and cached by the adapter; `refresh` bypasses that

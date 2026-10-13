@@ -4,7 +4,8 @@
  * a hook says they are busy; this adds what only the daemon knows (a turn it runs, a permission
  * ask parked in it) and which sessions are Canopy's own, then flattens the lot.
  */
-import type { AgentActivity, AgentProvider, AgentSessionSummary, FleetAgent } from '@canopy/shared'
+import type { AgentActivity, AgentProvider, AgentSessionSummary, AgentStreamEvent, FleetAgent } from '@canopy/shared'
+import { AgentEventType, isEvent, type AgentEvent } from '@canopy/shared/agent-stream'
 
 import type { GitAgentStore } from '../git-agent/store'
 import type { WorktreeRow } from '../worktrees/service'
@@ -21,15 +22,32 @@ export function activityOf(session: AgentSessionSummary, awaiting: boolean): Age
   return session.running || session.status === 'busy' ? 'running' : 'done'
 }
 
+/**
+ * The asks a turn has raised and not had answered, oldest first. Every answer, from whichever
+ * client, comes back on the turn's own stream as `permission_decided`, so the turn's log alone says
+ * what is still open.
+ */
+export function openAsks(events: readonly AgentStreamEvent[]): AgentEvent[] {
+  const open = new Map<string, AgentEvent>()
+  for (const frame of events) {
+    if (frame.type !== 'event') continue
+    if (isEvent(frame.event, AgentEventType.PermissionRequested)) open.set(frame.event.payload.requestId, frame.event)
+    else if (isEvent(frame.event, AgentEventType.PermissionDecided)) open.delete(frame.event.payload.requestId)
+  }
+  return [...open.values()]
+}
+
 /** What the daemon knows about a session beyond the provider's listing. */
 export interface LiveState {
   running(provider: AgentProvider, sessionId: string): boolean
-  awaiting(provider: AgentProvider, sessionId: string): boolean
+  /** The asks a turn it runs in this session is parked on. */
+  asks(provider: AgentProvider, sessionId: string): AgentEvent[]
 }
 
 /** One listed session as the panel shows it. */
 export function toFleetAgent(worktree: Pick<WorktreeRow, 'id' | 'project_id'>, session: AgentSessionSummary, canopy: ReadonlySet<string>, live: LiveState): FleetAgent {
   const running = session.running || live.running(session.provider, session.sessionId)
+  const asks = live.asks(session.provider, session.sessionId)
   return {
     provider: session.provider,
     sessionId: session.sessionId,
@@ -37,8 +55,9 @@ export function toFleetAgent(worktree: Pick<WorktreeRow, 'id' | 'project_id'>, s
     kind: canopy.has(key(session)) ? 'canopy' : 'project',
     projectId: worktree.project_id,
     worktreeId: worktree.id,
-    activity: activityOf({ ...session, running }, live.awaiting(session.provider, session.sessionId)),
-    updatedAt: session.updatedAt
+    activity: activityOf({ ...session, running }, asks.length > 0),
+    updatedAt: session.updatedAt,
+    asks
   }
 }
 
