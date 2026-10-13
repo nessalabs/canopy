@@ -436,6 +436,8 @@ export const FleetAgent = SessionRef.extend({
   projectId: z.string(),
   worktreeId: z.string(),
   activity: AgentActivity,
-  updatedAt: Millis
+  updatedAt: Millis,
+  /** The `permission_requested` events a turn Canopy runs here is parked on, oldest first; answering one goes to the session's permissions route. */
+  asks: z.array(AgentEventFrame)
 })
 export type FleetAgent = z.infer<typeof FleetAgent>

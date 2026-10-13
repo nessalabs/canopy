@@ -13,6 +13,7 @@ const agent = (sessionId: string, extra: Partial<FleetAgent> = {}): FleetAgent =
   worktreeId: 'w1',
   activity: 'done',
   updatedAt: 1,
+  asks: [],
   ...extra
 })
 const project = (id: string, name: string) => ({ id, name }) as Project

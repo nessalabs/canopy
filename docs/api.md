@@ -44,7 +44,7 @@ Schemas are zod in `packages/shared/src/schemas`; route paths in `packages/share
 | GET | `/worktrees/:id/agent/sessions` | `?limit=25` | `{ sessions, pinned? }` |
 | PUT | `/worktrees/:id/agent/pin` | `{ provider, sessionId }` | 204 |
 | GET | `/agents/providers` | | `{ providers }` |
-| GET | `/agents/fleet` | | `{ agents: FleetAgent[] }` — the 10 most recent sessions of every checkout, each once, with `kind` (`canopy` for Git Agent conversations, else `project`) and `activity` (`approval` while a permission ask is parked, `running`, `done`) |
+| GET | `/agents/fleet` | | `{ agents: FleetAgent[] }` — the 10 most recent sessions of every checkout, each once, with `kind` (`canopy` for Git Agent conversations, else `project`) and `activity` (`approval` while a permission ask is parked, `running`, `done`) and `asks` — the open `permission_requested` events of a turn Canopy runs there, answered through `/agent/sessions/:provider/:sid/permissions` |
 | GET | `/agent/sessions/:provider/:sid/edits` | | `{ edits: AgentEdit[] }` — files changed per tool call with before/after trees, recorded by the Claude Code hooks (`npm run hooks:setup`) |
 | POST | `/hooks/claude` | Claude Code PreToolUse/PostToolUse payload | `204`; snapshots the worktree containing `cwd` around the call |
 | GET | `/agent/sessions/:provider/:sid/transcript` | `?cwd=` | `TranscriptResponse` — `{ events: AgentEvent[], files: Record<callId, string[]>, extras, model?, effort?, openInTerminal?, nextSeq }`; the normalized agent-stream event log plus the paths each tool call wrote (absolute; edit-tool inputs or Bash write targets) |
