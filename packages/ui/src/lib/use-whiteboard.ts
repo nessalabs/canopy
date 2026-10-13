@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { boxKey, boxMessage, decisionMessage, foldPlan, quoteMessage, taskMessage, type BoxRef, type Choice, type PlanView, type WhiteboardMode } from '@canopy/shared'
 import type { AgentEvent } from '@canopy/shared/agent-stream'
@@ -6,7 +6,7 @@ import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
 import { replayBefore, type TranscriptModel } from './use-transcript-model'
 import type { WorktreeAgent } from './use-worktree-agent'
-import { boxInfo, DEEPER, detailBoard, nextMode, notesCount, notesMessage, PLAN_EVENTS, readLayout, readNotes, sessionCost, writeLayout, writeNotes, type BoardLayout, type BoxNotes } from './whiteboard'
+import { approvalStep, boxInfo, DEEPER, detailBoard, nextMode, notesCount, notesMessage, PLAN_EVENTS, readApprovals, readLayout, readMode, readNotes, sessionCost, writeApprovals, writeLayout, writeNotes, type BoardLayout, type BoxNotes } from './whiteboard'
 
 /**
  * The whiteboard of the conversation on screen: the plan its transcript adds up to (replay plus the
@@ -26,14 +26,18 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
   const view: PlanView = useMemo(() => foldPlan(relevant), [signature])
 
   // Approving the plan (in the transcript or on the board) starts the build: later turns say so. Only
-  // the moment of approval switches, so the reader can still go back to planning afterwards — and
-  // approve again, which counts as a new moment.
+  // a new approval switches, so the reader can still go back to planning afterwards — and approve
+  // again. The count acted on is kept per session, and read only once the session's history is in:
+  // a history arriving is not an approval, and one that landed while away still counts on return.
   const sessionId = agent.selected?.sessionId
-  const seen = useRef({ sessionId, approvals: view.approvals })
+  const loaded = history !== undefined
   useEffect(() => {
-    if (seen.current.sessionId === sessionId && view.approvals > seen.current.approvals) agent.setWhiteboard(nextMode(agent.whiteboard, true))
-    seen.current = { sessionId, approvals: view.approvals }
-  }, [view.approvals, sessionId])
+    if (!sessionId || !loaded) return
+    const step = approvalStep(readApprovals(sessionId), view.approvals)
+    writeApprovals(sessionId, step.acted)
+    // The stored mode, not `agent.whiteboard`: on a session switch that may still be the last one's.
+    if (step.approved) agent.setWhiteboard(nextMode(readMode(sessionId), true))
+  }, [view.approvals, sessionId, loaded])
 
   const approval = model.transcript.pendingAsks.find((ask) => ask.agentPath.length === 0 && isEvent(ask, AgentEventType.PermissionRequested) && ask.payload.toolName === 'ExitPlanMode')
 

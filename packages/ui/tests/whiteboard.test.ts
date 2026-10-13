@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { applyCall, boxMessage, decisionMessage, EMPTY_VIEW, EMPTY_PLAN, type DrawBoardInput, type PlanState } from '@canopy/shared'
 import type { AgentEvent, Turn } from '@canopy/shared/agent-stream'
 
-import { BOARD_SIZE, boardOutline, boundsOf, boxLines, decisionsOn, mentionedBoxes, notesMessage, tourSteps, trailOf, viewportFor, zoomAround, boxInfo, threadOf, layoutBoards, nextMode, progressOn, progressSummary, refTarget } from '../src/lib/whiteboard'
+import { BOARD_SIZE, boardOutline, boundsOf, boxLines, decisionsOn, mentionedBoxes, notesMessage, tourSteps, trailOf, viewportFor, zoomAround, boxInfo, threadOf, layoutBoards, nextMode, approvalStep, progressOn, progressSummary, refTarget } from '../src/lib/whiteboard'
 
 const board = (id: string, boxes: string[], parent?: string): DrawBoardInput => ({
   id,
@@ -140,5 +140,20 @@ describe('what each box says beyond its label', () => {
     const trail = trailOf({ ...EMPTY_VIEW, state: answered, asked }, [])
     expect(trail).toEqual([{ key: 'decision:d', kind: 'decision', question: 'Which?', answer: 'X', built: { how: 'Went with X.', ref: 'src/x.ts:1-4' }, seq: 5 }])
     expect(decisionMessage(asked[0]!.message.choices)).toContain('<canopy-decision id="d"')
+  })
+})
+
+describe('approvalStep', () => {
+  it("takes a session's first count as where it stands, not as an approval", () => {
+    expect(approvalStep(undefined, 2)).toEqual({ acted: 2, approved: false })
+  })
+
+  it('counts an approval above the stored count once, wherever it landed', () => {
+    expect(approvalStep(1, 2)).toEqual({ acted: 2, approved: true })
+    expect(approvalStep(2, 2)).toEqual({ acted: 2, approved: false })
+  })
+
+  it('keeps the stored count when a shorter history is read', () => {
+    expect(approvalStep(3, 0)).toEqual({ acted: 3, approved: false })
   })
 })
