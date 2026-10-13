@@ -1,10 +1,9 @@
 import { existsSync } from 'node:fs'
 import { isAbsolute, join, relative } from 'node:path'
 
-import type { McpSdkServerConfigWithInstance, Options } from '@anthropic-ai/claude-agent-sdk'
-import { applyCall, EMPTY_PLAN, planReply, planToolOf, type WhiteboardMode, PLAN_SERVER, PLAN_TOOL_DESCRIPTIONS, PLAN_TOOL_NAMES, planToolSchema, qualifiedPlanTool, refProblems, type PlanState, type PlanTool } from '@canopy/shared'
+import { applyCall, EMPTY_PLAN, planReply, type WhiteboardMode, PLAN_SERVER, PLAN_TOOL_DESCRIPTIONS, PLAN_TOOL_NAMES, planToolSchema, refProblems, WHITEBOARD_INSTRUCTIONS, type PlanState, type PlanTool } from '@canopy/shared'
 
-import type { SdkModule } from './claude'
+import { reply, type Toolkit, type ToolReply } from './toolkit'
 
 /**
  * The whiteboard's tools, served to a Claude turn from inside the daemon. Each call runs the same
@@ -28,10 +27,6 @@ export const checkoutFiles =
     return !relative(cwd, full).startsWith('..') && existsSync(full)
   }
 
-type ToolReply = { content: Array<{ type: 'text'; text: string }>; isError?: boolean }
-
-const reply = (text: string, isError = false): ToolReply => ({ content: [{ type: 'text', text }], ...(isError ? { isError } : {}) })
-
 /** The notes a call cites code in — a draw's and an edit's alike. */
 const citedNotes = (input: unknown): Parameters<typeof refProblems>[0] => (input as { notes?: Parameters<typeof refProblems>[0] } | null)?.notes
 
@@ -46,19 +41,7 @@ export function whiteboardHandler(name: PlanTool, plan: { state: PlanState }, ex
   }
 }
 
-/** The in-process MCP server a whiteboard turn is handed, and the tool names to allow without asking. */
-export function whiteboardServer(sdk: Pick<SdkModule, 'createSdkMcpServer' | 'tool'>, deps: WhiteboardDeps & { cwd: string }): { server: McpSdkServerConfigWithInstance; allowed: string[] } {
-  const plan = { state: deps.initial ?? EMPTY_PLAN }
-  const exists = deps.exists ?? checkoutFiles(deps.cwd)
-  // Read-only as far as the codebase goes — they draw, they never write — which is what lets plan
-  // mode run them; plan mode asks about any other tool whatever the allow list says.
-  const tools = PLAN_TOOL_NAMES.map((name) =>
-    sdk.tool(name, PLAN_TOOL_DESCRIPTIONS[name], planToolSchema(name).shape, whiteboardHandler(name, plan, exists) as never, { annotations: { readOnlyHint: true } })
-  )
-  return { server: sdk.createSdkMcpServer({ name: PLAN_SERVER, version: '1.0.0', tools }), allowed: [...PLAN_TOOL_NAMES.map(qualifiedPlanTool), ...READ_COMMANDS] }
-}
-
-const READING = ['Read', 'Grep', 'Glob', 'Bash', 'AskUserQuestion']
+export const READING = ['Read', 'Grep', 'Glob', 'Bash', 'AskUserQuestion']
 const EDITING = ['Edit', 'Write', 'NotebookEdit', 'TodoWrite']
 
 /** Shell reads a whiteboard turn runs without asking: looking around and at git history. */
@@ -81,18 +64,21 @@ export const WHITEBOARD_MODES: Record<WhiteboardMode, { permissionMode?: 'plan';
   build: {}
 }
 
-/** The SDK options a whiteboard turn adds to an ordinary one. */
-export function whiteboardOptions(mode: WhiteboardMode, board: ReturnType<typeof whiteboardServer>): Pick<Options, 'mcpServers' | 'allowedTools' | 'tools' | 'strictMcpConfig' | 'env'> {
+/**
+ * The toolkit a whiteboard turn is handed. The tools are read-only as far as the codebase goes —
+ * they draw, they never write — which is what lets plan mode run them; plan mode asks about any
+ * other tool whatever the allow list says.
+ */
+export function whiteboardToolkit(mode: WhiteboardMode, deps: WhiteboardDeps & { cwd: string }): Toolkit {
+  const plan = { state: deps.initial ?? EMPTY_PLAN }
+  const exists = deps.exists ?? checkoutFiles(deps.cwd)
   const { tools, focused } = WHITEBOARD_MODES[mode]
   return {
-    mcpServers: { [PLAN_SERVER]: board.server },
-    allowedTools: board.allowed,
-    ...(tools ? { tools } : {}),
-    ...(focused ? { strictMcpConfig: true } : {}),
-    // Deferred MCP tools would have the agent search for its own drawing tools before every call.
-    env: { ...process.env, ENABLE_TOOL_SEARCH: 'false', ...(focused ? { ENABLE_CLAUDEAI_MCP_SERVERS: 'false' } : {}) }
+    server: PLAN_SERVER,
+    tools: PLAN_TOOL_NAMES.map((name) => ({ name, description: PLAN_TOOL_DESCRIPTIONS[name], shape: planToolSchema(name).shape, handler: whiteboardHandler(name, plan, exists), readOnly: true })),
+    instructions: WHITEBOARD_INSTRUCTIONS[mode],
+    allowed: READ_COMMANDS,
+    ...(tools ? { builtins: tools } : {}),
+    ...(focused ? { focused } : {})
   }
 }
-
-/** Whether a tool is one of the whiteboard's own, which never needs the user's say-so. */
-export const isWhiteboardTool = (toolName: string): boolean => planToolOf(toolName) !== undefined
