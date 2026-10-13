@@ -5,6 +5,7 @@ import type { FleetAgent, Worktree } from '@canopy/shared'
 
 import { ProviderIcon } from '@/components/agent/provider-icon'
 import { AskCard } from '@/components/agent/transcript'
+import { ErrorNote } from '@/components/error-note'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
@@ -21,17 +22,20 @@ const ACTIVITY_LOOK: Record<FleetAgent['activity'], { label: string; dot: NonNul
 
 /**
  * What the agent is waiting on, answerable right here with the same cards its chat shows. The
- * answer reaches that chat too, through the turn's own stream.
+ * answer reaches that chat too, through the turn's own stream. A card goes inert as soon as it is
+ * answered; when the answer does not get through, the cards are drawn afresh so it can be retried.
  */
 function Asks({ agent }: { agent: FleetAgent }): React.JSX.Element | null {
   const answer = useAnswerAsk()
+  const [failures, setFailures] = useState(0)
   if (agent.asks.length === 0) return null
   const ref = { provider: agent.provider, sessionId: agent.sessionId }
   return (
     <div className="flex flex-col gap-2 px-2 pt-1 pb-2">
       {agent.asks.map((ask) => (
-        <AskCard key={ask.id} ask={ask} className="w-full" onAnswer={(input) => answer.mutate({ ref, input })} />
+        <AskCard key={`${ask.id}:${failures}`} ask={ask} className="w-full" onAnswer={(input) => answer.mutate({ ref, input }, { onError: () => setFailures((count) => count + 1) })} />
       ))}
+      <ErrorNote error={answer.error} />
     </div>
   )
 }
