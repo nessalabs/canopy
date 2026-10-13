@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Activity, ArrowDown, ArrowUp, Check, Copy, GitBranch, Maximize2, Minimize2, Sparkles, SquareTerminal, Upload } from 'lucide-react'
+import { Activity, ArrowDown, ArrowUp, Check, Copy, GitBranch, Maximize2, Minimize2, SquareTerminal, Upload } from 'lucide-react'
 import { useLocation } from 'wouter'
 
 import { environmentDot, type Worktree } from '@canopy/shared'
@@ -187,8 +187,8 @@ function ResourcesPopover({ worktree }: { worktree: Worktree }): React.JSX.Eleme
   )
 }
 
-/** The status bar's right-hand worktree tools: its terminal, its resources, and its agent. */
-export function WorktreeStatusTools({ worktree, onOpenAgent }: { worktree: Worktree; onOpenAgent: () => void }): React.JSX.Element {
+/** The status bar's right-hand worktree tools: its terminal and its resources. */
+export function WorktreeStatusTools({ worktree }: { worktree: Worktree }): React.JSX.Element {
   const terminal = useTerminalDock()
   return (
     <>
@@ -196,9 +196,6 @@ export function WorktreeStatusTools({ worktree, onOpenAgent }: { worktree: Workt
         <SquareTerminal className="size-3.5" />
       </IconAction>
       <ResourcesPopover worktree={worktree} />
-      <IconAction label="Agent  3" className="w-7" onClick={onOpenAgent}>
-        <Sparkles className="size-3.5" />
-      </IconAction>
     </>
   )
 }
@@ -221,7 +218,7 @@ export function RecentWorktreeStatus({ id }: { id: string }): React.JSX.Element 
         <WorktreeStatus worktree={worktree} projectName={projectName} onDestroy={() => setDestroyOpen(true)} onOpenChanges={go('tab=git&pane=changes')} />
       </ShellSlot>
       <ShellSlot name="statusEnd">
-        <WorktreeStatusTools worktree={worktree} onOpenAgent={go('tab=agent')} />
+        <WorktreeStatusTools worktree={worktree} />
       </ShellSlot>
       <DestroyWorktreeDialog worktree={worktree} open={destroyOpen} onOpenChange={setDestroyOpen} onDestroyed={() => navigate('/')} />
     </>

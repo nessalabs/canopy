@@ -139,6 +139,7 @@ function applyEvent(queryClient: QueryClient, samples: SampleStore, event: Canop
     }
     case 'agent-sessions-changed':
       void queryClient.invalidateQueries({ queryKey: keys.sessions(event.worktreeId) })
+      void queryClient.invalidateQueries({ queryKey: keys.fleet })
       return
     // Each destroy that lands also sends `worktrees-changed`, which refreshes the list itself.
     case 'destroy-job':

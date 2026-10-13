@@ -1,4 +1,4 @@
-import { FolderTree, Moon, PanelLeft, Settings2, Sun } from 'lucide-react'
+import { FolderTree, Moon, PanelLeft, Settings2, Sparkles, Sun } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { Link, useLocation } from 'wouter'
 
@@ -94,11 +94,17 @@ function Health(): React.JSX.Element {
 
 /**
  * The app's bottom bar: panel toggles on the left, then whatever the open worktree puts in the
- * `status` slot (branch, sync, changes); on the right the worktree's popovers, the daemon's
- * health, preferences and the theme. It replaces the top bar's old right-hand icons, so the
+ * `status` slot (branch, sync, changes); on the right the worktree's popovers, every agent, the
+ * daemon's health, preferences and the theme. It replaces the top bar's old right-hand icons, so the
  * screen above starts one row higher.
  */
-export function StatusBar({ filesOpen, filesDisabled, onToggleFiles }: { filesOpen: boolean; filesDisabled: boolean; onToggleFiles: () => void }): React.JSX.Element {
+export function StatusBar({ filesOpen, filesDisabled, onToggleFiles, agentsOpen, onToggleAgents }: {
+  filesOpen: boolean
+  filesDisabled: boolean
+  onToggleFiles: () => void
+  agentsOpen: boolean
+  onToggleAgents: () => void
+}): React.JSX.Element {
   const { open: sidebarOpen, toggleSidebar } = useSidebar()
   const { theme, toggleTheme } = useTheme()
   const [location, navigate] = useLocation()
@@ -115,6 +121,9 @@ export function StatusBar({ filesOpen, filesDisabled, onToggleFiles }: { filesOp
       <ShellSlotTarget name="status" className="flex min-w-0 items-center gap-0.5 overflow-hidden" />
       <div className="flex-1" />
       <ShellSlotTarget name="statusEnd" className="flex shrink-0 items-center gap-0.5 empty:hidden" />
+      <IconAction label="Agents" pressed={agentsOpen} className={cn('w-7', agentsOpen && pressed)} onClick={onToggleAgents}>
+        <Sparkles className="size-3.5" />
+      </IconAction>
       <Health />
       <StatusDivider />
       <IconAction label="Preferences" pressed={location === '/settings'} className={cn('w-7', location === '/settings' && pressed)} onClick={() => navigate('/settings')}>

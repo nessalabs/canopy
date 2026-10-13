@@ -75,7 +75,7 @@ function DashboardBody({ worktree, projectName }: { worktree: Worktree; projectN
         <WorktreeStatus worktree={worktree} projectName={projectName} onDestroy={() => setDestroyOpen(true)} onOpenChanges={openChanges} />
       </ShellSlot>
       <ShellSlot name="statusEnd">
-        <WorktreeStatusTools worktree={worktree} onOpenAgent={() => setTab('agent')} />
+        <WorktreeStatusTools worktree={worktree} />
       </ShellSlot>
       <TabsContent value="environment" className="flex min-h-0 flex-1 flex-col">
         <EnvironmentTab worktree={worktree} />

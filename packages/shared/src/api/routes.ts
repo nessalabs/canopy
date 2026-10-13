@@ -90,6 +90,8 @@ export const routes = {
   gitAgentSessions: (id: string) => `${API_PREFIX}/worktrees/${id}/git-agent/sessions`,
   agentPin: (id: string) => `${API_PREFIX}/worktrees/${id}/agent/pin`,
   providers: () => `${API_PREFIX}/agents/providers`,
+  /** Every recent agent session across all projects, with what each is doing now. */
+  agentFleet: () => `${API_PREFIX}/agents/fleet`,
   transcript: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/transcript`,
   messages: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/messages`,
   agentEdits: (provider: string, sid: string) => `${API_PREFIX}/agent/sessions/${provider}/${sid}/edits`,

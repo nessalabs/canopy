@@ -109,6 +109,10 @@ export class ClaudeAdapter implements AgentAdapter {
     return this.permissions.answer(sessionId, input)
   }
 
+  awaitingPermission(sessionId: string): boolean {
+    return this.permissions.pending(sessionId).length > 0
+  }
+
   capabilities(cwd: string, opts: { sessionId?: string; refresh?: boolean } = {}): Promise<AgentCapabilities> {
     return this.capabilityCache.read(cwd, opts)
   }

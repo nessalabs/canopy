@@ -10,7 +10,7 @@ import { RecentWorktreeStatus } from '@/components/environment/worktree-status'
 import { ErrorBoundary } from '@/components/error-boundary'
 import { MergedMark } from '@/components/merged-mark'
 import { ShellSlotProvider, ShellSlotTarget } from '@/components/shell-slots'
-import { SidePanel, type SidePanelId } from '@/components/side-panel'
+import { isAppPanel, SidePanel, type SidePanelId } from '@/components/side-panel'
 import { TerminalDockProvider, type TerminalDock, type TerminalDockControls } from '@/components/terminal/terminal-dock'
 import { TerminalPanel } from '@/components/terminal/terminal-panel'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
@@ -219,12 +219,14 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
     writeStored(RECENT_WORKTREE_KEY, worktreeId)
   }, [worktreeId])
   const recent = !worktreeId && recentId && worktrees.some((wt) => wt.id === recentId) ? recentId : undefined
-  const open = panel && worktreeId ? { panel, worktreeId } : undefined
+  const open = panel && (worktreeId || isAppPanel(panel)) ? { panel, worktreeId } : undefined
+  const togglePanel = (id: SidePanelId): void => {
+    if (panel === id) return setPanel(undefined)
+    setPanel(id)
+    setPanelFull(storedFull(id))
+  }
   const toggleFiles = (): void => {
-    if (!worktreeId) return
-    if (panel === 'files') return setPanel(undefined)
-    setPanel('files')
-    setPanelFull(storedFull('files'))
+    if (worktreeId) togglePanel('files')
   }
   useHotkeys({ '\\': toggleFiles })
 
@@ -348,7 +350,7 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
           </SidebarInset>
         </div>
         {recent ? <RecentWorktreeStatus id={recent} /> : null}
-        <StatusBar filesOpen={panel === 'files' && Boolean(worktreeId)} filesDisabled={!worktreeId} onToggleFiles={toggleFiles} />
+        <StatusBar filesOpen={panel === 'files' && Boolean(worktreeId)} filesDisabled={!worktreeId} onToggleFiles={toggleFiles} agentsOpen={panel === 'agents'} onToggleAgents={() => togglePanel('agents')} />
         <AddProjectDialog open={addOpen} onOpenChange={setAddOpen} />
       </SidebarProvider>
     </ShellSlotProvider>
