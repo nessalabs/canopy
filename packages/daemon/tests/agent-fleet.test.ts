@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { routes, type AgentSessionSummary, type AgentStreamEvent, type FleetAgent } from '@canopy/shared'
 import type { AgentEvent, AgentEventPayload } from '@canopy/shared/agent-stream'
@@ -90,7 +90,15 @@ describe('GET /agents/fleet', () => {
     await server.close()
     repo.cleanup()
   })
-  const fleetOf = async () => (await server.call<{ agents: FleetAgent[] }>('GET', routes.agentFleet())).body.agents
+  const fleetOf = async () => {
+    const response = await server.call<{ agents: FleetAgent[] }>('GET', routes.agentFleet())
+    expect(response.status).toBe(200)
+    return response.body.agents
+  }
+
+  it('answers only an authenticated client', async () => {
+    expect((await server.app.inject({ method: 'GET', url: routes.agentFleet() })).statusCode).toBe(401)
+  })
 
   it('shows the ask a running turn is parked on, and drops it once the turn has its answer', async () => {
     let release!: () => void
@@ -101,9 +109,12 @@ describe('GET /agents/fleet', () => {
       { type: 'done', sessionId: 's1' }
     ]
     const turn = server.call('POST', routes.messages('claude', 's1'), { text: 'hi' })
-    await new Promise((resolve) => setTimeout(resolve, 50))
 
-    const [parked] = await fleetOf()
+    const [parked] = await vi.waitFor(async () => {
+      const agents = await fleetOf()
+      expect(agents[0]?.asks).toHaveLength(1)
+      return agents
+    })
     expect(parked).toMatchObject({ sessionId: 's1', activity: 'approval' })
     expect(parked!.asks.map((ask) => ask.payload)).toEqual([expect.objectContaining({ requestId: 'req-1', toolName: 'Bash' })])
 
