@@ -2,7 +2,7 @@ import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
-import { Arrowheads, CARD_BUTTON, DiagramFrame, STATUS, shorten, statusItems, useMeasure, type ChangeMapStatus, type LegendItem } from "../change-map/diagram-parts"
+import { Arrowheads, CARD_BUTTON, DiagramFrame, cardLook, shorten, statusItems, useMeasure, type ChangeMapStatus, type LegendItem, type StatusLabels } from "../change-map/diagram-parts"
 import { layoutCallFlow } from "./call-flow-layout"
 
 export interface CallFlowParticipant {
@@ -33,10 +33,16 @@ export interface CallFlowProps extends Omit<React.ComponentProps<"section">, "ti
   steps: readonly CallFlowStep[]
   title?: React.ReactNode
   caption?: React.ReactNode
+  /** Words for the legend's statuses in place of the built-in ones ("Added", "Modified", …); colours stay. */
+  statusLabels?: StatusLabels
+  /** The participant shown as picked. */
+  selectedId?: string
   /** Makes participants buttons — the place to open their code. */
   onSelectParticipant?: (participant: CallFlowParticipant) => void
   /** Makes each step's label a button. */
   onSelectStep?: (step: CallFlowStep, index: number) => void
+  /** `bare` draws only the diagram at its natural size — no frame, header or scrolling — for hosts that frame it themselves (a canvas). */
+  bare?: boolean
 }
 
 const SIZE = { headerHeight: 52, rowHeight: 50, minGap: 48, loopWidth: 30, branchLabelHeight: 24 }
@@ -56,9 +62,10 @@ const STEP_TONE: Record<NonNullable<CallFlowStep["status"]>, { stroke: string; b
  * A runtime path through a change as a sequence diagram: the participants as cards across the
  * top with lifelines below, each step a numbered arrow between two of them, read top to bottom.
  * Steps are coloured by whether the change added, changed or removed them; returns are dashed,
- * async calls open-headed, and a run of steps on one branch sits in a named band.
+ * async calls open-headed, and a run of steps on one branch sits in a named band. Each
+ * participant carries `data-node-id` so a host can find it.
  */
-function CallFlow({ participants, steps, title, caption, onSelectParticipant, onSelectStep, className, ...props }: CallFlowProps) {
+function CallFlow({ participants, steps, title, caption, statusLabels, selectedId, onSelectParticipant, onSelectStep, className, ...props }: CallFlowProps) {
   const root = React.useRef<HTMLElement>(null)
   const measure = useMeasure(root)
   const layout = React.useMemo(
@@ -76,7 +83,7 @@ function CallFlow({ participants, steps, title, caption, onSelectParticipant, on
   const arrow = React.useId()
   const tones = [...new Set(steps.map((step) => step.status ?? "unchanged"))]
   const legend: LegendItem[] = [
-    ...statusItems(participants.map((p) => p.status)),
+    ...statusItems(participants.map((p) => p.status), statusLabels),
     ...(tones.length > 1 ? tones.filter((tone) => tone !== "unchanged").map((tone) => ({ key: `step-${tone}`, label: STEP_TONE[tone].label, swatch: cn("border-0", STEP_TONE[tone].badge) })) : []),
   ]
 
@@ -113,20 +120,21 @@ function CallFlow({ participants, steps, title, caption, onSelectParticipant, on
       </svg>
       {participants.map((p) => {
         const at = layout.boxes.get(p.id)!
+        const picked = p.id === selectedId
         const body = (
           <>
             <span className="truncate nessa-text-4 font-semibold">{p.label}</span>
             {p.detail ? <span className="truncate font-mono nessa-text-2 text-muted-foreground">{p.detail}</span> : null}
           </>
         )
-        const box = cn("absolute flex flex-col justify-center gap-0.5 rounded-xl border-2 px-3 text-left", STATUS[p.status].card)
+        const box = cn("absolute flex flex-col justify-center gap-0.5 rounded-xl border-2 px-3 text-left transition-[border-color,box-shadow]", cardLook(p.status, picked))
         const place = { left: at.x + PAD, top: at.y + PAD, width: at.width, height: at.height }
         return onSelectParticipant ? (
-          <button key={p.id} type="button" title={p.detail ?? p.label} className={cn(box, CARD_BUTTON)} style={place} onClick={() => onSelectParticipant(p)}>
+          <button key={p.id} data-node-id={p.id} type="button" aria-pressed={picked} title={p.detail ?? p.label} className={cn(box, CARD_BUTTON)} style={place} onClick={() => onSelectParticipant(p)}>
             {body}
           </button>
         ) : (
-          <div key={p.id} title={p.detail ?? p.label} className={box} style={place}>
+          <div key={p.id} data-node-id={p.id} title={p.detail ?? p.label} className={box} style={place}>
             {body}
           </div>
         )

@@ -1,8 +1,8 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Check, Copy, FileDiff, FileText, Globe, Pencil, Puzzle, Search, Terminal, Undo2, Users, Webhook, Wrench } from 'lucide-react'
+import { Check, Copy, FileDiff, FileText, Globe, Pencil, Presentation, Puzzle, Search, Terminal, Undo2, Users, Webhook, Wrench } from 'lucide-react'
 
 import type { AgentCapabilities, PermissionDecisionInput, TurnExtras, TurnImage } from '@canopy/shared'
-import { isHarnessText, parseTaskMessage } from '@canopy/shared'
+import { isHarnessText, parseTaskMessage, parseWhiteboardMessage } from '@canopy/shared'
 import type { AgentEvent, DeltaBuffers, ToolKind, Transcript as FoldedTranscript, Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent, previewOf, toolKind, toolTitle, toolVerb } from '@canopy/shared/agent-stream'
 
@@ -55,6 +55,9 @@ import { UsageCard } from './usage-card'
 import { ImageTiles, ImageViewer, TextWithImageRefs } from './image-strip'
 import { LinkedMarkdown } from './answer-links'
 import { SelectionActions } from './selection-actions'
+import { PlanApproval } from './whiteboard/plan-approval'
+import { nextOpen, StepTabs } from './step-tabs'
+import { CallRecords, whiteboardPrompt } from './call-records'
 
 const TOOL_ICON: Record<ToolKind, React.ReactNode> = {
   shell: <Terminal />,
@@ -131,13 +134,22 @@ function UserTurn({ text, images, writes, turnKey, onReviewTurn, onRewindTurn }:
   const [viewer, setViewer] = useState<number | null>(null)
   // A task another pane started reads as what was asked; its brief is for the agent, folded away.
   const task = parseTaskMessage(text)
+  // A message sent from the whiteboard reads as the words, under a line naming what it is about.
+  const board = parseWhiteboardMessage(text)
+  const fromBoard = board && whiteboardPrompt(board)
+  const shown = task?.title ?? fromBoard?.text ?? text
   return (
     <Message from="user">
       <MessageContent>
         {images.length > 0 ? <ImageTiles images={images} onOpen={setViewer} /> : null}
+        {fromBoard ? (
+          <span className="flex max-w-full items-center gap-1 self-end text-[11px] text-muted-foreground">
+            <Presentation className="size-3 shrink-0" aria-hidden="true" /> {fromBoard.about}
+          </span>
+        ) : null}
         {text ? (
           <MessageBubble variant="primary">
-            <TextWithImageRefs text={task?.title ?? text} images={images} onOpen={setViewer} />
+            <TextWithImageRefs text={shown} images={images} onOpen={setViewer} />
           </MessageBubble>
         ) : null}
         {task ? (
@@ -278,6 +290,7 @@ function ActivityRow({ beat, avatarSeed, open, sheetId, onOpen }: {
           </AgentActivityTrigger>
         </AgentActivity>
       ) : null}
+      <CallRecords calls={beat.calls} />
       {beat.runs.map((call) => {
         const cardOpen = open?.kind === 'run' && open.callId === call.callId
         const busy = call.run ? !call.run.done : call.status === 'running'
@@ -431,8 +444,12 @@ function QuestionCard({ requestId, input, questions, onAnswer }: {
   const [picks, setPicks] = useState<Record<string, string[]>>({})
   const [others, setOthers] = useState<Record<string, string>>({})
   const [answered, setAnswered] = useState(false)
+  const [index, setIndex] = useState(0)
   const answers = Object.fromEntries(questions.map((q) => [q.question, answerFor(picks[q.question] ?? [], others[q.question] ?? '')]))
   const complete = questions.every((q) => answers[q.question])
+  // One question at a time, each on its own tab: a long set reads as a conversation, not a form.
+  const steps = questions.map((q, at) => ({ key: q.question, label: q.header ?? `Question ${at + 1}`, done: Boolean(answers[q.question]) }))
+  const next = nextOpen(steps, index)
 
   const send = (): void => {
     setAnswered(true)
@@ -443,6 +460,34 @@ function QuestionCard({ requestId, input, questions, onAnswer }: {
     onAnswer({ requestId, behavior: 'deny', message: 'The user skipped the question.' })
   }
 
+  const ask = (question: AskQuestion): React.JSX.Element => (
+    <QuestionnaireItem name={question.question}>
+      <QuestionnaireTitle>{question.question}</QuestionnaireTitle>
+      <QuestionnaireChoices
+        multiple={question.multiSelect}
+        value={picks[question.question] ?? []}
+        onValueChange={(value) => setPicks((current) => ({ ...current, [question.question]: value }))}
+      >
+        {question.options.map((option) => (
+          <QuestionnaireChoice key={option.label} value={option.label} disabled={answered}>
+            <span className="flex flex-col gap-0.5">
+              <span>{option.label}</span>
+              {option.description ? <span className="nessa-text-2 text-muted-foreground">{option.description}</span> : null}
+            </span>
+          </QuestionnaireChoice>
+        ))}
+      </QuestionnaireChoices>
+      <QuestionnaireInput
+        name={`${question.question}:other`}
+        aria-label={`Another answer to: ${question.question}`}
+        placeholder="Something else…"
+        value={others[question.question] ?? ''}
+        disabled={answered}
+        onChange={(event) => setOthers((current) => ({ ...current, [question.question]: event.target.value }))}
+      />
+    </QuestionnaireItem>
+  )
+
   return (
     <div
       aria-label="Answer the agent's question"
@@ -450,41 +495,27 @@ function QuestionCard({ requestId, input, questions, onAnswer }: {
       className="ml-10 max-w-[92%] rounded-xl border border-border bg-card p-4 data-[answered=true]:pointer-events-none data-[answered=true]:opacity-60"
     >
       <Questionnaire>
-        {questions.map((question) => (
-          <QuestionnaireItem key={question.question} name={question.question}>
-            {question.header ? <p className="m-0 nessa-text-1 uppercase text-muted-foreground">{question.header}</p> : null}
-            <QuestionnaireTitle>{question.question}</QuestionnaireTitle>
-            <QuestionnaireChoices
-              multiple={question.multiSelect}
-              value={picks[question.question] ?? []}
-              onValueChange={(value) => setPicks((current) => ({ ...current, [question.question]: value }))}
-            >
-              {question.options.map((option) => (
-                <QuestionnaireChoice key={option.label} value={option.label} disabled={answered}>
-                  <span className="flex flex-col gap-0.5">
-                    <span>{option.label}</span>
-                    {option.description ? <span className="nessa-text-2 text-muted-foreground">{option.description}</span> : null}
-                  </span>
-                </QuestionnaireChoice>
-              ))}
-            </QuestionnaireChoices>
-            <QuestionnaireInput
-              name={`${question.question}:other`}
-              aria-label={`Another answer to: ${question.question}`}
-              placeholder="Something else…"
-              value={others[question.question] ?? ''}
-              disabled={answered}
-              onChange={(event) => setOthers((current) => ({ ...current, [question.question]: event.target.value }))}
-            />
-          </QuestionnaireItem>
-        ))}
+        <StepTabs steps={steps} index={index} onIndex={setIndex}>
+          {(at) => ask(questions[at]!)}
+        </StepTabs>
         <QuestionnaireActions>
           <Button variant="ghost" size="sm" type="button" onClick={skip} disabled={answered}>
             Skip
           </Button>
-          <Button size="sm" type="button" onClick={send} disabled={answered || !complete}>
-            Answer
-          </Button>
+          {index > 0 ? (
+            <Button variant="ghost" size="sm" type="button" onClick={() => setIndex(index - 1)} disabled={answered}>
+              Back
+            </Button>
+          ) : null}
+          {complete || next === undefined ? (
+            <Button size="sm" type="button" onClick={send} disabled={answered || !complete}>
+              {questions.length > 1 ? 'Send answers' : 'Answer'}
+            </Button>
+          ) : (
+            <Button size="sm" type="button" onClick={() => setIndex(next)} disabled={answered || !answers[questions[index]!.question]}>
+              Next
+            </Button>
+          )}
         </QuestionnaireActions>
       </Questionnaire>
     </div>
@@ -498,6 +529,8 @@ function AskCard({ ask, onAnswer }: { ask: AgentEvent; onAnswer: (input: Permiss
   const { requestId, toolName, input, displayName, description, reason } = ask.payload
   const questions = toolName === 'AskUserQuestion' ? parseAskQuestions(input) : null
   if (questions) return <QuestionCard requestId={requestId} input={input} questions={questions} onAnswer={onAnswer} />
+  // Leaving plan mode is the plan's approval, not a tool to allow.
+  if (toolName === 'ExitPlanMode') return <PlanApproval ask={ask} onAnswer={onAnswer} className="ml-10 max-w-[92%]" />
   const kind = toolKind(toolName)
   const name = displayName ?? toolName
   const what = toolTitle(toolName, input)

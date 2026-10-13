@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { BookOpen, FileDiff, MessageSquare, Users } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { BookOpen, FileCode2, FileDiff, MessageSquare, Presentation, SquareStack, Users } from 'lucide-react'
 
 import type { AgentProvider, RewindResult, SessionRef, Worktree } from '@canopy/shared'
 import type { Turn } from '@canopy/shared/agent-stream'
@@ -18,6 +18,7 @@ import { filesByTurn, mergeTurns, resolveTurn, snapshotsByTurn, type Checkout, t
 import { useStaging } from '@/lib/use-staging'
 import { useTranscriptModel } from '@/lib/use-transcript-model'
 import type { WorktreeAgent } from '@/lib/use-worktree-agent'
+import { useWhiteboard } from '@/lib/use-whiteboard'
 
 import type { PreviewedAttachment } from './attachment-preview'
 import { Conversation } from './conversation'
@@ -28,16 +29,23 @@ import { SessionPane } from './session-pane'
 import { SessionRail, sessionTitle } from './session-rail'
 import type { TurnWrites } from './transcript'
 import { TurnChanges, type TurnReview } from './turn-changes'
-
+import { BoardPane } from './whiteboard/board-pane'
+import { CodePane } from './whiteboard/code-pane'
+import { PlanReading } from './whiteboard/plan-reading'
+import { Whiteboard } from './whiteboard/whiteboard'
 
 /** Panels a saved arrangement keeps; the Reader's tabs do not survive a reload, so neither does it. */
-const SAVED_PANELS = new Set(['sessions', 'conversation', 'changes'])
+const SAVED_PANELS = new Set(['sessions', 'conversation', 'changes', 'whiteboard'])
+
+/** A board opened beside the whiteboard is a panel of its own, named for the board. */
+const BOARD_PANEL = 'board:'
+const boardPanelId = (board: string): string => `${BOARD_PANEL}${board}`
 
 const LAYOUT_KEY = 'canopy-agent-layout-v3'
 
 const REMOVED_CHECKOUT = 'This session ran in a worktree that has been removed'
 
-type PanelId = 'sessions' | 'conversation' | 'changes' | 'reader'
+type PanelId = 'sessions' | 'conversation' | 'changes' | 'reader' | 'whiteboard' | 'code'
 
 /** Sessions | conversation, 1 : 3. The changes panel opens on demand to the right of the conversation. */
 function buildAgentLayout(): AppShellLayout {
@@ -46,8 +54,7 @@ function buildAgentLayout(): AppShellLayout {
   return setSplitWeights(split, { splitId: 'split:pane-conversation', weights: [0.25, 0.75] })
 }
 
-const promptOf = (turn: Turn | undefined): string =>
-  turn?.prompt && isEvent(turn.prompt, AgentEventType.UserMessage) ? turn.prompt.payload.text.trim() : ''
+const promptOf = (turn: Turn | undefined): string => (turn?.prompt && isEvent(turn.prompt, AgentEventType.UserMessage) ? turn.prompt.payload.text.trim() : '')
 
 /** How a checkout is named on the pill and in the panel header: its branch, or its name without one. */
 const labelOf = (worktree: Worktree): string => worktree.branch ?? worktree.name
@@ -65,34 +72,19 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   const providers = useProviders()
   const model = useTranscriptModel(agent.history.data, agent.turn)
   const turns = model.transcript.turns
-  const sessionRef: SessionRef | undefined = useMemo(
-    () => (agent.selected ? { provider: agent.selected.provider, sessionId: agent.selected.sessionId } : undefined),
-    [agent.selected?.provider, agent.selected?.sessionId]
-  )
+  const sessionRef: SessionRef | undefined = useMemo(() => (agent.selected ? { provider: agent.selected.provider, sessionId: agent.selected.sessionId } : undefined), [agent.selected?.provider, agent.selected?.sessionId])
   const edits = useAgentEdits(sessionRef)
   // A session is listed under the worktree it runs in, but a turn may write anywhere Canopy
   // manages — a session run from the main checkout typically works in a worktree of its own — so
   // writes are attributed to whichever checkout holds them. This one comes first: it is the one
   // on screen, and what a relative path is relative to.
   const worktrees = useWorktrees()
-  const checkouts = useMemo<Checkout[]>(
-    () => [worktree, ...(worktrees.data ?? []).filter((other) => other.id !== worktree.id)].map(({ id, path }) => ({ id, path })),
-    [worktree.id, worktree.path, worktrees.data]
-  )
+  const checkouts = useMemo<Checkout[]>(() => [worktree, ...(worktrees.data ?? []).filter((other) => other.id !== worktree.id)].map(({ id, path }) => ({ id, path })), [worktree.id, worktree.path, worktrees.data])
   const checkoutById = (id: string): Worktree => (id === worktree.id ? worktree : (worktrees.data?.find((other) => other.id === id) ?? worktree))
   // Exact snapshots (hooks) win; the transcript's named files fill in for turns without them.
-  const byTurn = useMemo(
-    () => mergeTurns(filesByTurn(turns, model.filesByCall, checkouts), snapshotsByTurn(turns, edits.data ?? []), worktree.id),
-    [turns, model.filesByCall, checkouts, edits.data, worktree.id]
-  )
+  const byTurn = useMemo(() => mergeTurns(filesByTurn(turns, model.filesByCall, checkouts), snapshotsByTurn(turns, edits.data ?? []), worktree.id), [turns, model.filesByCall, checkouts, edits.data, worktree.id])
   const writesByTurn = useMemo<ReadonlyMap<string, TurnWrites>>(
-    () =>
-      new Map(
-        [...byTurn].map(([key, entry]) => [
-          key,
-          { count: entry.files.length + entry.elsewhere, ...(entry.worktreeId === worktree.id ? {} : { location: labelOf(checkoutById(entry.worktreeId)) }) }
-        ])
-      ),
+    () => new Map([...byTurn].map(([key, entry]) => [key, { count: entry.files.length + entry.elsewhere, ...(entry.worktreeId === worktree.id ? {} : { location: labelOf(checkoutById(entry.worktreeId)) }) }])),
     [byTurn, worktree.id, worktrees.data]
   )
 
@@ -103,7 +95,10 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   const pickedEntry = turnKey ? byTurn.get(turnKey) : undefined
   // The checkout the picked turn's diff is read against — and rewound in — which need not be this one.
   const target = pickedEntry ? checkoutById(pickedEntry.worktreeId) : worktree
-  const review = turnKey ? toReview(pickedEntry, pickedTurn, target.id === worktree.id ? undefined : labelOf(target)) : undefined
+  // Narrowed to a box's files when its changes were asked for; a turn picked by hand shows all of its own.
+  const [only, setOnly] = useState<string[]>()
+  const whole = turnKey ? toReview(pickedEntry, pickedTurn, target.id === worktree.id ? undefined : labelOf(target)) : undefined
+  const review = whole && only ? { ...whole, files: whole.files.filter((file) => only.includes(file)) } : whole
   const latestCount = writesByTurn.get(resolveTurn('latest', byTurn) ?? '')?.count ?? 0
 
   // Rewinding the picked turn: addressed by the provider's id for its prompt, and restored from the
@@ -111,10 +106,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   // A removed worktree's files are gone with it: there is nothing to put back, and restoring its
   // checkpoints against the checkout on screen would write into the wrong tree.
   const removed = agent.selected?.origin?.kind === 'removed'
-  const rewindInput = useMemo(
-    () => (removed ? null : rewindInputFor(pickedTurn, model.extras, pickedEntry?.snapshot, target.path)),
-    [removed, pickedTurn, model.extras, pickedEntry, target.path]
-  )
+  const rewindInput = useMemo(() => (removed ? null : rewindInputFor(pickedTurn, model.extras, pickedEntry?.snapshot, target.path)), [removed, pickedTurn, model.extras, pickedEntry, target.path])
   const [rewindOpen, setRewindOpen] = useState(false)
   // Kept with the turn it ran on, so picking another turn does not inherit its confirmation line.
   const [rewound, setRewound] = useState<{ turnKey: string; result: RewindResult }>()
@@ -131,7 +123,15 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   }
   /** A hover action pins that turn and makes sure the panel is on screen. */
   const show = (next: TurnPick): void => {
+    setOnly(undefined)
     setPick(next)
+    showChanges('open')
+  }
+  /** What the build did to one box: the newest turn that wrote any of its files, narrowed to them. */
+  const showFiles = (files: string[]): void => {
+    const wrote = [...byTurn].reverse().find(([, entry]) => entry.files.some((file) => files.includes(file)))?.[0]
+    setOnly(files)
+    setPick(wrote ?? 'latest')
     showChanges('open')
   }
   /** The transcript's rewind action: same pin, same panel, and the confirm dialog straight away. */
@@ -148,7 +148,12 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     const summary = ref && everySession.find((s) => s.provider === ref.provider && s.sessionId === ref.sessionId)
     // A layout saved in another worktree can name a session this one does not have; the pane composes a new one instead.
     if (!ref || (!summary && !agent.loading)) return undefined
-    return { id: viewId, title: summary ? sessionTitle(summary) : ref.sessionId.slice(0, 8), icon: MessageSquare, render: () => <SessionPane worktree={worktree} session={ref} changedFiles={changedFiles} onOpenAttachment={openAttachment} onOpenIssue={openIssue} /> }
+    return {
+      id: viewId,
+      title: summary ? sessionTitle(summary) : ref.sessionId.slice(0, 8),
+      icon: MessageSquare,
+      render: () => <SessionPane worktree={worktree} session={ref} changedFiles={changedFiles} onOpenAttachment={openAttachment} onOpenIssue={openIssue} />
+    }
   }
   const openBeside = (ref: SessionRef): void => setRequest({ id: sessionPanelId(ref), action: 'open', nonce: Date.now() })
 
@@ -162,6 +167,11 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
   /** A `#123` the agent wrote: its tab, or with a modifier a new one. */
   const openIssue = (number: number, newTab: boolean): void => {
     reader.show({ kind: 'issue', number }, newTab)
+    revealReader()
+  }
+  /** The plan, read beside the whiteboard instead of over it. */
+  const readPlan = (): void => {
+    reader.show({ kind: 'plan' })
     revealReader()
   }
   const revealReader = (): void => {
@@ -178,6 +188,37 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
 
   // Text quoted out of the transcript, on its way to the composer.
   const staging = useStaging()
+
+  // The whiteboard: the boards this conversation drew, the code its boxes cite, and boards opened beside it.
+  const whiteboard = useWhiteboard(agent, model)
+  const [codeRef, setCodeRef] = useState<string>()
+  const reveal = (id: string, panel?: PanelId, share?: number): void => {
+    setRequest({ id, action: 'open', nonce: Date.now(), ...(share ? { share } : {}) })
+    if (panel) setMobilePanel(panel)
+  }
+  const openRef = (ref: string): void => {
+    setCodeRef(ref)
+    reveal('code', 'code')
+  }
+  const openBoard = (board: string): void => reveal(boardPanelId(board), 'whiteboard')
+  // Turning a mode on, or the first board arriving, brings the whiteboard on screen.
+  const drawingOn = agent.whiteboard !== undefined
+  const hasBoards = whiteboard.view.state.order.length > 0
+  useEffect(() => {
+    // Boards need room to be read: the whiteboard takes most of the conversation's width.
+    if (drawingOn || hasBoards) reveal('whiteboard', undefined, 0.62)
+  }, [drawingOn, hasBoards])
+  const boardPanel = (viewId: string): PanelDef | undefined => {
+    if (!viewId.startsWith(BOARD_PANEL)) return undefined
+    const id = viewId.slice(BOARD_PANEL.length)
+    const board = whiteboard.view.state.boards[id]
+    return {
+      id: viewId,
+      title: board?.versions.at(-1)?.title ?? 'Board',
+      icon: SquareStack,
+      render: () => <BoardPane key={agent.selected?.sessionId ?? 'fresh'} whiteboard={whiteboard} boardId={id} turns={turns} busy={agent.turn.busy} onOpenBoard={openBoard} onOpenRef={openRef} onShowChanges={showFiles} />
+    }
+  }
 
   const panels: PanelDef[] = [
     {
@@ -213,7 +254,8 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
             latestChanges: { count: latestCount, shown: changesShown, onToggle: () => showChanges('toggle') }
           }}
           staging={staging}
-          onOpenAttachment={openAttachment} onOpenIssue={openIssue}
+          onOpenAttachment={openAttachment}
+          onOpenIssue={openIssue}
         />
       )
     },
@@ -237,9 +279,38 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
           <p className="p-4 text-xs text-muted-foreground">No turn has changed files yet. Each user message that made the agent write files gets its diff here.</p>
         )
     },
+    {
+      id: 'whiteboard',
+      title: 'Whiteboard',
+      icon: Presentation,
+      render: () => (
+        // Board ids repeat across sessions ("overview"), so what the reader moved or opened is per session.
+        <Whiteboard
+          key={agent.selected?.sessionId ?? 'fresh'}
+          whiteboard={whiteboard}
+          turns={turns}
+          mode={agent.whiteboard}
+          onMode={agent.setWhiteboard}
+          busy={agent.turn.busy}
+          onAnswerPermission={agent.turn.answerPermission}
+          onOpenBeside={openBoard}
+          onOpenRef={openRef}
+          onShowChanges={showFiles}
+          onReadPlan={readPlan}
+        />
+      )
+    },
+    ...(codeRef ? [{ id: 'code', title: 'Code', icon: FileCode2, render: () => <CodePane worktreeId={worktree.id} codeRef={codeRef} /> }] : []),
     // Listed only once something has been opened, so the top bar does not offer an empty reader.
     ...(reader.state.tabs.length > 0
-      ? [{ id: 'reader', title: 'Reader', icon: BookOpen, render: () => <ReaderPane projectId={worktree.projectId} reader={reader} empty={null} /> }]
+      ? [
+          {
+            id: 'reader',
+            title: 'Reader',
+            icon: BookOpen,
+            render: () => <ReaderPane projectId={worktree.projectId} reader={reader} empty={null} plan={<PlanReading whiteboard={whiteboard} onAnswer={agent.turn.answerPermission} />} />
+          }
+        ]
       : [])
   ]
 
@@ -299,7 +370,7 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
         storageKey={LAYOUT_KEY}
         buildDefaultLayout={buildAgentLayout}
         panels={panels}
-        resolvePanel={sessionPanel}
+        resolvePanel={(viewId) => boardPanel(viewId) ?? sessionPanel(viewId)}
         keepView={(viewId) => SAVED_PANELS.has(viewId) || parseSessionPanelId(viewId) !== undefined}
         renderEmpty={(place) =>
           // One composer on screen at a time: beside the main conversation an empty pane only says what it is for.

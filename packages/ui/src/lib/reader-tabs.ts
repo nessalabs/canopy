@@ -1,7 +1,7 @@
 import type { PreviewedAttachment } from '@/components/agent/attachment-preview'
 
-/** What a reader shows: an issue or PR, a file attached on GitHub, or text staged in a composer. */
-export type Reading = { kind: 'issue'; number: number } | { kind: 'github'; url: string } | { kind: 'staged'; attachment: PreviewedAttachment }
+/** What a reader shows: an issue or PR, a file attached on GitHub, text staged in a composer, or the whiteboard's plan. */
+export type Reading = { kind: 'issue'; number: number } | { kind: 'github'; url: string } | { kind: 'staged'; attachment: PreviewedAttachment } | { kind: 'plan' }
 
 /** One reader tab: the readings it went through, the one on screen last. */
 export interface ReaderTab {

@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { AgentProvider, Autonomy, Effort, SessionRef, TurnOptions, Worktree } from '@canopy/shared'
+import type { AgentProvider, Autonomy, Effort, SessionRef, TurnOptions, WhiteboardMode, Worktree } from '@canopy/shared'
 
 import { useAgentCapabilities, useAgentSessions, usePinSession, useProviders, useTranscript } from './api-hooks'
 import { modelAlias } from './models'
 import { useAgentTurn } from './use-agent-turn'
+import { readMode, writeMode } from './whiteboard'
 
 export const sameRef = (a: SessionRef | undefined, b: SessionRef | undefined): boolean =>
   a?.provider === b?.provider && a?.sessionId === b?.sessionId
@@ -35,6 +36,8 @@ export function useWorktreeAgent(
   // Per-turn overrides; undefined means "whatever the session was already using".
   const [modelOverride, setModel] = useState<string>()
   const [effortOverride, setEffort] = useState<Effort>()
+  // Whether turns draw on the whiteboard, and what for. Remembered per session.
+  const [whiteboard, setWhiteboardState] = useState<WhiteboardMode>()
 
   const all = sessions.data?.sessions ?? []
   // This checkout's own sessions (and visitors) are the conversation; the ones that ran in another
@@ -53,6 +56,15 @@ export function useWorktreeAgent(
     if (chosen && !all.some((s) => sameRef(s, chosen))) setChosen(undefined)
   }, [chosen, all])
 
+  // A session brings back the whiteboard mode it was last used in; a new one starts without.
+  useEffect(() => {
+    if (!fresh) setWhiteboardState(readMode(selected?.sessionId))
+  }, [selected?.sessionId, fresh])
+  const setWhiteboard = (next: WhiteboardMode | undefined): void => {
+    setWhiteboardState(next)
+    if (selected) writeMode(selected.sessionId, next)
+  }
+
   // Nothing to show: the conversation is a new session with the first installed provider.
   const [firstProvider] = providers
   useEffect(() => {
@@ -69,6 +81,7 @@ export function useWorktreeAgent(
 
   const startSession = (provider: AgentProvider): void => {
     setFresh(provider)
+    setWhiteboardState(undefined)
     setModel(undefined)
     setEffort(undefined)
   }
@@ -91,7 +104,9 @@ export function useWorktreeAgent(
   // shown, not sent: the provider applies it anyway, and a later settings change should still win.
   const model = picked ?? modelAlias(capabilities.data?.defaultModel)
   const effort = effortOverride ?? detected.effort
-  const options = useMemo<TurnOptions>(() => ({ autonomy, model: picked, effort, instructions }), [autonomy, picked, effort, instructions])
+  // Only Claude draws on the whiteboard so far; Codex turns go out as they always have.
+  const drawing = (selected?.provider ?? fresh) === 'claude' ? whiteboard : undefined
+  const options = useMemo<TurnOptions>(() => ({ autonomy, model: picked, effort, instructions, ...(drawing ? { whiteboard: drawing } : {}) }), [autonomy, picked, effort, instructions, drawing])
   const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options, selected?.running === true)
   busyRef.current = turn.busy
 
@@ -109,6 +124,7 @@ export function useWorktreeAgent(
   const createdId = fresh && !turn.busy ? turn.sessionId : null
   useEffect(() => {
     if (!fresh || !createdId) return
+    writeMode(createdId, whiteboard)
     void sessions.refetch().then(() => select({ provider: fresh, sessionId: createdId }))
   }, [createdId])
 
@@ -130,6 +146,10 @@ export function useWorktreeAgent(
     setModel: chooseModel,
     effort,
     setEffort,
+    /** The whiteboard mode turns are sent in; undefined is an ordinary conversation. Claude only. */
+    whiteboard: drawing,
+    canDraw: (selected?.provider ?? fresh) === 'claude',
+    setWhiteboard,
     loading: sessions.isPending,
     error: sessions.error,
     turn

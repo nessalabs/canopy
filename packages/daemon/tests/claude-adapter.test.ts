@@ -72,6 +72,8 @@ function fakeSdk(run: (options: Options, prompt: AsyncIterable<SDKUserMessage>) 
         return: async () => undefined
       })
     },
+    tool: (name: string, description: string, shape: unknown, handler: unknown) => ({ name, description, shape, handler }),
+    createSdkMcpServer: (options: { name: string; tools: unknown[] }) => ({ type: 'sdk', name: options.name, tools: options.tools }),
     resolveSettings: async () => {
       const settings = typeof fixtures.settings === 'function' ? (fixtures.settings as () => unknown)() : fixtures.settings
       return settings ?? { effective: {}, provenance: {}, sources: [] }
@@ -789,5 +791,98 @@ describe('claude adapter rewind', () => {
     })
     const result = await new ClaudeAdapter({ loadSdk: async () => fake.module }).rewind('sess-boom', { messageId: 'u-1', cwd })
     expect(result).toEqual({ source: 'checkpoint', canRewind: false, error: 'claude: the session file is gone', filesChanged: [] })
+  })
+})
+
+describe('claude adapter whiteboard turns', () => {
+  const run = () =>
+    (async function* () {
+      yield initMessage('sess-w')
+      yield resultMessage('sess-w')
+    })()
+
+  it('hands a plan turn the canopy tools, plan mode and the plan instructions after the surface’s own', async () => {
+    const { module, captured } = fakeSdk(run)
+    await drain(new ClaudeAdapter({ loadSdk: async () => module }).send(null, 'plan it', { whiteboard: 'plan', instructions: 'Be brief.', cwd: '/tmp' }))
+    const options = captured.options!
+    expect(options.permissionMode).toBe('plan')
+    expect(Object.keys(options.mcpServers ?? {})).toEqual(['canopy'])
+    expect(options.allowedTools?.slice(0, 4)).toEqual(['mcp__canopy__draw_board', 'mcp__canopy__edit_board', 'mcp__canopy__set_progress', 'mcp__canopy__ask_decision'])
+    expect(options.tools).toContain('ExitPlanMode')
+    expect(options.tools).not.toContain('Agent')
+    expect(options.env?.ENABLE_TOOL_SEARCH).toBe('false')
+    expect(options.strictMcpConfig).toBe(true)
+    const append = (options.systemPrompt as { append: string }).append
+    expect(append.startsWith('Be brief.\n\nYou are in Canopy')).toBe(true)
+    expect(append).toContain('ExitPlanMode')
+  })
+
+  it('explains in plan mode, so nothing can write, with reading tools and no way to end in approval', async () => {
+    const { module, captured } = fakeSdk(run)
+    await drain(new ClaudeAdapter({ loadSdk: async () => module }).send(null, 'how does it work', { whiteboard: 'explain', cwd: '/tmp' }))
+    expect(captured.options?.permissionMode).toBe('plan')
+    expect(captured.options?.tools).toEqual(['Read', 'Grep', 'Glob', 'Bash', 'AskUserQuestion'])
+  })
+
+  it('builds with the board tools and the user’s own autonomy, every other tool allowed', async () => {
+    const { module, captured } = fakeSdk(run)
+    await drain(new ClaudeAdapter({ loadSdk: async () => module }).send(null, 'build it', { whiteboard: 'build', autonomy: 'edit', cwd: '/tmp' }))
+    expect(captured.options?.permissionMode).toBe('acceptEdits')
+    expect(Object.keys(captured.options?.mcpServers ?? {})).toEqual(['canopy'])
+    expect(captured.options?.tools).toBeUndefined()
+    expect(captured.options?.strictMcpConfig).toBeUndefined()
+  })
+
+  it('leaves an ordinary turn alone', async () => {
+    const { module, captured } = fakeSdk(run)
+    await drain(new ClaudeAdapter({ loadSdk: async () => module }).send(null, 'hi', { autonomy: 'edit' }))
+    expect(captured.options?.mcpServers).toBeUndefined()
+    expect(captured.options?.systemPrompt).toBeUndefined()
+  })
+
+  it('never asks the user about the whiteboard’s own tools, even in plan mode', async () => {
+    const decisions: unknown[] = []
+    const { module } = fakeSdk((options) =>
+      (async function* () {
+        yield initMessage('sess-d')
+        decisions.push(await options.canUseTool?.('mcp__canopy__draw_board', { id: 'overview' }, { signal: new AbortController().signal, toolUseID: 'tu-d' } as never))
+        yield resultMessage('sess-d')
+      })()
+    )
+    const frames = await drain(new ClaudeAdapter({ loadSdk: async () => module }).send(null, 'plan', { whiteboard: 'plan', cwd: '/tmp' }))
+    expect(decisions).toEqual([{ behavior: 'allow', updatedInput: { id: 'overview' } }])
+    expect(payloads(frames).some((payload) => payload.type === 'permission_requested')).toBe(false)
+  })
+
+  it('approving the plan switches the session to the chosen autonomy', async () => {
+    const decisions: unknown[] = []
+    const { module } = fakeSdk((options) =>
+      (async function* () {
+        yield initMessage('sess-p')
+        decisions.push(await options.canUseTool?.('ExitPlanMode', { plan: 'x' }, { signal: new AbortController().signal, toolUseID: 'tu-plan' } as never))
+        yield resultMessage('sess-p')
+      })()
+    )
+    const adapter = new ClaudeAdapter({ loadSdk: async () => module })
+    for await (const frame of adapter.send(null, 'plan', { whiteboard: 'plan', cwd: '/tmp' })) {
+      if (payloadOf(frame)?.type === 'permission_requested') adapter.answerPermission('sess-p', { requestId: 'tu-plan', behavior: 'allow', autonomy: 'edit' })
+    }
+    expect(decisions).toEqual([{ behavior: 'allow', updatedInput: { plan: 'x' }, updatedPermissions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] }])
+  })
+
+  it('changes no mode when any other tool is allowed, whatever autonomy the answer names', async () => {
+    const decisions: unknown[] = []
+    const { module } = fakeSdk((options) =>
+      (async function* () {
+        yield initMessage('sess-b')
+        decisions.push(await options.canUseTool?.('Bash', { command: 'git log' }, { signal: new AbortController().signal, toolUseID: 'tu-bash' } as never))
+        yield resultMessage('sess-b')
+      })()
+    )
+    const adapter = new ClaudeAdapter({ loadSdk: async () => module })
+    for await (const frame of adapter.send(null, 'plan', { whiteboard: 'plan', cwd: '/tmp' })) {
+      if (payloadOf(frame)?.type === 'permission_requested') adapter.answerPermission('sess-b', { requestId: 'tu-bash', behavior: 'allow', autonomy: 'edit' })
+    }
+    expect(decisions).toEqual([{ behavior: 'allow', updatedInput: { command: 'git log' } }])
   })
 })

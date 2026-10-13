@@ -3,6 +3,7 @@ import type { CanUseTool, SDKMessage, SDKUserMessage } from '@anthropic-ai/claud
 import type { AgentAdapter, AgentCapabilities, AgentSessionSummary, AgentStreamEvent, SendOptions, TranscriptResponse } from './types'
 import type { AgentEvent } from '@canopy/shared/agent-stream'
 import type { LiveControlsInput, PermissionDecisionInput, RewindInput, RewindResult, TurnImage } from '@canopy/shared'
+import { foldPlan, WHITEBOARD_INSTRUCTIONS } from '@canopy/shared'
 import { ClaudeStreamMapper } from '@canopy/shared/agent-stream'
 
 import { newId } from '../lib/ids'
@@ -16,6 +17,7 @@ import { liveSessionFor, liveSessions } from './claude-terminal'
 import { slim } from './events'
 import { toImageBlocks } from './images'
 import { createPermissionDesk, type PermissionDesk } from './permissions'
+import { isWhiteboardTool, whiteboardOptions, whiteboardServer, WHITEBOARD_MODES } from './whiteboard'
 
 /**
  * Claude Code adapter, built on `@anthropic-ai/claude-agent-sdk`.
@@ -235,6 +237,12 @@ export class ClaudeAdapter implements AgentAdapter {
     }
   }
 
+  /** The whiteboard tools for a turn, over the boards the session has drawn so far. */
+  private async whiteboard(module: SdkModule, sessionId: string | null, options: SendOptions): Promise<ReturnType<typeof whiteboardServer>> {
+    const initial = sessionId ? foldPlan((await this.transcript(sessionId, options.cwd)).events).state : undefined
+    return whiteboardServer(module, { cwd: options.cwd ?? process.cwd(), initial })
+  }
+
   async *send(sessionId: string | null, text: string, options: SendOptions = {}): AsyncIterable<AgentStreamEvent> {
     const module = await this.loadSdk()
     if (!module) {
@@ -312,7 +320,9 @@ export class ClaudeAdapter implements AgentAdapter {
     // A resume already knows its session; a new one echoes as soon as `init` names it (below).
     if (sessionId) echoPrompt()
 
-    const permissionMode = PERMISSION_MODE[options.autonomy ?? 'edit']
+    const board = options.whiteboard ? await this.whiteboard(module, sessionId, options) : undefined
+    const permissionMode = (options.whiteboard && WHITEBOARD_MODES[options.whiteboard].permissionMode) || PERMISSION_MODE[options.autonomy ?? 'edit']
+    const instructions = [options.instructions, options.whiteboard && WHITEBOARD_INSTRUCTIONS[options.whiteboard]].filter(Boolean).join('\n\n')
     const desk = this.permissions
 
     /**
@@ -323,6 +333,8 @@ export class ClaudeAdapter implements AgentAdapter {
      * the ask and its answer carry the next `seq` and the same session id as the rest of the log.
      */
     const canUseTool: CanUseTool = async (toolName, input, context) => {
+      // Drawing on the whiteboard changes nothing in the checkout; plan mode still routes it here.
+      if (board && isWhiteboardTool(toolName)) return { behavior: 'allow', updatedInput: input }
       const requestId = context.toolUseID || newId()
       const signal = anySignal([context.signal, options.signal])
       feed({
@@ -347,12 +359,15 @@ export class ClaudeAdapter implements AgentAdapter {
         decision.message ??
         (signal.aborted ? `Canopy: the turn was cancelled before this ${toolName} call was answered` : `Canopy: the user declined this ${toolName} call`)
       const allowed = decision.behavior === 'allow'
+      // Approving a plan also hands the turn the autonomy to build it; no other answer changes the mode.
+      const builds = allowed && toolName === 'ExitPlanMode' && decision.autonomy
+      const updatedPermissions = builds ? [{ type: 'setMode' as const, mode: PERMISSION_MODE[decision.autonomy!], destination: 'session' as const }] : undefined
       feed({
         type: 'control_response',
         ...(resolvedSession ? { session_id: resolvedSession } : {}),
         response: { request_id: requestId, response: allowed ? { behavior: 'allow' } : { behavior: 'deny', message: denial } }
       })
-      return allowed ? { behavior: 'allow', updatedInput: decision.updatedInput ?? input } : { behavior: 'deny', message: denial }
+      return allowed ? { behavior: 'allow', updatedInput: decision.updatedInput ?? input, ...(updatedPermissions ? { updatedPermissions } : {}) } : { behavior: 'deny', message: denial }
     }
 
     const response = module.query({
@@ -370,7 +385,8 @@ export class ClaudeAdapter implements AgentAdapter {
         ...(options.model ? { model: options.model } : {}),
         ...(options.effort ? { effort: options.effort } : {}),
         // Claude Code's own prompt stays whole; the surface's instructions are added after it.
-        ...(options.instructions ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: options.instructions } } : {}),
+        ...(instructions ? { systemPrompt: { type: 'preset', preset: 'claude_code', append: instructions } } : {}),
+        ...(board && options.whiteboard ? whiteboardOptions(options.whiteboard, board) : {}),
         // Every turn checkpoints what its file tools write, so "undo this turn" is answerable
         // later — from this query while it runs, and from a resumed one once it has ended.
         enableFileCheckpointing: true,

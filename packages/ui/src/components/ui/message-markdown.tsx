@@ -10,6 +10,12 @@ import { CodeBlock, CopyButton } from "./code-block"
 import { MathBlock } from "./math-block"
 import { MermaidDiagram } from "./mermaid-diagram"
 
+/**
+ * Math is `$$…$$` only: prose about prices ("$50 ships free, otherwise $5") would otherwise
+ * read the text between two dollar signs as a formula.
+ */
+const SINGLE_DOLLAR_IS_TEXT: [typeof remarkMath, { singleDollarTextMath: boolean }] = [remarkMath, { singleDollarTextMath: false }]
+
 export interface MessageMarkdownProps
   extends Omit<React.ComponentProps<"div">, "children"> {
   /** The markdown source, typically an assistant reply. */
@@ -248,7 +254,8 @@ const defaultComponents: Components = {
 
 /**
  * Renders assistant markdown inside a message: GitHub-flavored markdown plus
- * TeX math (`$…$` inline, `$$…$$` display) rendered through MathBlock,
+ * TeX math rendered through MathBlock — `$$…$$` only, since a single `$`
+ * must stay text for prose about prices ("$50 ships free, otherwise $5") —
  * fenced code highlighted through CodeBlock, and ```mermaid fences drawn
  * through MermaidDiagram — all styled with Nessa tokens and following the
  * nearest CodeBlockProvider, so the host's code theme and color mode apply
@@ -294,7 +301,7 @@ function MessageMarkdown({
       <MarkdownSourceContext.Provider value={children}>
         <MarkdownStreamingContext.Provider value={streaming}>
           <ReactMarkdown
-            remarkPlugins={[remarkGfm, remarkMath, ...(remarkPlugins ?? [])]}
+            remarkPlugins={[remarkGfm, SINGLE_DOLLAR_IS_TEXT, ...(remarkPlugins ?? [])]}
             rehypePlugins={streaming ? streamingRehypePlugins : staticRehypePlugins}
             components={{ ...defaultComponents, ...components }}
           >

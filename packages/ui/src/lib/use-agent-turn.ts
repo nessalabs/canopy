@@ -231,12 +231,16 @@ export function useAgentTurn(
     [queryClient, ref, worktreeId]
   )
 
-  /** `text` is what the agent receives; `display`/`attachments`/`images` are how the turn is shown. */
+  /**
+   * `text` is what the agent receives; `display`/`attachments`/`images` are how the turn is shown.
+   * `options` overrides this turn's knobs — a whiteboard action sends in whiteboard mode, whatever
+   * the composer is set to.
+   */
   const sendMessage = useCallback(
-    (text: string, shown?: { display: string; attachments: TurnAttachment[]; images: TurnImage[] }) => {
+    (text: string, shown?: { display: string; attachments: TurnAttachment[]; images: TurnImage[]; options?: Partial<TurnOptions> }) => {
       const pending: PendingPrompt = { text, display: shown?.display ?? text, attachments: shown?.attachments ?? [], images: shown?.images ?? [] }
       const images = shown?.images.map(({ mediaType, data }) => ({ mediaType, data }))
-      const input = { ...options, text, startSeq: nextSeqFor(ref), ...(images?.length ? { images } : {}) }
+      const input = { ...options, ...shown?.options, text, startSeq: nextSeqFor(ref), ...(images?.length ? { images } : {}) }
       if (ref) return run(pending, (signal) => api.streamMessage(ref, { ...input, cwd }, signal))
       if (fresh) return run(pending, (signal) => api.streamNewSession(worktreeId, { ...input, provider: fresh, startSeq: 0 }, signal))
       return Promise.resolve()
