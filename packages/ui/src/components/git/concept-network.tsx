@@ -142,13 +142,16 @@ export function ConceptNetwork({
   network,
   layout,
   picked,
-  onPick
+  onPick,
+  onClear
 }: {
   network: Network
   layout: NetworkLayout
   /** The dot the inspector is open on. */
   picked?: string
   onPick: (node: NetNode) => void
+  /** A click on empty canvas: let go of whatever was picked. */
+  onClear: () => void
 }): React.JSX.Element {
   const { theme } = useTheme()
   const byId = useMemo(() => new Map(network.nodes.map((node) => [node.id, node])), [network])
@@ -306,6 +309,7 @@ export function ConceptNetwork({
         const node = byId.get(n.id)
         if (node) onPick(node)
       }}
+      onPaneClick={onClear}
       proOptions={{ hideAttribution: true }}
       className="bg-background"
     >

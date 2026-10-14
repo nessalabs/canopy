@@ -503,7 +503,7 @@ export function ConceptGraphView({
             <div className="flex min-h-0 flex-1">
               <div className="relative min-h-0 min-w-0 flex-1">
                 <NetworkLegend affected={affectedIds.size} />
-                <ConceptNetwork network={network} layout={layout} picked={pickedNode} onPick={pickNode} />
+                <ConceptNetwork network={network} layout={layout} picked={pickedNode} onPick={pickNode} onClear={() => setPickedNode(undefined)} />
               </div>
               {pickedNode && graph.spec ? (
                 <ConceptInspector
