@@ -19,8 +19,9 @@ export function registerAgentRoutes(app: FastifyInstance, services: Services): v
   const { agents, turns, worktrees, review, editDiffs, presence, sessions, gitAgent } = services
   app.get(routes.providers(), async () => ({ providers: await agents.availableProviders() }))
 
-  app.get(routes.agentFleet(), async () => ({
+  app.get(routes.agentFleet(), async (request) => ({
     agents: await listFleet({
+      log: request.log,
       worktrees,
       sessions,
       gitAgent,

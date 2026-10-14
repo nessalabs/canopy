@@ -191,6 +191,9 @@ describe('applyCall', () => {
     const detail = { ...overview, id: 'daemon', parent: 'overview/d', mermaid: 'flowchart TD\n  h[Turn runner]', notes: { h: note() } }
     expect(applyCall(drawn(), 'draw_board', detail).state.boards.daemon!.parent).toEqual({ board: 'overview', box: 'd' })
     expect(applyCall(drawn(), 'draw_board', { ...detail, parent: 'overview/zzz' }).problems).toEqual(['board "overview" has no box "zzz"'])
+    // Redrawing the overview inside its own detail board would leave neither with a root.
+    const nested = applyCall(drawn(), 'draw_board', detail).state
+    expect(applyCall(nested, 'draw_board', { ...overview, parent: 'daemon/h' }).problems).toEqual(['board "daemon" sits inside "overview", so it cannot be its parent'])
   })
 
   it('edits only what the lines name, keeps the old version and outlines what changed', () => {

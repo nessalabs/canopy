@@ -92,6 +92,10 @@ describe('GET /agents/fleet', () => {
   })
   const fleetOf = async () => (await server.call<{ agents: FleetAgent[] }>('GET', routes.agentFleet())).body.agents
 
+  it('requires auth', async () => {
+    expect((await server.app.inject({ method: 'GET', url: routes.agentFleet() })).statusCode).toBe(401)
+  })
+
   it('shows the ask a running turn is parked on, and drops it once the turn has its answer', async () => {
     let release!: () => void
     server.agent.hold = new Promise<void>((resolve) => (release = resolve))

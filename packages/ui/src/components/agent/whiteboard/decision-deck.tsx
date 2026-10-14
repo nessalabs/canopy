@@ -87,7 +87,8 @@ const startingPick = (decision: Decision): Pick => ({ option: decision.options.f
  */
 export function DecisionDeck({ decisions, onSend, className, ...props }: {
   decisions: readonly Decision[]
-  onSend: (choices: Choice[]) => void
+  /** False when the choices could not be sent yet, so the button stays live. */
+  onSend: (choices: Choice[]) => boolean
   className?: string
 } & React.ComponentProps<'section'>): React.JSX.Element | null {
   const [index, setIndex] = useState(() => Math.max(0, decisions.findIndex((decision) => !decision.answer)))
@@ -103,14 +104,12 @@ export function DecisionDeck({ decisions, onSend, className, ...props }: {
   const at = Math.min(index, decisions.length - 1)
   const next = nextOpen(steps, at)
   const send = (): void => {
-    setSentFor(open.map((decision) => decision.id).join())
-    onSend(
-      ready.map((decision) => {
-        const { option, note } = pickOf(decision)
-        const chosen = decision.options.find((candidate) => candidate.id === option)!
-        return { id: decision.id, question: decision.question, option: chosen.id, label: chosen.label, note: note.trim() }
-      })
-    )
+    const choices = ready.map((decision) => {
+      const { option, note } = pickOf(decision)
+      const chosen = decision.options.find((candidate) => candidate.id === option)!
+      return { id: decision.id, question: decision.question, option: chosen.id, label: chosen.label, note: note.trim() }
+    })
+    if (onSend(choices)) setSentFor(open.map((decision) => decision.id).join())
   }
   return (
     <section {...props} aria-label="Decisions for you" className={cn('flex flex-col gap-3 rounded-xl border border-nessa-attention/40 bg-nessa-attention/5 p-3', className)}>

@@ -26,12 +26,17 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
   const view: PlanView = useMemo(() => foldPlan(relevant), [signature])
 
   // Approving the plan (in the transcript or on the board) starts the build: later turns say so. Only
-  // the moment of approval switches, so the reader can still go back to planning afterwards.
-  const wasApproved = useRef(view.approved)
+  // the moment of approval switches, so the reader can still go back to planning afterwards. The
+  // baseline is taken per session once its history has loaded, so opening an approved plan is not
+  // mistaken for approving it.
+  const sessionId = agent.selected?.sessionId
+  const wasApproved = useRef<{ session?: string; approved: boolean }>(undefined)
   useEffect(() => {
-    if (view.approved && !wasApproved.current) agent.setWhiteboard(nextMode(agent.whiteboard, true))
-    wasApproved.current = view.approved
-  }, [view.approved])
+    if (!history) return
+    const before = wasApproved.current
+    wasApproved.current = { session: sessionId, approved: view.approved }
+    if (before?.session === sessionId && view.approved && !before?.approved) agent.setWhiteboard(nextMode(agent.whiteboard, true))
+  }, [view.approved, sessionId, history !== undefined])
 
   const approval = model.transcript.pendingAsks.find((ask) => ask.agentPath.length === 0 && isEvent(ask, AgentEventType.PermissionRequested) && ask.payload.toolName === 'ExitPlanMode')
 
@@ -39,17 +44,17 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
   const waiting = agent.turn.busy && agent.whiteboard === undefined
 
   /** A message from the board: in whiteboard mode even when the composer is not, so the answer can draw. */
-  const send = (text: string, display: string, mode?: WhiteboardMode): void => {
-    if (waiting) return
+  const send = (text: string, display: string, mode?: WhiteboardMode): boolean => {
+    if (waiting) return false
     const drawing = mode ?? agent.whiteboard ?? 'explain'
     if (!agent.whiteboard) agent.setWhiteboard(drawing)
     const shown = { display, attachments: [], images: [] }
     // A running turn takes the message as it is — it already runs in whiteboard mode.
     void (agent.turn.busy ? agent.turn.queueMessage(text, shown) : agent.turn.sendMessage(text, { ...shown, options: { whiteboard: drawing } }))
+    return true
   }
 
   // Notes and where boards were dragged stay in this browser, per session.
-  const sessionId = agent.selected?.sessionId
   const [notes, setNotesState] = useState<BoxNotes>(() => readNotes(sessionId))
   const [moved, setMoved] = useState<BoardLayout>(() => readLayout(sessionId))
   useEffect(() => {
@@ -75,7 +80,8 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
     if (notesCount(notes) === 0) return
     const { title, brief } = notesMessage(view.state, notes)
     if (approval && isEvent(approval, AgentEventType.PermissionRequested)) agent.turn.answerPermission({ requestId: approval.payload.requestId, behavior: 'deny', message: `Not yet — keep planning. ${brief}` })
-    else send(taskMessage(title, brief), title)
+    // A dropped message keeps the notes, so nothing the reader wrote is lost.
+    else if (!send(taskMessage(title, brief), title)) return
     setNotes({})
   }
 

@@ -108,7 +108,11 @@ const parentProblems = (state: PlanState, parent: string | undefined, id: string
   const ref = parseBoxKey(parent)
   const board = ref && state.boards[ref.board]
   if (!ref || !board) return [`parent "${parent}" should be "board/box" naming a board already drawn`]
-  if (ref.board === id) return ['a board cannot be its own parent']
+  // Walk up from the new parent: reaching this board would leave the chain with no root.
+  for (let at: string | undefined = ref.board, seen = new Set<string>(); at !== undefined && !seen.has(at); at = state.boards[at]?.parent?.board) {
+    if (at === id) return [ref.board === id ? 'a board cannot be its own parent' : `board "${ref.board}" sits inside "${id}", so it cannot be its parent`]
+    seen.add(at)
+  }
   return currentVersion(board).graph.nodes.some((node) => node.id === ref.box) ? [] : [`board "${ref.board}" has no box "${ref.box}"`]
 }
 
