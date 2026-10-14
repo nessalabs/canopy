@@ -203,11 +203,11 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
   const litOn = (id: string): string[] => [...(lit?.board === id ? lit.ids : []), ...(step?.board === id && step.box ? [step.box] : [])]
 
   // A passage selected in a box's tab waits in that tab's ask bar, as context for the question typed next.
-  const [staged, setStaged] = useState<{ tab: string; quote: string }>()
+  const [staged, setStaged] = useState<Record<string, string>>({})
   /** "Ask the agent" on a selection asks nothing yet: the passage is staged where the question gets written. */
   const ask = (text: string, range: Range): void => {
     const inBox = drawer?.kind === 'box' && reader.state.active && closestAcross(range.commonAncestorContainer, '[data-whiteboard-reader]')
-    if (inBox) return setStaged({ tab: reader.state.active!, quote: text })
+    if (inBox) return setStaged((now) => ({ ...now, [reader.state.active!]: text }))
     reader.show({ kind: 'ask', ref: passageRef(range) ?? current ?? state.order[0] ?? 'plan', quote: text })
   }
   const closeTab = (id: string): void => {
@@ -255,8 +255,8 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
           waiting={whiteboard.waiting}
           onAsk={(question) => whiteboard.ask(info.ref, info.node.label, question)}
           onDraw={(question) => whiteboard.draw(info.ref, info.node.label, question)}
-          quote={staged && staged.tab === reader.state.active ? staged.quote : undefined}
-          onDropQuote={() => setStaged(undefined)}
+          quote={reader.state.active ? staged[reader.state.active] : undefined}
+          onDropQuote={() => setStaged(({ [reader.state.active ?? '']: _dropped, ...rest }) => rest)}
           onOpenDetail={() => info.detail && readBoard(info.detail)}
           onOpenRef={onOpenRef}
           onShowChanges={onShowChanges}
@@ -363,7 +363,13 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
                 <ChatTabs
                   tabs={reader.state.tabs.map((t) => ({ id: t.id, title: titleOf(t.trail.at(-1)!, state), closeable: true }))}
                   value={reader.state.active}
-                  onValueChange={reader.select}
+                  onValueChange={(id) => {
+                    reader.select(id)
+                    // The canvas follows the tab: a board's, or the board a box sits on.
+                    const reading = reader.state.tabs.find((tab) => tab.id === id)?.trail.at(-1)
+                    if (reading?.kind === 'board') focusBoard(reading.id)
+                    if (reading?.kind === 'box') focusBoard(reading.ref.board)
+                  }}
                   onClose={closeTab}
                   label="Open in the reader"
                   className="shrink-0 border-b border-border px-2 py-1 [&_[data-slot=chat-tab]]:rounded-[4px]"

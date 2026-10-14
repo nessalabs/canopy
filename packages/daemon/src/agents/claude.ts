@@ -365,7 +365,9 @@ export class ClaudeAdapter implements AgentAdapter {
         }
       })
 
-      const decision = await desk.ask(resolvedSession, requestId, signal, toolName)
+      // A user's own `ask` rule wants a person to answer, even once the turn runs with full autonomy.
+      const forced = context.decisionReason === 'rule' || context.matchedAskRule !== undefined
+      const decision = await desk.ask(resolvedSession, requestId, signal, toolName, forced)
       // An unattended daemon must still tell the model *why* it was refused, so it can try
       // something else instead of retrying the same call forever.
       const denial =

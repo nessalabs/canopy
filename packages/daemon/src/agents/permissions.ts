@@ -12,7 +12,7 @@ import type { PermissionDecisionInput } from '@canopy/shared'
  * so a stale answer for a finished turn is a miss (`answer` returns false) rather than a crash.
  */
 export class PermissionDesk {
-  private readonly parked = new Map<string, { tool: string; settle: (decision: PermissionDecisionInput) => void }>()
+  private readonly parked = new Map<string, { tool: string; forced: boolean; settle: (decision: PermissionDecisionInput) => void }>()
 
   private static key(sessionId: string, requestId: string): string {
     return `${sessionId}:${requestId}`
@@ -21,9 +21,10 @@ export class PermissionDesk {
   /**
    * Parks until the request is answered. An abort settles it as a deny rather than a rejection:
    * the caller owes the SDK a `PermissionResult` either way, and a rejection there would strand
-   * the tool call — the SDK has no deadline of its own on a permission prompt.
+   * the tool call — the SDK has no deadline of its own on a permission prompt. `forced` marks an
+   * ask a user's own `ask` rule put to a person, which no change of autonomy answers for them.
    */
-  ask(sessionId: string, requestId: string, signal?: AbortSignal, tool = ''): Promise<PermissionDecisionInput> {
+  ask(sessionId: string, requestId: string, signal?: AbortSignal, tool = '', forced = false): Promise<PermissionDecisionInput> {
     const key = PermissionDesk.key(sessionId, requestId)
     return new Promise((resolve) => {
       const settle = (decision: PermissionDecisionInput): void => {
@@ -33,7 +34,7 @@ export class PermissionDesk {
       }
       const onAbort = (): void => settle({ requestId, behavior: 'deny' })
 
-      this.parked.set(key, { tool, settle })
+      this.parked.set(key, { tool, forced, settle })
       if (signal?.aborted) onAbort()
       else signal?.addEventListener('abort', onAbort, { once: true })
     })
@@ -47,11 +48,11 @@ export class PermissionDesk {
     return true
   }
 
-  /** Allows every ask still waiting on this session, but for the tools in `unless`. */
+  /** Allows every ask still waiting on this session, but for the tools in `unless` and asks a rule forced. */
   allowPending(sessionId: string, unless: readonly string[] = []): void {
     for (const requestId of this.pending(sessionId)) {
       const parked = this.parked.get(PermissionDesk.key(sessionId, requestId))
-      if (parked && !unless.includes(parked.tool)) parked.settle({ requestId, behavior: 'allow' })
+      if (parked && !parked.forced && !unless.includes(parked.tool)) parked.settle({ requestId, behavior: 'allow' })
     }
   }
 

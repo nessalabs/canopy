@@ -56,9 +56,13 @@ function BoardsMenu({ state, cost, onFocus, onDrawing }: { state: PlanState; cos
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="hidden h-7 px-2 text-[11px] font-normal text-muted-foreground tabular-nums xl:inline-flex" title="Go to a board or an earlier drawing of it">
-          {boards} {boards === 1 ? 'board' : 'boards'} · {state.drawings} {state.drawings === 1 ? 'drawing' : 'drawings'}
-          {cost !== undefined ? ` · ${money(cost)}` : ''}
+        <Button variant="ghost" size="sm" className="h-7 px-2 text-[11px] font-normal text-muted-foreground tabular-nums" title="Go to a board or an earlier drawing of it">
+          {boards} {boards === 1 ? 'board' : 'boards'}
+          {/* Narrow toolbars keep the count that opens the menu and drop the rest. */}
+          <span className="hidden xl:inline">
+            {` · ${state.drawings} ${state.drawings === 1 ? 'drawing' : 'drawings'}`}
+            {cost !== undefined ? ` · ${money(cost)}` : ''}
+          </span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="max-h-96 w-72 overflow-y-auto">
