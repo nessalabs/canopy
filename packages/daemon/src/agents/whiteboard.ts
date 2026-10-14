@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
 
 import { applyCall, EMPTY_PLAN, planReply, type WhiteboardMode, PLAN_SERVER, PLAN_TOOL_DESCRIPTIONS, PLAN_TOOL_NAMES, planToolSchema, refProblems, WHITEBOARD_INSTRUCTIONS, type PlanState, type PlanTool } from '@canopy/shared'
@@ -22,14 +22,21 @@ export interface WhiteboardDeps {
 /**
  * A file check rooted at the checkout. A reference is a path from the repository root — the file
  * viewer reads it that way — so an absolute path or one that climbs out of the checkout is not a file
- * the reader can open, whether or not it exists.
+ * the reader can open, whether or not it exists. Containment is judged on real paths: a symlink in
+ * the checkout that leads outside it is outside.
  */
 export const checkoutFiles =
   (cwd: string) =>
   (path: string): boolean => {
     if (isAbsolute(path)) return false
-    const inside = relative(cwd, join(cwd, path))
-    return inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside) && existsSync(join(cwd, inside))
+    const target = join(cwd, path)
+    if (!existsSync(target)) return false
+    try {
+      const inside = relative(realpathSync(cwd), realpathSync(target))
+      return inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside)
+    } catch {
+      return false
+    }
   }
 
 /** The notes a call cites code in — a draw's and an edit's alike. */
