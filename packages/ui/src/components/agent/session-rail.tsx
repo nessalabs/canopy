@@ -111,6 +111,11 @@ function SessionRow({ session, active, actions, branch }: { session: AgentSessio
             ) : session.active ? (
               <StatusDot status="idle" aria-label="Open in a terminal" title="Open in a terminal" />
             ) : null}
+            {session.planned ? (
+              <span className="rounded-sm bg-muted px-1 py-px" title="This session drew a plan on the whiteboard">
+                plan
+              </span>
+            ) : null}
             {session.visiting && session.cwd ? (
               <Tooltip>
                 <TooltipTrigger asChild>

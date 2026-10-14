@@ -1,10 +1,8 @@
 import { useEffect, useMemo } from 'react'
 
-import { CodeBlockProvider } from '@/components/ui/code-block'
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram'
 import { readDiagram } from '@/lib/pop-out'
 import { useFonts } from '@/lib/use-fonts'
-import { useTheme } from '@/lib/use-theme'
 
 /**
  * One diagram, alone in its own window — pan and zoom it beside the doc it came from. The
@@ -12,7 +10,6 @@ import { useTheme } from '@/lib/use-theme'
  * restored days later (or on another machine) finds nothing and says so.
  */
 export function DiagramWindowScreen({ id }: { id: string }): React.JSX.Element {
-  const { theme } = useTheme()
   useFonts()
   const chart = useMemo(() => readDiagram(id), [id])
 
@@ -25,11 +22,9 @@ export function DiagramWindowScreen({ id }: { id: string }): React.JSX.Element {
   }
 
   return (
-    <CodeBlockProvider mode={theme}>
-      {/* The window is the viewer: it opens expanded, filling this surface rather than the screen. */}
-      <div data-diagram-surface className="relative h-dvh overflow-hidden bg-background">
-        <MermaidDiagram chart={chart} defaultExpanded className="h-full" />
-      </div>
-    </CodeBlockProvider>
+    // The window is the viewer: it opens expanded, filling this surface rather than the screen.
+    <div data-diagram-surface className="relative h-dvh overflow-hidden bg-background">
+      <MermaidDiagram chart={chart} defaultExpanded className="h-full" />
+    </div>
   )
 }

@@ -3,23 +3,26 @@ import type { PreviewedAttachment } from '@/components/agent/attachment-preview'
 /** What a reader shows: an issue or PR, a file attached on GitHub, text staged in a composer, or the whiteboard's plan. */
 export type Reading = { kind: 'issue'; number: number } | { kind: 'github'; url: string } | { kind: 'staged'; attachment: PreviewedAttachment } | { kind: 'plan' }
 
-/** One reader tab: the readings it went through, the one on screen last. */
-export interface ReaderTab {
+/** One reader tab: the readings it went through, the one on screen last. `R` is what a reader reads — `Reading` for the Issues reader. */
+export interface ReaderTab<R = Reading> {
   id: string
-  trail: Reading[]
+  trail: R[]
 }
 
-export interface ReaderTabs {
-  tabs: ReaderTab[]
+export interface ReaderTabs<R = Reading> {
+  tabs: ReaderTab<R>[]
   active: string | undefined
 }
 
-export const sameReading = (a: Reading | undefined, b: Reading): boolean => JSON.stringify(a) === JSON.stringify(b)
+export const sameReading = <R>(a: R | undefined, b: R): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/** What the tab on screen shows. */
+export const activeReading = <R>(state: ReaderTabs<R>): R | undefined => state.tabs.find((t) => t.id === state.active)?.trail.at(-1)
 
 let nextTabId = 0
-const tab = (reading: Reading): ReaderTab => ({ id: `reader-${++nextTabId}`, trail: [reading] })
+const tab = <R>(reading: R): ReaderTab<R> => ({ id: `reader-${++nextTabId}`, trail: [reading] })
 
-const withActive = (state: ReaderTabs, update: (tab: ReaderTab) => ReaderTab): ReaderTabs => ({
+const withActive = <R>(state: ReaderTabs<R>, update: (tab: ReaderTab<R>) => ReaderTab<R>): ReaderTabs<R> => ({
   ...state,
   tabs: state.tabs.map((t) => (t.id === state.active ? update(t) : t))
 })
@@ -31,28 +34,28 @@ const withActive = (state: ReaderTabs, update: (tab: ReaderTab) => ReaderTab): R
  * `newTab` into a tab of its own. `back` steps the tab on screen back along its trail.
  */
 export const readerSteps = {
-  show: (state: ReaderTabs, reading: Reading, newTab = false): ReaderTabs => {
+  show: <R>(state: ReaderTabs<R>, reading: R, newTab = false): ReaderTabs<R> => {
     if (newTab) return readerSteps.follow(state, reading, true)
     const showing = state.tabs.find((t) => sameReading(t.trail.at(-1), reading))
     if (showing) return { ...state, active: showing.id }
     const added = tab(reading)
     return { tabs: [...state.tabs, added], active: added.id }
   },
-  open: (state: ReaderTabs, reading: Reading): ReaderTabs => {
+  open: <R>(state: ReaderTabs<R>, reading: R): ReaderTabs<R> => {
     if (!state.active) return readerSteps.show(state, reading)
     return withActive(state, (t) => ({ ...t, trail: [reading] }))
   },
-  follow: (state: ReaderTabs, reading: Reading, newTab: boolean): ReaderTabs => {
+  follow: <R>(state: ReaderTabs<R>, reading: R, newTab: boolean): ReaderTabs<R> => {
     if (newTab || !state.active) {
       const added = tab(reading)
       return { tabs: [...state.tabs, added], active: added.id }
     }
     return withActive(state, (t) => (sameReading(t.trail.at(-1), reading) ? t : { ...t, trail: [...t.trail, reading] }))
   },
-  back: (state: ReaderTabs): ReaderTabs => withActive(state, (t) => (t.trail.length > 1 ? { ...t, trail: t.trail.slice(0, -1) } : t)),
-  select: (state: ReaderTabs, id: string): ReaderTabs => ({ ...state, active: id }),
+  back: <R>(state: ReaderTabs<R>): ReaderTabs<R> => withActive(state, (t) => (t.trail.length > 1 ? { ...t, trail: t.trail.slice(0, -1) } : t)),
+  select: <R>(state: ReaderTabs<R>, id: string): ReaderTabs<R> => ({ ...state, active: id }),
   /** Closing the tab on screen hands over to its right neighbour, else its left. */
-  close: (state: ReaderTabs, id: string): ReaderTabs => {
+  close: <R>(state: ReaderTabs<R>, id: string): ReaderTabs<R> => {
     const index = state.tabs.findIndex((t) => t.id === id)
     const tabs = state.tabs.filter((t) => t.id !== id)
     const active = state.active === id ? (tabs[index] ?? tabs[index - 1])?.id : state.active
@@ -60,4 +63,4 @@ export const readerSteps = {
   }
 }
 
-export const EMPTY_READER: ReaderTabs = { tabs: [], active: undefined }
+export const EMPTY_READER: ReaderTabs<never> = { tabs: [], active: undefined }

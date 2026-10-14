@@ -6,7 +6,7 @@ import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
 import { replayBefore, type TranscriptModel } from './use-transcript-model'
 import type { WorktreeAgent } from './use-worktree-agent'
-import { approvalStep, boxInfo, DEEPER, detailBoard, nextMode, notesCount, notesMessage, PLAN_EVENTS, readApprovals, readLayout, readMode, readNotes, sessionCost, writeApprovals, writeLayout, writeNotes, type BoardLayout, type BoxNotes } from './whiteboard'
+import { approvalStep, boxInfo, detailBoard, nextMode, notesCount, notesMessage, PLAN_EVENTS, readApprovals, readLayout, readMode, readNotes, sessionCost, writeApprovals, writeLayout, writeNotes, type BoardLayout, type BoxNotes } from './whiteboard'
 
 /**
  * The whiteboard of the conversation on screen: the plan its transcript adds up to (replay plus the
@@ -87,6 +87,8 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
   }
 
   return {
+    /** The session the boards belong to, once it has one. */
+    sessionId,
     view,
     approval,
     mode: agent.whiteboard,
@@ -95,7 +97,8 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
     move,
     cost: useMemo(() => sessionCost(model.transcript.turns), [model.transcript.turns]),
     ask: (ref: BoxRef, label: string, question: string) => send(boxMessage(ref, label, question), `About ${label}: ${question}`),
-    deeper: (ref: BoxRef, label: string) => send(boxMessage(ref, label, DEEPER), `Go deeper into ${label}`),
+    /** Has the agent write the box up on the whiteboard as a detail board, answering `question` too when there is one. */
+    draw: (ref: BoxRef, label: string, question = '') => send(boxMessage(ref, label, question, true), question ? `Draw ${label} in the whiteboard: ${question}` : `Draw ${label} in the whiteboard`),
     /**
      * Into a box: its detail board when it has one (`show` brings it up), else the agent is asked to
      * draw it. Answers what happened, so the host can show the box while the drawing is on its way.
@@ -108,7 +111,7 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
       }
       const label = boxInfo(view.state, ref)?.node.label
       if (!label) return 'none'
-      send(boxMessage(ref, label, DEEPER), `Go deeper into ${label}`)
+      send(boxMessage(ref, label, '', true), `Draw ${label} in the whiteboard`)
       return 'asked'
     },
     /** A question about a passage the reader selected on a board (`ref` its id) or in the plan document (`plan`). */

@@ -13,7 +13,7 @@ import { ErrorBoundary } from '@/components/error-boundary'
 import { ShellSlot } from '@/components/shell-slots'
 import { IconAction } from '@/components/icon-action'
 import { pruneLayout } from '@/lib/prune-layout'
-import { PaneSplitDirection, closePane as closePaneOp, collectPanes, setSplitWeights, splitPane, type AppShellLayout, type LayoutNode, type PaneNode, type SplitNode } from '@/lib/app-shell-layout'
+import { PaneSplitDirection, closePane as closePaneOp, collectPanes, restorePane, setSplitWeights, splitPane, type AppShellLayout, type LayoutNode, type PaneNode, type SplitNode } from '@/lib/app-shell-layout'
 import { placementOf, reinsertPane, type Placement } from '@/lib/panel-placement'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -237,11 +237,17 @@ export function PanelShell({
     [storageKey]
   )
 
-  /** Puts a closed panel back where it was, or beside the active pane when that spot is gone. */
+  /**
+   * Puts a closed panel back where it was, or beside the active pane when that spot is gone. A
+   * maximized pane hides every other, so it is restored first — else the panel opens out of sight.
+   */
   const openPanel = useCallback(
     (id: string, share?: number) =>
-      apply((current) => {
-        if (paneOf(current, id)) return current
+      apply((layout) => {
+        const open = paneOf(layout, id)
+        if (open && layout.workspace.maximizedPaneId === open.id) return layout
+        const current = restorePane(layout)
+        if (open) return current
         const paneId = `pane-${id}-${Date.now()}`
         const remembered = closedAt.current.get(id)
         const reinserted = remembered && reinsertPane(current, id, remembered, paneId)

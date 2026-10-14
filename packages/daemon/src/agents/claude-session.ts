@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 
-import type { Effort } from '@canopy/shared'
+import { qualifiedPlanTool, type Effort } from '@canopy/shared'
 
 const EFFORTS = new Set<string>(['low', 'medium', 'high', 'xhigh', 'max'])
 
@@ -107,4 +107,29 @@ export async function readSessionExtras(cwd: string | undefined, sessionId: stri
   } catch {
     return { queued: [], localOutputs: [] }
   }
+}
+
+/**
+ * Whether a transcript holds a whiteboard plan rather than an explanation. Both draw boards with the
+ * same tools under the same permission mode, so the plan is told by what only plan mode does: a
+ * board with a before picture, a plan sent for approval, or progress and decisions built against it.
+ */
+export function holdsPlan(jsonl: string): boolean {
+  const call = (tool: string): string => `"name":"${tool}"`
+  const drew = call(qualifiedPlanTool('draw_board'))
+  if (!jsonl.includes(drew)) return false
+  if ([call('ExitPlanMode'), call(qualifiedPlanTool('set_progress')), call(qualifiedPlanTool('link_decision'))].some((tool) => jsonl.includes(tool))) return true
+  return jsonl.split('\n').some((line) => line.includes(drew) && line.includes('"before":'))
+}
+
+const planned = new Map<string, { at: number; planned: boolean }>()
+
+/** Whether the session drew a whiteboard plan; cached per file change, since listings poll. */
+export async function drewPlan(cwd: string | undefined, sessionId: string, at: number): Promise<boolean> {
+  if (!cwd) return false
+  const cached = planned.get(sessionId)
+  if (cached?.at === at) return cached.planned
+  const found = await readFile(sessionFilePath(cwd, sessionId), 'utf8').then(holdsPlan, () => false)
+  planned.set(sessionId, { at, planned: found })
+  return found
 }

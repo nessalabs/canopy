@@ -12,7 +12,7 @@ import type { PermissionDecisionInput } from '@canopy/shared'
  * so a stale answer for a finished turn is a miss (`answer` returns false) rather than a crash.
  */
 export class PermissionDesk {
-  private readonly parked = new Map<string, (decision: PermissionDecisionInput) => void>()
+  private readonly parked = new Map<string, { tool: string; settle: (decision: PermissionDecisionInput) => void }>()
 
   private static key(sessionId: string, requestId: string): string {
     return `${sessionId}:${requestId}`
@@ -23,7 +23,7 @@ export class PermissionDesk {
    * the caller owes the SDK a `PermissionResult` either way, and a rejection there would strand
    * the tool call — the SDK has no deadline of its own on a permission prompt.
    */
-  ask(sessionId: string, requestId: string, signal?: AbortSignal): Promise<PermissionDecisionInput> {
+  ask(sessionId: string, requestId: string, signal?: AbortSignal, tool = ''): Promise<PermissionDecisionInput> {
     const key = PermissionDesk.key(sessionId, requestId)
     return new Promise((resolve) => {
       const settle = (decision: PermissionDecisionInput): void => {
@@ -33,7 +33,7 @@ export class PermissionDesk {
       }
       const onAbort = (): void => settle({ requestId, behavior: 'deny' })
 
-      this.parked.set(key, settle)
+      this.parked.set(key, { tool, settle })
       if (signal?.aborted) onAbort()
       else signal?.addEventListener('abort', onAbort, { once: true })
     })
@@ -41,10 +41,18 @@ export class PermissionDesk {
 
   /** False when nothing is parked under that id — the turn ended, or the answer is a duplicate. */
   answer(sessionId: string, input: PermissionDecisionInput): boolean {
-    const settle = this.parked.get(PermissionDesk.key(sessionId, input.requestId))
-    if (!settle) return false
-    settle(input)
+    const parked = this.parked.get(PermissionDesk.key(sessionId, input.requestId))
+    if (!parked) return false
+    parked.settle(input)
     return true
+  }
+
+  /** Allows every ask still waiting on this session, but for the tools in `unless`. */
+  allowPending(sessionId: string, unless: readonly string[] = []): void {
+    for (const requestId of this.pending(sessionId)) {
+      const parked = this.parked.get(PermissionDesk.key(sessionId, requestId))
+      if (parked && !unless.includes(parked.tool)) parked.settle({ requestId, behavior: 'allow' })
+    }
   }
 
   /** Request ids still waiting on this session. */

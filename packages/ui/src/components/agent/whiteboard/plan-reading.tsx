@@ -21,7 +21,13 @@ export function PlanReading({ whiteboard, onAnswer }: { whiteboard: Whiteboard; 
   const text = planText(whiteboard)
   return (
     <div ref={root} className="flex h-full min-h-0 flex-col">
-      <SelectionActions host={root} onAsk={(passage) => whiteboard.quote('plan', passage)} askLabel="Ask the agent" askHint="Explain what this is and how it fits in" />
+      <SelectionActions
+        host={root}
+        onAsk={(passage) => whiteboard.quote('plan', passage)}
+        askLabel="Ask the agent"
+        askHint="Explain what this is and how it fits in"
+        highlights={whiteboard.sessionId && `plan:${whiteboard.sessionId}`}
+      />
       <div className="flex min-h-0 flex-1 flex-col p-3">
         {text ? <PlanDocument text={text} defaultOpen fill /> : <p className="text-xs text-muted-foreground">No plan yet — it appears once the agent draws its first board.</p>}
       </div>

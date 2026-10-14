@@ -6,11 +6,13 @@ import { useHashLocation } from 'wouter/use-hash-location'
 import { AppLayout } from './components/app-layout'
 import { BackgroundJobs } from './components/background-jobs'
 import { ExternalLinks } from './components/external-links'
+import { CodeBlockProvider } from './components/ui/code-block'
 import { DiagramWindowProvider } from './components/ui/mermaid-diagram'
 import { TooltipProvider } from './components/ui/tooltip'
 import { connectionStore } from './lib/connection-store'
 import { CanopyEventsProvider } from './lib/events-provider'
 import { diagramWindowHash, fileWindowParams, stashDiagram } from './lib/pop-out'
+import { useTheme } from './lib/use-theme'
 import { ApiProvider } from './providers/api'
 import { PlatformProvider, openAppWindow, type DaemonConnection, type Platform } from './providers/platform'
 import { AppSettingsScreen } from './screens/app-settings-screen'
@@ -72,6 +74,8 @@ function Routes(): React.JSX.Element {
 export function CanopyApp({ platform, titleBarInset = false, initialConnection, openExternal, openWindow = openAppWindow }: CanopyAppProps): React.JSX.Element {
   const [connection, setConnection] = useState<DaemonConnection | null>(() => initialConnection ?? connectionStore.load())
   const [queryClient] = useState(() => new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 2000 } } }))
+  // Code, diagrams and tool output follow the app's light/dark choice, not the OS's.
+  const { theme } = useTheme()
 
   // AppLayout reserves the traffic-light strip in its own chrome, but surfaces that cover the
   // whole window — the fullscreen diagram viewer — sit outside that layout. Publishing the
@@ -98,21 +102,23 @@ export function CanopyApp({ platform, titleBarInset = false, initialConnection, 
     <PlatformProvider value={{ platform, titleBarInset, openExternal: openExternal ?? ((url) => window.open(url, '_blank', 'noopener')), openWindow }}>
       <ExternalLinks />
       <TooltipProvider>
-        {connection ? (
-          <ApiProvider connection={connection}>
-            <QueryClientProvider client={queryClient}>
-              <CanopyEventsProvider>
-                <DiagramWindowProvider open={openDiagramWindow}>
-                  <Router hook={useHashLocation}>
-                    <Routes />
-                  </Router>
-                </DiagramWindowProvider>
-              </CanopyEventsProvider>
-            </QueryClientProvider>
-          </ApiProvider>
-        ) : (
-          <ConnectScreen initial={initialConnection} hint={HINTS[platform]} onConnect={connect} />
-        )}
+        <CodeBlockProvider mode={theme}>
+          {connection ? (
+            <ApiProvider connection={connection}>
+              <QueryClientProvider client={queryClient}>
+                <CanopyEventsProvider>
+                  <DiagramWindowProvider open={openDiagramWindow}>
+                    <Router hook={useHashLocation}>
+                      <Routes />
+                    </Router>
+                  </DiagramWindowProvider>
+                </CanopyEventsProvider>
+              </QueryClientProvider>
+            </ApiProvider>
+          ) : (
+            <ConnectScreen initial={initialConnection} hint={HINTS[platform]} onConnect={connect} />
+          )}
+        </CodeBlockProvider>
       </TooltipProvider>
     </PlatformProvider>
   )

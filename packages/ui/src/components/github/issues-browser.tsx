@@ -10,7 +10,8 @@ import { ChatTabs } from '@/components/ui/chat-tabs'
 import { Input } from '@/components/ui/input'
 import { useIssueAssignees, useIssueSearch } from '@/lib/api-hooks'
 import { relativeTime } from '@/lib/format'
-import { EMPTY_READER, readerSteps, type Reading, type ReaderTabs } from '@/lib/reader-tabs'
+import type { Reading } from '@/lib/reader-tabs'
+import { type Reader } from '@/lib/use-reader'
 import { tabPanelProps } from '@/lib/tab-panel'
 import { useDebounced } from '@/lib/use-debounced'
 import { cn } from '@/lib/utils'
@@ -24,28 +25,6 @@ const PAGE = 10
 
 const titleOf = (reading: Reading): string => (reading.kind === 'issue' ? `#${reading.number}` : reading.kind === 'github' ? attachmentName(reading.url) : reading.kind === 'plan' ? 'Plan' : reading.attachment.label)
 
-/** A reader's tabs and the steps that move them, for a pane that reads issues and attachments. */
-export function useReader() {
-  const [state, setState] = useState<ReaderTabs>(EMPTY_READER)
-  const step =
-    <Args extends unknown[]>(fn: (state: ReaderTabs, ...args: Args) => ReaderTabs) =>
-    (...args: Args): void =>
-      setState((current) => fn(current, ...args))
-  const tab = state.tabs.find((t) => t.id === state.active)
-  return {
-    state,
-    current: tab?.trail.at(-1),
-    previous: tab?.trail.at(-2),
-    show: step(readerSteps.show),
-    open: step(readerSteps.open),
-    follow: step(readerSteps.follow),
-    back: step(readerSteps.back),
-    select: step(readerSteps.select),
-    close: step(readerSteps.close)
-  }
-}
-
-export type Reader = ReturnType<typeof useReader>
 
 function IssueListRow({ item, active, onPick }: { item: IssueSummary; active: boolean; onPick: (newTab: boolean) => void }): React.JSX.Element {
   return (

@@ -5,7 +5,8 @@ import type { AgentProvider, RewindResult, SessionRef, Worktree } from '@canopy/
 import type { Turn } from '@canopy/shared/agent-stream'
 import { AgentEventType, isEvent } from '@canopy/shared/agent-stream'
 
-import { ReaderPane, useReader } from '@/components/github/issues-browser'
+import { ReaderPane } from '@/components/github/issues-browser'
+import { useReader } from '@/lib/use-reader'
 import { PanelShell, type PanelDef, type PanelRequest } from '@/components/panel-shell'
 import { ShellSlot } from '@/components/shell-slots'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
