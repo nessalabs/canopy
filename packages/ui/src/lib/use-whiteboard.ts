@@ -45,13 +45,14 @@ export function useWhiteboard(agent: WorktreeAgent, model: TranscriptModel) {
   const waiting = agent.turn.busy && agent.whiteboard === undefined
 
   /** A message from the board: in whiteboard mode even when the composer is not, so the answer can draw. */
-  const send = (text: string, display: string, mode?: WhiteboardMode): void => {
-    if (waiting) return
+  const send = (text: string, display: string, mode?: WhiteboardMode): boolean => {
+    if (waiting) return false
     const drawing = mode ?? agent.whiteboard ?? 'explain'
     if (!agent.whiteboard) agent.setWhiteboard(drawing)
     const shown = { display, attachments: [], images: [] }
     // A running turn takes the message as it is — it already runs in whiteboard mode.
     void (agent.turn.busy ? agent.turn.queueMessage(text, shown) : agent.turn.sendMessage(text, { ...shown, options: { whiteboard: drawing } }))
+    return true
   }
 
   // Notes and where boards were dragged stay in this browser, per session.

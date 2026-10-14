@@ -66,6 +66,7 @@ interface Deps {
   sessions: SessionLister
   gitAgent: Pick<GitAgentStore, 'sessions'>
   live: LiveState
+  log?: { warn(details: object, message: string): void }
 }
 
 /**
@@ -73,10 +74,17 @@ interface Deps {
  * visits are placed last and each session is filed under the checkout it started in. A checkout
  * whose listing fails is left out rather than failing the panel.
  */
-export async function listFleet({ worktrees, sessions, gitAgent, live }: Deps): Promise<FleetAgent[]> {
+export async function listFleet({ worktrees, sessions, gitAgent, live, log }: Deps): Promise<FleetAgent[]> {
   const rows = worktrees.present()
   const canopy = new Set(rows.flatMap((row) => gitAgent.sessions(row.id).map(key)))
-  const lists = await Promise.all(rows.map((row) => sessions.list({ id: row.id, path: row.path }, FLEET_PER_WORKTREE).catch(() => [])))
+  const lists = await Promise.all(
+    rows.map((row) =>
+      sessions.list({ id: row.id, path: row.path }, FLEET_PER_WORKTREE).catch((err: unknown) => {
+        log?.warn({ err, worktree: row.id }, 'fleet: checkout sessions not listed')
+        return []
+      })
+    )
+  )
   const listed = rows
     .flatMap((row, i) => lists[i]!.map((session) => ({ row, session })))
     .sort((a, b) => Number(Boolean(a.session.visiting)) - Number(Boolean(b.session.visiting)))
