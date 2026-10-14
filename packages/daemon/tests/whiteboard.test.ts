@@ -1,3 +1,7 @@
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 import { describe, expect, it } from 'vitest'
 
 import { EMPTY_PLAN, type PlanState } from '@canopy/shared'
@@ -21,6 +25,23 @@ describe('checkoutFiles', () => {
     expect(exists('../package.json')).toBe(false)
     expect(exists('..')).toBe(false)
     expect(exists(`${process.cwd()}/package.json`)).toBe(false)
+  })
+
+  it('counts a symlink by where it leads, so one out of the checkout is outside', () => {
+    const root = mkdtempSync(join(tmpdir(), 'canopy-refs-'))
+    try {
+      mkdirSync(join(root, 'checkout', 'src'), { recursive: true })
+      writeFileSync(join(root, 'checkout', 'src', 'a.ts'), '')
+      writeFileSync(join(root, 'secret.txt'), '')
+      symlinkSync(join(root, 'secret.txt'), join(root, 'checkout', 'leak.txt'))
+      symlinkSync(join(root, 'checkout', 'src', 'a.ts'), join(root, 'checkout', 'alias.ts'))
+      const exists = checkoutFiles(join(root, 'checkout'))
+      expect(exists('leak.txt')).toBe(false)
+      expect(exists('alias.ts')).toBe(true)
+      expect(exists('src/a.ts')).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

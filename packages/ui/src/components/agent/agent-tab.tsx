@@ -198,9 +198,12 @@ export function AgentTab({ worktree, agent }: { worktree: Worktree; agent: Workt
     if (panel) setMobilePanel(panel)
   }
   // A box cites files relative to the checkout its session runs in, which need not be the one on screen.
+  // Until the worktree list says which that is, a reference does not open: guessing this one would
+  // read the file from the wrong checkout.
   const origin = agent.selected?.origin
-  const codeWorktree = origin ? (worktrees.data?.find((other) => other.id === origin.worktreeId || other.path === origin.runIn) ?? worktree) : worktree
+  const codeWorktree = !origin ? worktree : worktrees.data ? (worktrees.data.find((other) => other.id === origin.worktreeId || other.path === origin.runIn) ?? worktree) : undefined
   const openRef = (ref: string): void => {
+    if (!codeWorktree) return
     setCode({ ref, worktreeId: codeWorktree.id })
     reveal('code', 'code')
   }
