@@ -109,7 +109,11 @@ const DEFAULT_PENS = ['yellow', 'green', 'pink']
 
 /** The pens on the highlighter's rail, yellow first, and the rest of the palette "+" can add. */
 export function usePens(): { pens: HighlightSwatch[]; more: HighlightSwatch[]; add: (pen: HighlightSwatch) => void } {
-  const [ids, setIds] = useState<string[]>(() => readStored<string[]>(PENS) ?? DEFAULT_PENS)
+  // A stored rail with no pen the palette knows would hide the highlighter for good: start over then.
+  const [ids, setIds] = useState<string[]>(() => {
+    const stored = (readStored<string[]>(PENS) ?? []).filter((id) => HIGHLIGHT_SWATCHES.some((pen) => pen.id === id))
+    return stored.length > 0 ? stored : DEFAULT_PENS
+  })
   const pens = ids.flatMap((id) => HIGHLIGHT_SWATCHES.filter((pen) => pen.id === id))
   return {
     pens,

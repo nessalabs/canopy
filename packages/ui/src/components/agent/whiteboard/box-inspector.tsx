@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowRight, CircleHelp, FileCode2, FileDiff, Layers, Lightbulb, StickyNote, X } from 'lucide-react'
 
-import { PART_STATUS, type ProgressStatus } from '@canopy/shared'
+import { boxKey, PART_STATUS, type ProgressStatus } from '@canopy/shared'
 
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -237,7 +237,7 @@ export function BoxInspector({ info, thread, busy, waiting = false, onAsk, onDra
     </>
   )
   return (
-    <Drawer label={`About ${info.node.label}`} title={title} onClose={onClose} footer={<AskBox label={info.node.label} busy={busy} waiting={waiting} onAsk={onAsk} onDraw={onDraw} quote={quote} onDropQuote={onDropQuote} />} className={className}>
+    <Drawer label={`About ${info.node.label}`} title={title} onClose={onClose} footer={<AskBox key={boxKey(info.ref)} label={info.node.label} busy={busy} waiting={waiting} onAsk={onAsk} onDraw={onDraw} quote={quote} onDropQuote={onDropQuote} />} className={className}>
       <>
         {info.note ? <p className="text-sm leading-relaxed">{info.note.explain}</p> : <p className="text-sm text-muted-foreground">The agent has not explained this box yet.</p>}
         {info.note?.why ? (
