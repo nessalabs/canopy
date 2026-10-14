@@ -135,11 +135,16 @@ export function progressSummary(state: PlanState): { done: number; doing: number
   return { done: marks.filter((mark) => mark === 'done').length, doing: marks.filter((mark) => mark === 'doing').length }
 }
 
-/** What "go deeper" sends the agent; shown to the reader as the button they pressed. */
-export const DEEPER = 'Go deeper: read the code behind this box and draw what is inside it as a detail board.'
+/** What the old "go deeper" button sent, before a box question could ask for a drawing itself; still in older transcripts. */
+const DEEPER = 'Go deeper: read the code behind this box and draw what is inside it as a detail board.'
 
-/** The words of a box question as the reader asked them. */
-export const boxQuestion = (text: string): string => (text.trim() === DEEPER ? 'Go deeper' : text.trim())
+/** The words of a box question as the reader asked them, saying so when they asked for it drawn. */
+export function boxQuestion({ text, draw }: { text: string; draw?: true }): string {
+  const legacy = text.trim() === DEEPER
+  const question = legacy ? '' : text.trim()
+  if (!draw && !legacy) return question
+  return question ? `Draw in whiteboard: ${question}` : 'Draw in whiteboard'
+}
 
 export interface ThreadEntry {
   id: string
@@ -149,7 +154,7 @@ export interface ThreadEntry {
 
 /** A whiteboard message as the reader wrote it: the question, or the choice they made. */
 const QUESTION_OF: { [K in WhiteboardMessage['kind']]: (message: Extract<WhiteboardMessage, { kind: K }>) => string } = {
-  box: (message) => boxQuestion(message.text),
+  box: (message) => boxQuestion(message),
   quote: (message) => message.text.trim(),
   decision: (message) => message.choices.map((choice) => `Chose “${choice.label}”${choice.note ? ` — ${choice.note}` : ''}`).join('; ')
 }
@@ -193,7 +198,7 @@ const gist = (text: string | null | undefined): string | undefined => {
 }
 
 const YOU_ASKED: Partial<Record<WhiteboardMessage['kind'], (message: WhiteboardMessage) => string>> = {
-  box: (message) => (message.kind === 'box' ? `About “${message.label}”: ${boxQuestion(message.text)}` : ''),
+  box: (message) => (message.kind === 'box' ? `About “${message.label}”: ${boxQuestion(message)}` : ''),
   quote: (message) => (message.kind === 'quote' ? `“${message.quote}” — ${message.text.trim()}` : '')
 }
 

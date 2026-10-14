@@ -6,7 +6,6 @@ import { STARTER_CANOPY_YAML, parseCanopyYaml, reportFor, type ConfigProposal, t
 
 import { ErrorNote } from '@/components/error-note'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator, type SplitViewLayout } from '@/components/split-view'
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { CodeBlock } from '@/components/ui/code-block'
@@ -21,55 +20,86 @@ import { TabHeader } from './settings-chrome'
 import { plural } from '@/lib/format'
 import { readStored, writeStored } from '@/lib/local-store'
 
-interface ReferenceEntry {
-  key: string
-  summary: string
-  example: string
-}
+/** Every top-level key of the schema in `packages/shared/src/schemas/environment.ts`, as one commented example. */
+const YAML_REFERENCE = `# Schema version. Always 1 today; the daemon refuses a file without it.
+version: 1
 
-/** One short entry per top-level key of the schema in `packages/shared/src/schemas/environment.ts`. */
-const YAML_REFERENCE: ReferenceEntry[] = [
-  { key: 'version', summary: 'Schema version. Always 1 today; the daemon refuses a file without it.', example: 'version: 1' },
-  { key: 'name', summary: 'Display name for the app this repo runs. Optional — the project name is used otherwise.', example: 'name: my-app' },
-  {
-    key: 'defaults',
-    summary: 'Fallbacks for every service: runtime (host | docker | compose) and an env map layered under all of them.',
-    example: 'defaults:\n  runtime: host\n  env:\n    NODE_ENV: development'
-  },
-  {
-    key: 'env',
-    summary: 'Project-wide environment, layered over defaults.env and under each service. Templates resolve here too.',
-    example: 'env:\n  LOG_LEVEL: debug\n  API_URL: "http://localhost:${ports.api}"'
-  },
-  {
-    key: 'ports',
-    summary: 'Named ports. Every worktree gets its own free number — stable per branch — with preferred tried first and range constraining the search. Reference one as ${ports.name}.',
-    example: 'ports:\n  web: {}\n  api: { preferred: 4000 }\n  metrics: { range: [42000, 42999] }'
-  },
-  {
-    key: 'databases',
-    summary:
-      'Databases forked per worktree: postgres, mysql, sqlite or redis. seed takes one of dump, sql or command; sqlite copies source; env names the variable that receives the fork URL (default <NAME>_URL); templates get ${db.name.url} plus the parts ${db.name.host}, .port, .database, .user, .password for other driver schemes; redis may run on the host instead of docker.',
-    example: 'databases:\n  main:\n    adapter: postgres\n    version: "16"\n    seed: { dump: ./db/seed.dump }\n    env: DATABASE_URL\n  cache:\n    adapter: redis\n    runtime: host'
-  },
-  {
-    key: 'setup',
-    summary: 'Ordered commands run once while provisioning, with the resolved env. Each step takes run, name, cwd, env and if_changed — globs whose content matching the source checkout skips the step. A bare string is shorthand for { run }.',
-    example: 'setup:\n  - run: npm ci\n    if_changed: [package-lock.json]\n  - run: npm run db:migrate\n    name: migrate\n    cwd: apps/api'
-  },
-  {
-    key: 'services',
-    summary:
-      'What runs. run (+ cwd, env, ports), runtime host | docker | compose, health as http, tcp or cmd with interval/timeout/retries/start_period, depends_on for ordering, restart never | on-failure | always, autostart false to register without starting, docker { image, dockerfile, context, volumes, args, user, workdir }, compose { file, services, profiles }, stop_signal and stop_timeout.',
-    example:
-      'services:\n  api:\n    run: npm run dev:api\n    cwd: apps/api\n    env: { PORT: "${ports.api}" }\n    health:\n      http: "http://localhost:${ports.api}/healthz"\n      interval: 3s\n      retries: 10\n    depends_on: [worker]\n    restart: on-failure\n  worker:\n    runtime: docker\n    run: node worker.js\n    docker: { image: node:22, workdir: /workspace }'
-  },
-  {
-    key: 'env_file',
-    summary: 'Dotenv Canopy writes into each worktree with ports, database URLs and env resolved. Point your tooling at it, or set false to skip it.',
-    example: 'env_file: .env.canopy'
-  }
-]
+# Display name for the app this repo runs. Optional — the project name is used otherwise.
+name: my-app
+
+# Fallbacks for every service: runtime (host | docker | compose) and an env map
+# layered under all of them.
+defaults:
+  runtime: host
+  env:
+    NODE_ENV: development
+
+# Project-wide environment, layered over defaults.env and under each service.
+# Templates resolve here too.
+env:
+  LOG_LEVEL: debug
+  API_URL: "http://localhost:\${ports.api}"
+
+# Named ports. Every worktree gets its own free number — stable per branch.
+# preferred is tried first; range constrains the search. Reference one as \${ports.name}.
+ports:
+  web: {}
+  api: { preferred: 4000 }
+  metrics: { range: [42000, 42999] }
+
+# Databases forked per worktree: postgres, mysql, sqlite or redis.
+#   seed     one of dump, sql or command (sqlite copies source: instead)
+#   env      variable that receives the fork URL (default <NAME>_URL)
+# Templates get \${db.name.url} plus .host, .port, .database, .user, .password
+# for other driver schemes. redis may run on the host instead of docker.
+databases:
+  main:
+    adapter: postgres
+    version: "16"
+    seed: { dump: ./db/seed.dump }
+    env: DATABASE_URL
+  cache:
+    adapter: redis
+    runtime: host
+
+# Ordered commands run once while provisioning, with the resolved env.
+# Each step takes run, name, cwd, env and if_changed — globs whose content matching
+# the source checkout skips the step. A bare string is shorthand for { run }.
+setup:
+  - run: npm ci
+    if_changed: [package-lock.json]
+  - run: npm run db:migrate
+    name: migrate
+    cwd: apps/api
+
+# What runs. Each service takes:
+#   run (+ cwd, env, ports)    runtime host | docker | compose
+#   health http, tcp or cmd with interval / timeout / retries / start_period
+#   depends_on for ordering    restart never | on-failure | always
+#   autostart false to register without starting
+#   docker { image, dockerfile, context, volumes, args, user, workdir }
+#   compose { file, services, profiles }
+#   stop_signal and stop_timeout
+services:
+  api:
+    run: npm run dev:api
+    cwd: apps/api
+    env: { PORT: "\${ports.api}" }
+    health:
+      http: "http://localhost:\${ports.api}/healthz"
+      interval: 3s
+      retries: 10
+    depends_on: [worker]
+    restart: on-failure
+  worker:
+    runtime: docker
+    run: node worker.js
+    docker: { image: node:22, workdir: /workspace }
+
+# Dotenv Canopy writes into each worktree with ports, database URLs and env resolved.
+# Point your tooling at it, or set false to skip it.
+env_file: .env.canopy
+`
 
 /** The canopy.yaml tab. */
 /** How wide the editor and the agent were left, kept across visits. */
@@ -145,7 +175,7 @@ export function YamlTab({ project }: { project: Project }): React.JSX.Element {
 
       {/* The page's full height, split: the file scrolls on its own and the agent runs top to bottom, as wide as it was dragged. */}
       <SplitView orientation={SplitViewOrientation.Horizontal} defaultLayout={split} onLayoutCommit={(layout) => writeStored(SPLIT_KEY, layout)} className="min-h-0 flex-1">
-        <SplitViewPanel id="editor" minSize={30} className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-3">
+        <SplitViewPanel id="editor" minSize={30} className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto pr-3 *:shrink-0">
           {missing ? (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/40 p-3 text-xs">
               <span className="text-muted-foreground">
@@ -274,17 +304,7 @@ export function YamlTab({ project }: { project: Project }): React.JSX.Element {
               {main ? <ConfigAgentPanel projectId={project.id} worktree={main} onProposal={propose} saved={savedProposal} /> : null}
             </TabsContent>
             <TabsContent value="reference" className="min-h-0 flex-1 overflow-y-auto">
-              <Accordion type="multiple" className="rounded-lg border border-border px-3">
-                {YAML_REFERENCE.map((entry) => (
-                  <AccordionItem key={entry.key} value={entry.key}>
-                    <AccordionTrigger className="font-mono text-xs">{entry.key}:</AccordionTrigger>
-                    <AccordionContent>
-                      <p className="text-xs text-muted-foreground">{entry.summary}</p>
-                      <pre className="mt-2 overflow-x-auto rounded-md bg-muted/50 p-2 font-mono text-[10px] leading-relaxed">{entry.example}</pre>
-                    </AccordionContent>
-                  </AccordionItem>
-                ))}
-              </Accordion>
+              <CodeBlock code={YAML_REFERENCE} language="yaml" filename="canopy.yaml reference" />
             </TabsContent>
           </Tabs>
         </SplitViewPanel>

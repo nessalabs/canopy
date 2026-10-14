@@ -3,6 +3,8 @@ import { createPortal } from 'react-dom'
 import { Check, Copy, MessageSquareQuote } from 'lucide-react'
 
 import { containsAcross, selectionAt } from '@/lib/dom-selection'
+import { useHighlights, usePens } from '@/lib/use-highlights'
+import { HighlightPicker } from '@/components/ui/highlight-picker'
 import { SelectionTooltip, SelectionTooltipAction, SelectionTooltipLabel, SelectionTooltipSeparator } from '@/components/ui/selection-tooltip'
 
 /** Selected text, the range it spans, and where it sits on screen, in viewport coordinates. */
@@ -93,13 +95,49 @@ function useSelectionIn(host: React.RefObject<HTMLElement | null>): { selected: 
   return { selected, release }
 }
 
+/** The highlighter pen at the end of the pill: paints the selection, or erases what is under it. */
+function Pen({ highlights, range, onDone }: { highlights: ReturnType<typeof useHighlights>; range: Range; onDone: () => void }): React.JSX.Element {
+  const { pens, more, add } = usePens()
+  // The pen lets go of the selection, so the stroke shows instead of the selection drawn over it.
+  const paint = (color: string): void => {
+    highlights.paint(range, color)
+    onDone()
+  }
+  return (
+    <>
+      <SelectionTooltipSeparator />
+      <HighlightPicker
+        colors={pens}
+        more={more}
+        onPick={(pen) => paint(pen.id)}
+        onAdd={(pen) => {
+          add(pen)
+          paint(pen.id)
+        }}
+        onClear={
+          highlights.touches(range)
+            ? () => {
+                highlights.erase(range)
+                onDone()
+              }
+            : undefined
+        }
+      />
+    </>
+  )
+}
+
 /**
  * What you can do with text you highlighted — in the transcript, or in a PR's diff: put it on the
- * clipboard, or hand it to an agent's composer as context for the next turn. Floats just above the selection —
- * below it near the top of the window — and stays out of the way until there is one.
+ * clipboard, or hand it to an agent's composer as context for the next turn, and, where the host
+ * names a `highlights` scope, mark it with a highlighter pen that is remembered under that scope.
+ * Floats just above the selection — below it near the top of the window — and stays out of the
+ * way until there is one.
  */
-export function SelectionActions({ host, onAsk, askLabel = 'Ask agent', askHint = 'Stage this text as context for your next message' }: {
+export function SelectionActions({ host, onAsk, askLabel = 'Ask agent', askHint = 'Stage this text as context for your next message', highlights: scope }: {
   host: React.RefObject<HTMLElement | null>
+  /** Where this host's highlights are remembered; omitted, there is no highlighter. */
+  highlights?: string
   /** Stages the selected text as context on the composer; the range says where it was taken from. */
   onAsk?: (text: string, range: Range) => void
   /** Names the agent the text goes to. */
@@ -108,6 +146,7 @@ export function SelectionActions({ host, onAsk, askLabel = 'Ask agent', askHint 
   askHint?: string
 }): React.JSX.Element | null {
   const { selected, release } = useSelectionIn(host)
+  const highlights = useHighlights(host, scope)
   const [copied, setCopied] = useState(false)
   const timer = useRef<number>(undefined)
   useEffect(() => () => window.clearTimeout(timer.current), [])
@@ -185,6 +224,7 @@ export function SelectionActions({ host, onAsk, askLabel = 'Ask agent', askHint 
           </SelectionTooltipAction>
         </>
       ) : null}
+      {scope ? <Pen highlights={highlights} range={selected.range} onDone={release} /> : null}
     </SelectionTooltip>,
     document.body
   )

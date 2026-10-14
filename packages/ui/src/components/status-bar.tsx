@@ -111,7 +111,7 @@ export function StatusBar({ filesOpen, filesDisabled, onToggleFiles, agentsOpen,
   const pressed = 'bg-accent text-foreground'
   return (
     <footer className="flex h-8 shrink-0 items-center gap-0.5 border-t border-border bg-sidebar px-1.5 font-mono text-xs text-muted-foreground">
-      <IconAction label="Sidebar  [" pressed={sidebarOpen} className={cn('w-7', sidebarOpen && pressed)} onClick={toggleSidebar}>
+      <IconAction label="Sidebar  ⌘/Ctrl+B" pressed={sidebarOpen} className={cn('w-7', sidebarOpen && pressed)} onClick={toggleSidebar}>
         <PanelLeft className="size-3.5" />
       </IconAction>
       <IconAction label={filesDisabled ? 'Files — open a worktree first' : 'Files  \\'} pressed={filesOpen} className={cn('w-7', filesOpen && pressed)} onClick={filesDisabled ? () => undefined : onToggleFiles}>

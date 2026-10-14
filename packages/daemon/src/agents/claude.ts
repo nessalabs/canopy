@@ -12,7 +12,7 @@ import { createLiveTurn, LiveTurns, PromptChannel, type LiveQuery } from './clau
 import { mapClaudeMessage, usageFrom } from './claude-map'
 import { rewindClaudeFiles } from './claude-rewind'
 import type { WireMessage } from './claude-normalize'
-import { readSessionExtras, type LocalCommandOutput, type QueuedPrompt } from './claude-session'
+import { drewPlan, readSessionExtras, type LocalCommandOutput, type QueuedPrompt } from './claude-session'
 import { liveSessionFor, liveSessions } from './claude-terminal'
 import { slim } from './events'
 import { toImageBlocks } from './images'
@@ -149,6 +149,8 @@ export class ClaudeAdapter implements AgentAdapter {
     if (!turn) return false
     if (input.model) await turn.setModel(input.model)
     if (input.autonomy) await turn.setPermissionMode(PERMISSION_MODE[input.autonomy])
+    // Full access answers what is already waiting too — but a plan or a question is a decision, not a permission.
+    if (input.autonomy === 'full') this.permissions.allowPending(sessionId, ['ExitPlanMode', 'AskUserQuestion'])
     return true
   }
 
@@ -170,14 +172,20 @@ export class ClaudeAdapter implements AgentAdapter {
       includeProgrammatic: true
     })
     const live = new Set((await liveSessions()).map((entry) => entry.sessionId))
-    return sessions.map((session) => ({ ...this.summarize(session), active: live.has(session.sessionId) }))
+    return Promise.all(
+      sessions.map(async (session) => ({
+        ...this.summarize(session),
+        active: live.has(session.sessionId),
+        planned: await drewPlan(session.cwd ?? cwd, session.sessionId, session.lastModified)
+      }))
+    )
   }
 
   async describeSession(sessionId: string, cwd: string): Promise<AgentSessionSummary | undefined> {
     const module = await this.loadSdk()
     if (!module) return undefined
     const session = await module.getSessionInfo(sessionId, { dir: cwd })
-    return session ? this.summarize(session) : undefined
+    return session ? { ...this.summarize(session), planned: await drewPlan(session.cwd ?? cwd, sessionId, session.lastModified) } : undefined
   }
 
   private summarize(session: Awaited<ReturnType<SdkModule['listSessions']>>[number]): AgentSessionSummary {
@@ -357,7 +365,7 @@ export class ClaudeAdapter implements AgentAdapter {
         }
       })
 
-      const decision = await desk.ask(resolvedSession, requestId, signal)
+      const decision = await desk.ask(resolvedSession, requestId, signal, toolName)
       // An unattended daemon must still tell the model *why* it was refused, so it can try
       // something else instead of retrying the same call forever.
       const denial =
@@ -384,9 +392,11 @@ export class ClaudeAdapter implements AgentAdapter {
         ...(sessionId ? { resume: sessionId } : {}),
         ...(options.cwd ? { cwd: options.cwd } : {}),
         permissionMode,
-        // The SDK refuses `bypassPermissions` unless the host says out loud that it means it; every
-        // other mode keeps its prompts and routes them to a human through `canUseTool`.
-        ...(permissionMode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : { canUseTool }),
+        // The SDK refuses `bypassPermissions` — at launch *and* when the composer switches a running
+        // turn to it — unless the turn was started saying it may. Saying so grants nothing by itself:
+        // the mode still decides, and whatever it would prompt for goes to a human through `canUseTool`.
+        allowDangerouslySkipPermissions: true,
+        canUseTool,
         ...(options.model ? { model: options.model } : {}),
         ...(options.effort ? { effort: options.effort } : {}),
         // Claude Code's own prompt stays whole; the surface's instructions are added after it.

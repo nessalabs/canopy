@@ -141,6 +141,29 @@ describe('claude adapter permission flow', () => {
     expect(adapter.permissions.pending('sess-1')).toEqual([])
   })
 
+  it('lets full access, picked mid-turn, answer the asks already waiting — but not a plan', async () => {
+    const decisions: unknown[] = []
+    const { module, captured } = fakeSdk((options) =>
+      (async function* () {
+        yield initMessage('sess-f')
+        const ask = (tool: string, id: string) => options.canUseTool?.(tool, {}, { signal: new AbortController().signal, toolUseID: id } as never)
+        decisions.push(...(await Promise.all([ask('Bash', 'tu-bash'), ask('ExitPlanMode', 'tu-plan')])))
+        yield resultMessage('sess-f')
+      })()
+    )
+
+    const adapter = new ClaudeAdapter({ loadSdk: async () => module })
+    for await (const frame of adapter.send(null, 'go', { autonomy: 'edit' })) {
+      if (payloadOf(frame)?.type !== 'permission_requested' || adapter.permissions.pending('sess-f').length < 2) continue
+      expect(await adapter.control('sess-f', { autonomy: 'full' })).toBe(true)
+      expect(adapter.permissions.pending('sess-f')).toEqual(['tu-plan'])
+      adapter.answerPermission('sess-f', { requestId: 'tu-plan', behavior: 'deny' })
+    }
+
+    expect(captured.modes).toEqual(['bypassPermissions'])
+    expect(decisions).toEqual([{ behavior: 'allow', updatedInput: {} }, expect.objectContaining({ behavior: 'deny' })])
+  })
+
   it('denies a parked ask when the turn is aborted instead of hanging on it', async () => {
     const decisions: unknown[] = []
     const controller = new AbortController()
@@ -390,21 +413,21 @@ describe('claude adapter autonomy', () => {
       })()
     )
 
-  it('unlocks bypassPermissions only for full autonomy', async () => {
+  it('runs full autonomy as bypassPermissions', async () => {
     const full = oneShot()
     await drain(new ClaudeAdapter({ loadSdk: async () => full.module }).send('sess-a', 'go', { autonomy: 'full' }))
     expect(full.captured.options?.permissionMode).toBe('bypassPermissions')
     // The SDK refuses the mode outright without this, so `full` would silently behave like `edit`.
     expect(full.captured.options?.allowDangerouslySkipPermissions).toBe(true)
-    expect(full.captured.options?.canUseTool).toBeUndefined()
   })
 
-  it('routes prompts through canUseTool for acceptEdits', async () => {
+  it('starts every turn able to switch to full access later, still routing prompts through canUseTool', async () => {
     const edit = oneShot()
     await drain(new ClaudeAdapter({ loadSdk: async () => edit.module }).send('sess-a', 'go', { autonomy: 'edit' }))
     expect(edit.captured.options?.permissionMode).toBe('acceptEdits')
     expect(typeof edit.captured.options?.canUseTool).toBe('function')
-    expect(edit.captured.options?.allowDangerouslySkipPermissions).toBeUndefined()
+    // Without it the SDK refuses a mid-turn switch to bypassPermissions, and the turn keeps asking.
+    expect(edit.captured.options?.allowDangerouslySkipPermissions).toBe(true)
   })
 
   it('adds the surface instructions after the Claude Code prompt, and leaves the prompt alone without them', async () => {

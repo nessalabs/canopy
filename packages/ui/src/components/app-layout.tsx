@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ChevronRight, Folder, FolderOpen, Gauge, GitBranch, GitFork, PanelLeft, Plus, Settings2, TreePine } from 'lucide-react'
+import { ChevronRight, Folder, FolderOpen, Gauge, GitBranch, GitFork, Plus, Settings2, TreePine } from 'lucide-react'
 import { useLocation, useRoute } from 'wouter'
 
 import { environmentDot, type Project, type Worktree } from '@canopy/shared'
@@ -27,7 +27,6 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarProvider,
-  SidebarTrigger,
   useSidebar
 } from '@/components/ui/sidebar'
 import { StatusBar } from '@/components/status-bar'
@@ -273,7 +272,7 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
   return (
     <TerminalDockProvider value={terminal}>
     <ShellSlotProvider>
-      <SidebarProvider className="h-svh max-h-svh min-h-0 flex-col overflow-hidden" keyboardShortcut={{ key: '[' }}>
+      <SidebarProvider className="h-svh max-h-svh min-h-0 flex-col overflow-hidden" keyboardShortcut={{ key: 'b', modifier: 'mod' }}>
         <div className="flex min-h-0 flex-1">
           {/* Its own height is the screen's; here it shares the column with the status bar. */}
           <Sidebar collapsible={SidebarCollapsible.Offcanvas} className="h-full">
@@ -281,9 +280,6 @@ export function AppLayout({ children }: { children: React.ReactNode }): React.JS
               <div className="flex items-center gap-2 px-2 py-1">
                 <TreePine className="size-5 shrink-0 text-primary" />
                 <span className="text-sm font-semibold tracking-tight">Canopy</span>
-                <SidebarTrigger className={cn('ml-auto text-muted-foreground', noDrag)} aria-label="Hide sidebar  [">
-                  <PanelLeft />
-                </SidebarTrigger>
               </div>
             </SidebarHeader>
             <SidebarContent>

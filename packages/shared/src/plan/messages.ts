@@ -7,8 +7,8 @@ import { boxKey, type BoxRef } from './board'
  */
 
 export type WhiteboardMessage =
-  /** A question about one box. */
-  | { kind: 'box'; ref: string; label: string; text: string }
+  /** A question about one box; with `draw`, the reader asked for the answer on the whiteboard. */
+  | { kind: 'box'; ref: string; label: string; text: string; draw?: true }
   /** A question about a passage the reader selected — on a board (`ref` is its id) or in the plan document (`plan`). */
   | { kind: 'quote'; ref: string; quote: string; text: string }
   /** The reader's choices on decision cards, sent together, each with anything they added. */
@@ -25,8 +25,8 @@ export interface Choice {
 
 const attr = (value: string): string => value.replace(/"/g, '”')
 
-/** `<canopy-box ref="overview/runner" label="Turn runner">` then the question. */
-export const boxMessage = (ref: BoxRef, label: string, text: string): string => `<canopy-box ref="${boxKey(ref)}" label="${attr(label)}">\n${text}`
+/** `<canopy-box ref="overview/runner" label="Turn runner">` then the question; `draw="true"` after the label when the answer is to be drawn. */
+export const boxMessage = (ref: BoxRef, label: string, text: string, draw = false): string => `<canopy-box ref="${boxKey(ref)}" label="${attr(label)}"${draw ? ' draw="true"' : ''}>\n${text}`
 
 /** `<canopy-quote ref="overview">the passage</canopy-quote>` then the question. */
 export const quoteMessage = (ref: string, quote: string, text: string): string => `<canopy-quote ref="${attr(ref)}">${quote.replace(/<\/canopy-quote>/g, '')}</canopy-quote>\n${text}`
@@ -41,8 +41,8 @@ const CHOICE = /<canopy-decision id="([^"]+)" question="([^"]*)" option="([^"]+)
 
 const READERS: ReadonlyArray<(text: string) => WhiteboardMessage | undefined> = [
   (text) => {
-    const m = /^<canopy-box ref="([^"]+)" label="([^"]*)">\n?([\s\S]*)$/.exec(text)
-    return m ? { kind: 'box', ref: m[1]!, label: m[2]!, text: m[3]! } : undefined
+    const m = /^<canopy-box ref="([^"]+)" label="([^"]*)"( draw="true")?>\n?([\s\S]*)$/.exec(text)
+    return m ? { kind: 'box', ref: m[1]!, label: m[2]!, text: m[4]!, ...(m[3] ? { draw: true as const } : {}) } : undefined
   },
   (text) => {
     const m = /^<canopy-quote ref="([^"]+)">([\s\S]*?)<\/canopy-quote>\n?([\s\S]*)$/.exec(text)
