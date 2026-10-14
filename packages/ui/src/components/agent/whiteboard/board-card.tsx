@@ -159,7 +159,7 @@ export interface BoardDetailsProps {
   view: BoardView
   onView: (view: BoardView) => void
   /** Sends the reader's choices on this board's decisions. */
-  onDecide: (choices: Choice[]) => void
+  onDecide: (choices: Choice[]) => boolean
   /** The boxes a hovered paragraph talks about, to light up on the board. */
   onHover: (ids: string[]) => void
   onOpenParent?: () => void
@@ -223,7 +223,7 @@ export function BoardSheet({
 }: {
   board: Board
   state: PlanState
-  onDecide: (choices: Choice[]) => void
+  onDecide: (choices: Choice[]) => boolean
   selectedBox?: string
   onSelectBox: (boxId: string) => void
   onOpenBox: (boxId: string) => void
