@@ -43,6 +43,10 @@ import type {
   DraftInput,
   GroupInput,
   ChangeGrouping,
+  ConceptMap,
+  ConceptMapInput,
+  ConceptMapPatch,
+  ConceptMapStarted,
   FleetAgent,
   GitAgentSession,
   GroupingPatch,
@@ -228,6 +232,11 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     updateGrouping: (worktreeId: string, groupingId: string, patch: GroupingPatch) =>
       request<{ grouping: ChangeGrouping }>('PATCH', routes.grouping(worktreeId, groupingId), patch).then((r) => r.grouping),
     deleteGrouping: (worktreeId: string, groupingId: string) => del(routes.grouping(worktreeId, groupingId)),
+    conceptMaps: (worktreeId: string) => get<{ maps: ConceptMap[] }>(routes.conceptMaps(worktreeId)).then((r) => r.maps),
+    startConceptMap: (worktreeId: string, input: ConceptMapInput) => post<ConceptMapStarted>(routes.conceptMaps(worktreeId), input),
+    updateConceptMap: (worktreeId: string, mapId: string, patch: ConceptMapPatch) =>
+      request<{ map: ConceptMap }>('PATCH', routes.conceptMap(worktreeId, mapId), patch).then((r) => r.map),
+    deleteConceptMap: (worktreeId: string, mapId: string) => del(routes.conceptMap(worktreeId, mapId)),
     mergeWorktree: (worktreeId: string, input: MergeInput) => post<MergeResult>(routes.merge(worktreeId), input),
     pullRequest: (worktreeId: string, fresh = false) => get<PullRequestResponse>(routes.pullRequest(worktreeId), fresh ? { fresh: '1' } : {}),
     projectPullRequests: (projectId: string) => get<ProjectPullRequests>(routes.projectPullRequests(projectId)),

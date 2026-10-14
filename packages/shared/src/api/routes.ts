@@ -57,6 +57,10 @@ export const routes = {
   groupings: (id: string) => `${API_PREFIX}/worktrees/${id}/groupings`,
   /** One grouping: learn its conversation or newest answer (PATCH), or drop it (DELETE). */
   grouping: (id: string, gid: string) => `${API_PREFIX}/worktrees/${id}/groupings/${gid}`,
+  /** Concept maps of the branch's pull request (GET), or a new one plus the brief its conversation opens with (POST). */
+  conceptMaps: (id: string) => `${API_PREFIX}/worktrees/${id}/concept-maps`,
+  /** One concept map: learn its conversation or newest answer (PATCH), or drop it (DELETE). */
+  conceptMap: (id: string, cid: string) => `${API_PREFIX}/worktrees/${id}/concept-maps/${cid}`,
   /** Land the worktree's branch on its base branch. */
   merge: (id: string) => `${API_PREFIX}/worktrees/${id}/merge`,
   /** Keep a path out of commits: .git/info/exclude, .gitignore, skip-worktree or rm --cached. */

@@ -36,6 +36,8 @@ export const keys = {
   gitAgentSessions: (worktreeId: string) => ['git-agent-sessions', worktreeId] as const,
   /** A worktree's groupings of its change, newest first. */
   groupings: (worktreeId: string) => ['groupings', worktreeId] as const,
+  /** A worktree's concept maps of its pull request, newest first. */
+  conceptMaps: (worktreeId: string) => ['concept-maps', worktreeId] as const,
   transcript: (ref: SessionRef) => ['transcript', ref.provider, ref.sessionId] as const,
   edits: (ref: SessionRef) => ['agent-edits', ref.provider, ref.sessionId] as const,
   /** What a provider advertises for this checkout: commands, skills, subagents, models, hooks. */

@@ -87,6 +87,50 @@ Reply with a fenced \`\`\`change-groups block holding JSON (no comments), then t
 {"groups": [{"title": "Refund flow", "summary": "…", "layers": ["backend", "database"], "ids": ["h1", "h4"], "parts": [{"title": "…", "summary": "…", "layers": ["frontend"], "ids": ["h2", "f1"]}]}],
  "links": [{"from": 1, "to": 2, "label": "refund records"}]}`
 
+/**
+ * The stock instructions a concept-map session opens with. The pull request's own words, its
+ * commits, every hunk under a short id, and how the user asked for it to be mapped are appended
+ * after it.
+ *
+ * This asks for something different from a grouping. A grouping is a hierarchy of *parts* — a
+ * feature and the pieces it is made of. This is a hierarchy of *meaning*: every rung is a complete
+ * account of the whole change, just coarser, so going down adds precision and never new ground.
+ * That is what lets the pane give the reader a zoom control rather than a list.
+ */
+export const DEFAULT_CONCEPT_PROMPT = `Map the change below as a hierarchy of concepts a reviewer can understand without reading the diff; the Concept Graph pane beside the chat draws your answers. The hunks below are usually enough; when one needs more context, read the code with your file-reading and search tools rather than shell commands, so nothing waits on the user's approval. Do not change any files.
+
+# The hierarchy
+- It is a hierarchy of meaning, not of parts. Every rung is a complete account of the whole change, just coarser. Going down adds precision; it never adds new ground. Nothing may appear at a deeper rung that was not already true, less precisely, at the rung above it.
+- "root" is one concept: this whole change said once, in a sentence a reviewer would repeat to a colleague.
+- Under it, nest as deep as the change deserves. A one-line config fix is one rung; a new subsystem may be four. Do not pad a shallow branch to match a deep one.
+- Order children so a reviewer meets the foundations first and what builds on them later.
+
+# Naming
+- Name a concept for what it *is*, in the words of the thing being built — not for the edit. "Turns a filter into SQL", never "adds 40 lines to query.ts". The test: the name should make sense to someone who never opens the diff, and should still read true in six months when every line has moved.
+- "summary" says what the concept is, in one to three sentences. Keep what the change did to it out of the summary — that is "effect".
+- "effect" is added (it did not exist), reshaped, replaced, removed, or context (it already existed and this change only leans on it).
+- "kind" is optional: your own word for what sort of thing it is — capability, policy, data shape, boundary, protocol.
+- "layers" is where the code sits: frontend, backend, database, tests, config, docs, build.
+
+# Code
+- "ids" are the hunks a concept is the home of (h… for a hunk, f… for a whole file). Every id below goes in exactly one concept's "ids", anywhere in the hierarchy. A concept may own hunks and still have children — those are its groundwork.
+- "cites" are hunks a concept points at but does not own, because they live under another concept. Use it sparingly, for the change that proves a point made elsewhere.
+- "commits" are the shas a concept arrived in, from the commit list above.
+- "paths" are files the concept concerns, **including files this change never touches**. This is how an existing thing gets on the map.
+- Include concepts with no changed code at all, as "context": the thing this change plugs into, and the callers that will now get a different answer. A reviewer cannot judge whether a plug fits without seeing the socket. Find them by reading around the diff, and only claim one you actually looked at.
+
+# Links
+- "links" are sideways, across the hierarchy, never up and down it — nesting already says "contains". "from" leans on / replaces / implements "to".
+- Name each end by its "ref" slug, or by its place in the hierarchy ("1", "2.3").
+- "leans-on" is the one that matters most: from a context concept to the changed concept it depends on is what tells the reviewer what this change puts at risk without touching.
+
+Reply with a fenced \`\`\`concept-graph block holding JSON (no comments), then two or three sentences on how you read the change. When asked to change the map later, reply with the whole updated block, using the same hunk ids. The JSON is shaped like:
+{"root": {"title": "Adds a web search tool for agents", "summary": "…", "ref": "websearch", "effect": "added", "layers": ["backend"], "ids": [], "children": [
+  {"title": "What the tool is", "summary": "…", "ref": "contract", "effect": "added", "layers": ["backend"], "ids": ["h1", "h2"], "commits": ["a1b2c3d"], "children": [
+    {"title": "When the search fails", "summary": "…", "ref": "errors", "effect": "added", "layers": ["backend"], "ids": ["h3"]}]},
+  {"title": "The toolkit that already serves tools", "summary": "…", "ref": "toolkit", "effect": "context", "layers": ["backend"], "ids": [], "paths": ["packages/daemon/src/agents/toolkit.ts"]}]},
+ "links": [{"from": "contract", "to": "toolkit", "kind": "leans-on", "label": "registers itself"}]}`
+
 export function defaultProjectSettings(ecosystems: Ecosystem[] = []): ProjectSettings {
   return {
     autoFetch: true,

@@ -1,4 +1,6 @@
-import type { DraftInput, GroupInput, GroupingStarted, TextDraft } from '@canopy/shared'
+import type { ConceptMapInput, ConceptMapStarted, DraftInput, GroupInput, GroupingStarted, TextDraft } from '@canopy/shared'
+
+import type { ConceptStore } from '../concepts/store'
 
 import type { EditDiffsService } from '../agents/edit-diffs/service'
 import type { CommitService } from '../commit/service'
@@ -34,6 +36,10 @@ export interface Services {
   draftText: (worktreeId: string, input: DraftInput) => Promise<TextDraft>
   startGrouping: (worktreeId: string, input: GroupInput) => Promise<GroupingStarted>
   gitAgent: GitAgentStore
+  /** The Concept Graph pane's maps of the branch's pull request. */
+  concepts: ConceptStore
+  startConceptMap: (worktreeId: string, input: ConceptMapInput) => Promise<ConceptMapStarted>
+
   merges: MergeService
   destroyJobs: DestroyJobsService
   github: GitHubService

@@ -40,6 +40,9 @@ export function GitViewTabs({ dirty, comments, unreviewed, onPrefetchPr }: { dir
         <TabsTrigger value="issues" title="Issues and pull requests on GitHub  ⇧6">
           Issues
         </TabsTrigger>
+        <TabsTrigger value="concepts" title="The pull request as a hierarchy of concepts  ⇧7">
+          Concept Graph
+        </TabsTrigger>
       </TabsList>
     </ShellSlot>
   )
@@ -117,7 +120,8 @@ const CTA_FOR: Record<GitPane, (props: GitActionsProps, openExternal: (url: stri
   history: () => undefined,
   pr: ({ prUrl }, openExternal) => (prUrl ? { label: 'Open on GitHub', icon: ExternalLink, variant: 'outline', onClick: () => openExternal(prUrl) } : undefined),
   comments: ({ pendingReview, sending, onSendForReview }) => ({ label: 'Send for review', icon: Send, disabled: pendingReview === 0 || sending, onClick: onSendForReview }),
-  issues: () => undefined
+  issues: () => undefined,
+  concepts: () => undefined
 }
 
 /**

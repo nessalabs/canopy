@@ -75,7 +75,8 @@ interface Deps {
   store: Pick<GitAgentStore, 'addGrouping'>
 }
 
-async function readPatches(history: Deps['history'], worktreeId: string, spec: DiffSpec, files: ChangedFile[]): Promise<FileDiff[]> {
+/** Each file's patch, a few at a time. Shared with the concept map's brief, which cuts hunks the same way. */
+export async function readPatches(history: Deps['history'], worktreeId: string, spec: DiffSpec, files: ChangedFile[]): Promise<FileDiff[]> {
   const out: FileDiff[] = []
   for (let at = 0; at < files.length; at += PATCH_BATCH) {
     const batch = files.slice(at, at + PATCH_BATCH)

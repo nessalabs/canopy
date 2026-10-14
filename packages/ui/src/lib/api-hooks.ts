@@ -216,6 +216,11 @@ export const useGroupings = (worktreeId: string) => {
   return useQuery({ queryKey: keys.groupings(worktreeId), queryFn: () => api.groupings(worktreeId) })
 }
 
+export const useConceptMaps = (worktreeId: string) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.conceptMaps(worktreeId), queryFn: () => api.conceptMaps(worktreeId) })
+}
+
 /**
  * Sessions keep growing while a terminal agent works in them, so this polls — every few seconds
  * when a terminal has the session open — except while

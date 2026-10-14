@@ -50,9 +50,10 @@ export function parseTab(hash: string): DashboardTab | undefined {
   return DASHBOARD_TABS.includes(requested as DashboardTab) ? (requested as DashboardTab) : undefined
 }
 
-export type GitPane = 'changes' | 'groups' | 'history' | 'pr' | 'comments' | 'issues'
+export type GitPane = 'changes' | 'groups' | 'history' | 'pr' | 'comments' | 'issues' | 'concepts'
 
-export const GIT_PANES: readonly GitPane[] = ['changes', 'groups', 'history', 'pr', 'comments', 'issues']
+// Order sets the ⇧N shortcuts, so a new pane goes last and leaves every existing one where it is.
+export const GIT_PANES: readonly GitPane[] = ['changes', 'groups', 'history', 'pr', 'comments', 'issues', 'concepts']
 
 /**
  * Where a link into the Git tab lands: the pane, what Changes compares against, and the commit
