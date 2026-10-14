@@ -77,9 +77,12 @@ export const reviewedKey = (refs: HunkRef[]): string => refs.map(({ path, hunk }
 export const mapTitle = (map: Pick<ConceptMap, 'instructions' | 'subject' | 'prNumber'>): string =>
   map.instructions || (map.subject === 'pull-request' && map.prNumber !== null ? `Pull request #${map.prNumber}` : 'This branch')
 
-/** The map a picked id names, or the newest when it names none of them. */
-export const pickMap = <T extends Pick<ConceptMap, 'id'>>(maps: T[], picked: string | undefined): T | undefined =>
-  maps.find((map) => map.id === picked) ?? maps[0]
+/**
+ * The map a picked id names; otherwise the newest that has an answer, so a brief that never
+ * reached its agent does not hide a finished map made just before it; otherwise the newest.
+ */
+export const pickMap = <T extends Pick<ConceptMap, 'id' | 'result'>>(maps: T[], picked: string | undefined): T | undefined =>
+  maps.find((map) => map.id === picked) ?? maps.find((map) => map.result !== undefined) ?? maps[0]
 
 /** A map made from a diff that has since changed shape, or from a PR head that has been pushed past. */
 export const isStale = (map: ConceptMap, result: ConceptGraph, files: ChangedFile[], headSha?: string | null): boolean =>

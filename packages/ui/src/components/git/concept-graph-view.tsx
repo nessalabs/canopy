@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronLeft, ChevronRight, GitCommitHorizontal, MessageSquare, Trash2 } from 'lucide-react'
 
-import { parentOf, trailTo, type AgentProvider, type ChangedFile, type Concept, type ConceptEffect, type ConceptGraph, type DiffSpec, type PartStatus, type ReviewComment } from '@canopy/shared'
+import { parentOf, trailTo, walkConcepts, type AgentProvider, type ChangedFile, type Concept, type ConceptEffect, type ConceptGraph, type DiffSpec, type PartStatus, type ReviewComment } from '@canopy/shared'
 
 import { LinkedMarkdown, type OpenFileRef } from '@/components/agent/answer-links'
 import { ErrorNote } from '@/components/error-note'
@@ -15,15 +15,20 @@ import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmen
 import type { DiffMode } from '@/components/worktree-diff'
 import { useFilePatches } from '@/lib/api-hooks'
 import { affectedCards, cardOf, conceptFiles, isStale, mapTitle, reviewedKey, type ConceptCard } from '@/lib/concept-graph'
+import { networkOf, type NetNode } from '@/lib/concept-network'
 import { relativeTime } from '@/lib/format'
 import { slicePatch } from '@/lib/patch'
 import type { useConceptGraph } from '@/lib/use-concept-graph'
 import { useHotkeys } from '@/lib/use-hotkeys'
 import { cn } from '@/lib/utils'
 
+import { ConceptInspector } from './concept-inspector'
+import { ConceptNetwork, NetworkLegend, type NetworkLayout } from './concept-network'
 import { ContentPane } from './content-pane'
 
 type Graph = ReturnType<typeof useConceptGraph>
+/** The whole map as a living network, or one rung of it as cards. */
+type View = 'network' | 'cards'
 
 const PROVIDER_NAME = { claude: 'Claude', codex: 'Codex' } as const
 
@@ -128,9 +133,41 @@ function GraphBar({ graph, stale }: { graph: Graph; stale: boolean }): React.JSX
  * inside it goes a level deeper into *that* box, so the trail is how you climb out again — the
  * same gesture as opening a folder.
  */
-function Trail({ trail, onGo, up, done, total }: { trail: Concept[]; onGo: (id: string) => void; up?: () => void; done: number; total: number }): React.JSX.Element {
+function Trail({
+  trail,
+  onGo,
+  up,
+  done,
+  total,
+  view,
+  onView,
+  layout,
+  onLayout
+}: {
+  trail: Concept[]
+  onGo: (id: string) => void
+  up?: () => void
+  done: number
+  total: number
+  view: View
+  onView: (view: View) => void
+  layout: NetworkLayout
+  onLayout: (layout: NetworkLayout) => void
+}): React.JSX.Element {
   return (
     <div className="flex items-center gap-1 border-b border-border px-4 py-2">
+      <SegmentedControl value={view} onValueChange={(value) => onView(value as View)} aria-label="How the map is drawn" className="text-xs">
+        <SegmentedControlOption value="network">Network</SegmentedControlOption>
+        <SegmentedControlOption value="cards">Cards</SegmentedControlOption>
+      </SegmentedControl>
+      {view === 'network' ? (
+        <SegmentedControl value={layout} onValueChange={(value) => onLayout(value as NetworkLayout)} aria-label="How the network is laid out" className="mr-2 text-xs">
+          <SegmentedControlOption value="radial">Radial</SegmentedControlOption>
+          <SegmentedControlOption value="layered">Layered</SegmentedControlOption>
+        </SegmentedControl>
+      ) : (
+        <span className="mr-1" />
+      )}
       <Button variant="ghost" size="icon" className="size-7" aria-label="Up a level  ⌫" title="Up a level  ⌫" disabled={!up} onClick={up}>
         <ChevronLeft />
       </Button>
@@ -353,6 +390,10 @@ export function ConceptGraphView({
 }): React.JSX.Element {
   const result = graph.result
   const [opened, setOpened] = useState<string | undefined>(undefined)
+  const [view, setView] = useState<View>('network')
+  const [layout, setLayout] = useState<NetworkLayout>('radial')
+  /** The dot the inspector is open on, beside the network. */
+  const [pickedNode, setPickedNode] = useState<string | undefined>(undefined)
   // ChangeMap is vendored and hands `onSelect` no mouse event, so the modifier is read on the way
   // down: ⌘/Ctrl-click means "show me the code", a plain click means "look inside".
   const deepClick = useRef(false)
@@ -367,6 +408,8 @@ export function ConceptGraphView({
   const shown = useMemo(() => (focused ? (focused.children.length > 0 ? focused.children : [focused]) : []), [focused])
   const cards = useMemo(() => shown.map((concept) => cardOf(concept)), [shown])
   const affectedIds = useMemo(() => new Set(result ? affectedCards(result).map(({ concept }) => concept.id) : []), [result])
+  // Built once per map and shared by the network and its inspector, so both see the same atoms.
+  const network = useMemo(() => (result ? networkOf(result) : undefined), [result])
 
   const nodes = useMemo<ChangeMapNode[]>(
     () =>
@@ -408,8 +451,15 @@ export function ConceptGraphView({
     setOpened(concept.id)
   }
 
-  // ⌫ climbs out of the box you are in, the way Esc closes an open one.
-  useHotkeys({ backspace: () => (opened ? setOpened(undefined) : up?.()) })
+  /** A dot on the network opens the inspector beside it; the same dot again closes it. */
+  const pickNode = (node: NetNode): void => setPickedNode((current) => (current === node.id ? undefined : node.id))
+
+  // ⌫ climbs out of the box you are in; Esc closes whatever is open beside the map.
+  // Bindings are matched on the raw key name, so these are capitalised as the browser reports them.
+  useHotkeys({
+    Backspace: () => (opened ? setOpened(undefined) : up?.()),
+    Escape: () => (pickedNode ? setPickedNode(undefined) : setOpened(undefined))
+  })
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -428,7 +478,7 @@ export function ConceptGraphView({
         </div>
       ) : (
         <>
-          <Trail trail={trail} onGo={goTo} up={up} done={done} total={cards.length} />
+          <Trail trail={trail} onGo={goTo} up={up} done={done} total={cards.length} view={view} onView={setView} layout={layout} onLayout={setLayout} />
           {openedCard && graph.spec ? (
             <>
               <div className="flex items-center gap-2 border-b border-border px-4 py-2">
@@ -449,6 +499,28 @@ export function ConceptGraphView({
                 onOpen={open}
               />
             </>
+          ) : view === 'network' && network ? (
+            <div className="flex min-h-0 flex-1">
+              <div className="relative min-h-0 min-w-0 flex-1">
+                <NetworkLegend affected={affectedIds.size} />
+                <ConceptNetwork network={network} layout={layout} picked={pickedNode} onPick={pickNode} />
+              </div>
+              {pickedNode && graph.spec ? (
+                <ConceptInspector
+                  network={network}
+                  nodeId={pickedNode}
+                  worktreeId={worktreeId}
+                  spec={graph.spec}
+                  files={files}
+                  comments={comments}
+                  mode={mode}
+                  reviewed={graph.reviewed}
+                  onReviewed={graph.setReviewed}
+                  onPick={setPickedNode}
+                  onClose={() => setPickedNode(undefined)}
+                />
+              ) : null}
+            </div>
           ) : (
             <div className="min-h-0 flex-1 overflow-y-auto">
               {/* Capture phase: the modifier has to be read before ChangeMap's own click handler runs. */}
