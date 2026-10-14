@@ -92,7 +92,9 @@ export const AgentSessionSummary = z.object({
    * reference: every other checkout's sessions in the main checkout's tab (removed worktrees
    * included, so their conversations outlive them), and the main checkout's in a worktree's.
    */
-  origin: SessionOrigin.optional()
+  origin: SessionOrigin.optional(),
+  /** While `running`: the `permission_requested` events that turn is parked on, oldest first. */
+  asks: z.array(z.lazy(() => AgentEventFrame)).optional()
 })
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummary>
 

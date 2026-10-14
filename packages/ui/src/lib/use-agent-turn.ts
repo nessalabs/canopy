@@ -57,6 +57,8 @@ type Action =
   | { type: 'settle' }
   /** `pending` is null when rejoining a turn: its prompt comes back with the replayed events. */
   | { type: 'start'; pending: PendingPrompt | null }
+  /** The prompt just sent went into a turn already running instead: it waits there as a queued one. */
+  | { type: 'requeue' }
   | { type: 'queue'; pending: PendingPrompt }
   | { type: 'unqueue'; pending: PendingPrompt; error?: string }
   | { type: 'event'; event: AgentStreamEvent }
@@ -94,6 +96,8 @@ function activityFor(payload: AgentEventPayload): Activity | undefined {
       return undefined
   }
 }
+
+const NO_ASKS: readonly AgentEvent[] = []
 
 export function onEvent(state: TurnState, event: AgentStreamEvent): TurnState {
   if (event.type === 'session') return { ...state, sessionId: event.sessionId }
@@ -141,7 +145,10 @@ function reducer(state: TurnState, action: Action): TurnState {
       // The transcript re-read holds the conversation now; only the cost of what just ran is ours.
       return { ...initialTurnState, usage: state.usage }
     case 'start':
-      return { ...initialTurnState, pending: action.pending, busy: true, activity: 'thinking', startedAt: Date.now() }
+      // A rejoined turn keeps the prompts queued into it; the agent echoes them as it takes them.
+      return { ...initialTurnState, pending: action.pending, queued: action.pending ? [] : state.queued, busy: true, activity: 'thinking', startedAt: Date.now() }
+    case 'requeue':
+      return { ...state, pending: null, queued: state.pending ? [...state.queued, state.pending] : state.queued, busy: false, activity: null, startedAt: null }
     case 'queue':
       return { ...state, queued: [...state.queued, action.pending] }
     case 'unqueue':
@@ -152,6 +159,9 @@ function reducer(state: TurnState, action: Action): TurnState {
       return { ...state, busy: false, activity: null, startedAt: null, error: action.error ?? state.error }
   }
 }
+
+/** The daemon refused a new turn because one is already running in the session. */
+const turnRunning = (error: unknown): boolean => error instanceof ApiError && error.status === 409 && error.code === 'turn_running'
 
 /** A followed turn that ended before we got there answers 404: nothing to follow, not an error. */
 async function* untilGone(source: AsyncIterable<AgentStreamEvent>): AsyncGenerator<AgentStreamEvent> {
@@ -174,7 +184,9 @@ export function useAgentTurn(
   cwd: string,
   options: TurnOptions,
   /** The daemon says a turn is running in `ref` — one this page did not start, or started and then left. */
-  running = false
+  running = false,
+  /** What the daemon says that turn is parked on; shown while this page is not following it. */
+  parkedAsks: readonly AgentEvent[] = NO_ASKS
 ) {
   const api = useApi()
   const queryClient = useQueryClient()
@@ -200,7 +212,7 @@ export function useAgentTurn(
   )
 
   const run = useCallback(
-    async (pending: PendingPrompt | null, stream: (signal: AbortSignal) => AsyncIterable<AgentStreamEvent>) => {
+    async (pending: PendingPrompt | null, stream: (signal: AbortSignal) => AsyncIterable<AgentStreamEvent>, into?: SessionRef) => {
       abortRef.current?.abort()
       const controller = new AbortController()
       abortRef.current = controller
@@ -218,7 +230,19 @@ export function useAgentTurn(
           dispatch({ type: 'settle' })
         }
       } catch (error) {
-        if (!controller.signal.aborted) dispatch({ type: 'finish', error: error instanceof Error ? error.message : String(error) })
+        if (controller.signal.aborted) return
+        // `into` lost track of a turn still running there — its stream dropped, or another client
+        // started it. The message goes into that turn, and the page follows it again.
+        if (pending && into && turnRunning(error)) {
+          dispatch({ type: 'requeue' })
+          rejoined.current = null
+          const images = pending.images.map(({ mediaType, data }) => ({ mediaType, data }))
+          await api.queueMessage(into, { text: pending.text, ...(images.length ? { images } : {}) }).catch((queueError: unknown) => {
+            dispatch({ type: 'unqueue', pending, error: queueError instanceof Error ? queueError.message : String(queueError) })
+          })
+          return
+        }
+        dispatch({ type: 'finish', error: error instanceof Error ? error.message : String(error) })
       } finally {
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: keys.sessions(worktreeId) }),
@@ -228,7 +252,7 @@ export function useAgentTurn(
         ])
       }
     },
-    [queryClient, ref, worktreeId]
+    [api, queryClient, ref, worktreeId]
   )
 
   /**
@@ -241,7 +265,7 @@ export function useAgentTurn(
       const pending: PendingPrompt = { text, display: shown?.display ?? text, attachments: shown?.attachments ?? [], images: shown?.images ?? [] }
       const images = shown?.images.map(({ mediaType, data }) => ({ mediaType, data }))
       const input = { ...options, ...shown?.options, text, startSeq: nextSeqFor(ref), ...(images?.length ? { images } : {}) }
-      if (ref) return run(pending, (signal) => api.streamMessage(ref, { ...input, cwd }, signal))
+      if (ref) return run(pending, (signal) => api.streamMessage(ref, { ...input, cwd }, signal), ref)
       if (fresh) return run(pending, (signal) => api.streamNewSession(worktreeId, { ...input, provider: fresh, startSeq: 0 }, signal))
       return Promise.resolve()
     },
@@ -334,18 +358,27 @@ export function useAgentTurn(
     [api, target?.provider, target?.sessionId]
   )
 
-  /** Answers a `permission_requested` ask of the running turn. */
+  /**
+   * Answers a `permission_requested` ask of the running turn. A followed turn's stream retires the
+   * ask; otherwise the listings that carry it are reread so it goes at once.
+   */
   const answerPermission = useCallback(
     (input: PermissionDecisionInput): Promise<void> => {
       if (!target) return Promise.resolve()
-      return api.answerPermission(target, input).catch((error: unknown) => {
-        dispatch({ type: 'finish', error: error instanceof Error ? error.message : String(error) })
-      })
+      return api
+        .answerPermission(target, input)
+        .catch((error: unknown) => {
+          dispatch({ type: 'finish', error: error instanceof Error ? error.message : String(error) })
+        })
+        .finally(() => {
+          void queryClient.invalidateQueries({ queryKey: keys.sessions(worktreeId) })
+          void queryClient.invalidateQueries({ queryKey: keys.fleet })
+        })
     },
-    [api, target?.provider, target?.sessionId]
+    [api, queryClient, worktreeId, target?.provider, target?.sessionId]
   )
 
-  return { ...state, sendMessage, sendReview, queueMessage, answerPermission, setLiveControls, stop }
+  return { ...state, parkedAsks, sendMessage, sendReview, queueMessage, answerPermission, setLiveControls, stop }
 }
 
 export type AgentTurn = ReturnType<typeof useAgentTurn>

@@ -1,8 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { routes, type AgentStreamEvent } from '@canopy/shared'
+import { routes, type AgentSessionSummary, type AgentStreamEvent } from '@canopy/shared'
+import type { AgentEvent } from '@canopy/shared/agent-stream'
 
 import { TurnHub } from '../src/agents/turn-hub'
+import { fakeEvent } from './helpers/fake-agent'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 import { createTestServer, type TestServer } from './helpers/test-server'
 
@@ -120,5 +122,29 @@ describe('following a running turn over HTTP', () => {
 
     expect((await server.call('GET', routes.liveTurn('claude', 's1'))).status).toBe(404)
     expect(await runningFlag()).toBeUndefined()
+  })
+
+  it('lists the ask a running turn is parked on, so a chat not following it can still answer', async () => {
+    let release!: () => void
+    server.agent.hold = new Promise<void>((resolve) => (release = resolve))
+    server.agent.script = () => [
+      { type: 'event', event: fakeEvent(0, { type: 'permission_requested', requestId: 'req-1', callId: 'c1', toolName: 'Bash', input: { command: 'ls' }, reason: null, displayName: null, description: null }) },
+      { type: 'event', event: fakeEvent(1, { type: 'permission_decided', requestId: 'req-1', behavior: 'allow' } as unknown as AgentEvent['payload']) },
+      { type: 'done', sessionId: 's1' }
+    ]
+    const listed = async (): Promise<AgentSessionSummary | undefined> =>
+      (await server.call<{ sessions: AgentSessionSummary[] }>('GET', routes.agentSessions(worktreeId))).body.sessions.find((session) => session.sessionId === 's1')
+    const turn = server.call('POST', routes.messages('claude', 's1'), { text: 'hi' })
+
+    const parked = await vi.waitFor(async () => {
+      const session = await listed()
+      expect(session?.asks).toHaveLength(1)
+      return session!
+    })
+    expect(parked.asks?.map((ask) => ask.payload)).toEqual([expect.objectContaining({ requestId: 'req-1', toolName: 'Bash' })])
+
+    release()
+    await turn
+    expect((await listed())?.asks).toBeUndefined()
   })
 })

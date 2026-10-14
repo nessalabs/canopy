@@ -58,8 +58,12 @@ export function useTranscriptModel(history: TranscriptResponse | undefined, turn
       current.builder.push(turn.events.slice(current.pushed))
       current.pushed = turn.events.length
     }
-    return current.builder.snapshot({ live: turn.busy })
-  }, [history, turn.events, turn.busy])
+    const folded = current.builder.snapshot({ live: turn.busy })
+    // What a turn waits on comes from that turn: its own stream while this page follows it (which
+    // replays the whole turn), else the daemon. An ask only the session's replay holds is history.
+    const live = liveFrom === undefined ? [] : folded.pendingAsks.filter((ask) => ask.seq >= liveFrom)
+    return { ...folded, pendingAsks: turn.busy ? live : turn.parkedAsks }
+  }, [history, turn.events, turn.busy, turn.parkedAsks])
   // Only a live turn streams deltas; a replay stores committed blocks alone.
   const previews = useMemo(() => applyDeltas(turn.events), [turn.events])
   // Replay and live turn are folded separately, so a streaming turn re-walks its own events and

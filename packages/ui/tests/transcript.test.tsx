@@ -206,4 +206,13 @@ describe('TranscriptView', () => {
     act(() => allow?.click())
     expect(onAnswerPermission).toHaveBeenCalledWith({ requestId: 'req-1', behavior: 'allow' })
   })
+
+  it('shows an open ask even when this page is not following the turn', () => {
+    render(
+      [prompt('deploy'), ev({ type: 'permission_requested', requestId: 'req-1', callId: 'c9', toolName: 'Bash', input: { command: 'gh pr create' }, reason: 'mode', displayName: null, description: 'Create the pull request' })],
+      { onAnswerPermission: vi.fn() }
+    )
+    expect(host.textContent).toContain('Create the pull request')
+    expect([...host.querySelectorAll('button')].some((button) => button.textContent === 'Allow')).toBe(true)
+  })
 })
