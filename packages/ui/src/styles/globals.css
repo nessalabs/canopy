@@ -225,6 +225,12 @@
     --nessa-attention: oklch(0.72 0.16 70);
     --nessa-diff-deletion: oklch(0.55 0.19 27);
     --nessa-diff-modification: oklch(0.62 0.13 75);
+    --nessa-highlight-yellow: oklch(0.9 0.17 100);
+    --nessa-highlight-green: oklch(0.84 0.16 150);
+    --nessa-highlight-pink: oklch(0.8 0.14 355);
+    --nessa-highlight-orange: oklch(0.82 0.15 65);
+    --nessa-highlight-blue: oklch(0.8 0.11 235);
+    --nessa-highlight-purple: oklch(0.76 0.13 300);
     --nessa-font-size-1: 0.6875rem;
     --nessa-font-size-2: 0.75rem;
     --nessa-font-size-3: 0.8125rem;
@@ -326,6 +332,12 @@
     --nessa-attention: oklch(0.82 0.16 80);
     --nessa-diff-deletion: oklch(0.7 0.19 25);
     --nessa-diff-modification: oklch(0.8 0.13 80);
+    --nessa-highlight-yellow: oklch(0.84 0.16 85);
+    --nessa-highlight-green: oklch(0.78 0.15 150);
+    --nessa-highlight-pink: oklch(0.74 0.14 355);
+    --nessa-highlight-orange: oklch(0.76 0.15 65);
+    --nessa-highlight-blue: oklch(0.72 0.12 235);
+    --nessa-highlight-purple: oklch(0.7 0.14 300);
     --nessa-chart-series-1: oklch(0.3442 0.07 265);
     --nessa-chart-series-1-strong: oklch(0.56 0.1 265);
     --nessa-chart-series-2: oklch(0.3922 0.07 45);

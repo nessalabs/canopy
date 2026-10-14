@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { boxKey, currentVersion, type BoxRef, type PermissionDecisionInput, type WhiteboardMode } from '@canopy/shared'
+import { boxKey, currentVersion, type BoxRef, type PermissionDecisionInput, type PlanState, type WhiteboardMode } from '@canopy/shared'
 import type { Turn } from '@canopy/shared/agent-stream'
 
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator, type SplitViewLayout } from '@/components/split-view'
 import { STATUS, STATUS_ORDER } from '@/components/ui/change-map/diagram-parts'
+import { ChatTabs } from '@/components/ui/chat-tabs'
 import { StatusDot } from '@/components/ui/status-dot'
 import {
   useWorkflowCanvasEdgeGeometry,
@@ -18,6 +19,9 @@ import {
 } from '@/components/ui/workflow-canvas'
 import { closestAcross } from '@/lib/dom-selection'
 import { readStored, writeStored } from '@/lib/local-store'
+import { activeReading, readerSteps } from '@/lib/reader-tabs'
+import { tabPanelProps } from '@/lib/tab-panel'
+import { useReader } from '@/lib/use-reader'
 import { cn } from '@/lib/utils'
 import { BOARD_SIZE, boundsOf, boxInfo, layoutBoards, notesCount, READABLE, START_VIEW, threadOf, tourSteps, viewportFor, zoomAround, type Size } from '@/lib/whiteboard'
 import type { Whiteboard as WhiteboardModel } from '@/lib/use-whiteboard'
@@ -74,8 +78,20 @@ function DetailEdge({ parent, child, label }: { parent: string; child: string; l
   )
 }
 
-/** What the right-hand drawer holds — every word there is to read, one thing at a time, so the canvas keeps only pictures. */
+/** What a tab of the right-hand reader holds — every word there is to read, so the canvas keeps only pictures. */
 type Drawer = { kind: 'board'; id: string } | { kind: 'box'; ref: BoxRef } | { kind: 'ask'; ref: string; quote: string } | { kind: 'trail' } | { kind: 'tour' }
+
+const clip = (text: string, length = 28): string => (text.length > length ? `${text.slice(0, length - 1)}…` : text)
+
+/** A reader tab's name: the board or box by its title, the passage asked about by its words. */
+const TITLES: { [K in Drawer['kind']]: (drawer: Extract<Drawer, { kind: K }>, state: PlanState) => string } = {
+  board: ({ id }, state) => { const board = state.boards[id]; return board ? currentVersion(board).title : 'Board' },
+  box: ({ ref }, state) => boxInfo(state, ref)?.node.label ?? 'Box',
+  ask: ({ quote }) => `“${clip(quote, 24)}”`,
+  trail: () => 'Decision trail',
+  tour: () => 'Walk-through'
+}
+const titleOf = (drawer: Drawer, state: PlanState): string => clip((TITLES[drawer.kind] as (d: Drawer, s: PlanState) => string)(drawer, state))
 
 /** The key to the colours, in a corner of the canvas: the drawings' own colours, in the whiteboard's words. */
 const ColourKey = (): React.JSX.Element => (
@@ -136,8 +152,10 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
   const viewOf = (id: string): BoardView => views[id] ?? NEW_VIEW
   // Boxes a hovered paragraph of a board's story talks about, lit up on the canvas.
   const [lit, setLit] = useState<{ board: string; ids: string[] }>()
-  // The drawer stays open while the canvas is panned; it closes from its own ✕.
-  const [drawer, setDrawer] = useState<Drawer>()
+  // The reader beside the canvas keeps a tab for each thing opened, so going back and forth is a click;
+  // it stays open while the canvas is panned, and each tab closes from its own ✕.
+  const reader = useReader<Drawer>()
+  const drawer = reader.current
   const [split] = useState(() => readStored<SplitViewLayout>(SPLIT_KEY))
   const [current, setCurrent] = useState<string>()
   const [tour, setTour] = useState<number>()
@@ -160,14 +178,18 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
   /** A board to read: in view on the canvas, its story in the sidebar. */
   const readBoard = (id: string): void => {
     focusBoard(id)
-    setDrawer({ kind: 'board', id })
+    reader.show({ kind: 'board', id })
   }
   // A new board flies into view as it is drawn, with its story beside it unless something else is being read.
   const newest = state.order.at(-1)
   useEffect(() => {
     if (!newest) return
     focusBoard(newest)
-    setDrawer((now) => (now === undefined || now.kind === 'board' ? { kind: 'board', id: newest } : now))
+    // It takes over the board tab on screen rather than opening a tab per board drawn.
+    reader.update((now) => {
+      const reading = activeReading(now)
+      return reading === undefined || reading.kind === 'board' ? readerSteps.open(now, { kind: 'board', id: newest }) : now
+    })
   }, [newest, size.width > 0])
   // The walk-through brings each step's board into view.
   const step = drawer?.kind === 'tour' && tour !== undefined ? steps[tour] : undefined
@@ -176,18 +198,24 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
   }, [step?.board])
   /** Double-clicking a box goes inside it: to its detail board, or the agent is asked to draw one. */
   const openBox = (ref: BoxRef): void => {
-    if (whiteboard.drill(ref, readBoard) === 'asked') setDrawer({ kind: 'box', ref })
+    if (whiteboard.drill(ref, readBoard) === 'asked') reader.show({ kind: 'box', ref })
   }
   const litOn = (id: string): string[] => [...(lit?.board === id ? lit.ids : []), ...(step?.board === id && step.box ? [step.box] : [])]
 
+  // A passage selected in a box's tab waits in that tab's ask bar, as context for the question typed next.
+  const [staged, setStaged] = useState<{ tab: string; quote: string }>()
+  /** "Ask the agent" on a selection asks nothing yet: the passage is staged where the question gets written. */
   const ask = (text: string, range: Range): void => {
-    const ref = passageRef(range) ?? current ?? state.order[0] ?? 'plan'
-    whiteboard.quote(ref, text)
-    setDrawer({ kind: 'ask', ref, quote: text })
+    const inBox = drawer?.kind === 'box' && reader.state.active && closestAcross(range.commonAncestorContainer, '[data-whiteboard-reader]')
+    if (inBox) return setStaged({ tab: reader.state.active!, quote: text })
+    reader.show({ kind: 'ask', ref: passageRef(range) ?? current ?? state.order[0] ?? 'plan', quote: text })
+  }
+  const closeTab = (id: string): void => {
+    reader.close(id)
+    setLit(undefined)
   }
   const close = (): void => {
-    setDrawer(undefined)
-    setLit(undefined)
+    if (reader.state.active) closeTab(reader.state.active)
   }
   // The approval card, once put away, answers from under the plan in the Reader instead — until the next ask.
   const [hiddenAsk, setHiddenAsk] = useState<string>()
@@ -226,7 +254,9 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
           busy={busy}
           waiting={whiteboard.waiting}
           onAsk={(question) => whiteboard.ask(info.ref, info.node.label, question)}
-          onDeeper={() => whiteboard.deeper(info.ref, info.node.label)}
+          onDraw={(question) => whiteboard.draw(info.ref, info.node.label, question)}
+          quote={staged && staged.tab === reader.state.active ? staged.quote : undefined}
+          onDropQuote={() => setStaged(undefined)}
           onOpenDetail={() => info.detail && readBoard(info.detail)}
           onOpenRef={onOpenRef}
           onShowChanges={onShowChanges}
@@ -243,11 +273,11 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
       ) : null,
     trail: () => <TrailDrawer view={view} turns={turns} onOpenRef={onOpenRef} onClose={close} className={DRAWER_CLASS} />
   }
-  const toggleTrail = (): void => setDrawer(drawer?.kind === 'trail' ? undefined : { kind: 'trail' })
+  const toggleTrail = (): void => (drawer?.kind === 'trail' ? close() : reader.show({ kind: 'trail' }))
 
   return (
     <div ref={root} className="@container flex h-full min-h-0 flex-col bg-background">
-      <SelectionActions host={root} onAsk={ask} askLabel="Ask the agent" askHint="Explain what this is and how it fits in" />
+      <SelectionActions host={root} onAsk={ask} askLabel="Ask the agent" askHint="Explain what this is and how it fits in" highlights={whiteboard.sessionId && `board:${whiteboard.sessionId}`} />
       <Toolbar
         state={state}
         mode={mode}
@@ -259,9 +289,13 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
         planWaiting={askHidden}
         notes={notesCount(whiteboard.notes)}
         onFocus={readBoard}
+        onDrawing={(board, version) => {
+          setViews((now) => ({ ...now, [board]: { ...viewOf(board), version } }))
+          readBoard(board)
+        }}
         onTour={() => {
           setTour(0)
-          setDrawer({ kind: 'tour' })
+          reader.show({ kind: 'tour' })
         }}
         onPlan={onReadPlan}
         onTrail={toggleTrail}
@@ -306,7 +340,7 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
                           state={state}
                           view={viewOf(id)}
                           selectedBox={selected?.board === id ? selected.box : undefined}
-                          onSelectBox={(box) => setDrawer({ kind: 'box', ref: { board: id, box } })}
+                          onSelectBox={(box) => reader.show({ kind: 'box', ref: { board: id, box } })}
                           onOpenBox={(box) => openBox({ board: id, box })}
                           onOpenDetails={() => readBoard(id)}
                           lit={litOn(id)}
@@ -323,7 +357,23 @@ export function Whiteboard({ whiteboard, turns, mode, onMode, busy, onAnswerPerm
         </SplitViewPanel>
         <SplitViewSeparator aria-label="Resize the drawer" className={drawer ? undefined : 'hidden'} />
         <SplitViewPanel id="whiteboard-drawer" defaultSize={30} minSize={20} maxSize={70} className={cn('min-h-0', !drawer && 'hidden')}>
-          {drawer ? DRAWERS[drawer.kind]() : null}
+          {drawer && reader.state.active ? (
+            <div data-whiteboard-reader className="flex h-full min-h-0 flex-col">
+              {reader.state.tabs.length > 1 ? (
+                <ChatTabs
+                  tabs={reader.state.tabs.map((t) => ({ id: t.id, title: titleOf(t.trail.at(-1)!, state), closeable: true }))}
+                  value={reader.state.active}
+                  onValueChange={reader.select}
+                  onClose={closeTab}
+                  label="Open in the reader"
+                  className="shrink-0 border-b border-border px-2 py-1 [&_[data-slot=chat-tab]]:rounded-[4px]"
+                />
+              ) : null}
+              <div {...(reader.state.tabs.length > 1 ? tabPanelProps(reader.state.active, titleOf(drawer, state)) : {})} className="min-h-0 flex-1">
+                {DRAWERS[drawer.kind]()}
+              </div>
+            </div>
+          ) : null}
         </SplitViewPanel>
       </SplitView>
     </div>

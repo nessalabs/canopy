@@ -39,6 +39,41 @@ export function containsAcross(host: Element, node: Node): boolean {
   return host.contains(current)
 }
 
+/**
+ * Where `range` sits in `host`'s text, as character offsets into `host.textContent`: the length
+ * of the text before each end. `Range.toString` joins text nodes as `textContent` does, so the two
+ * agree. Undefined when the range reaches outside `host`.
+ */
+export function textOffsets(host: Node, range: Range): readonly [number, number] | undefined {
+  if (!host.contains(range.startContainer) || !host.contains(range.endContainer)) return undefined
+  const before = document.createRange()
+  before.selectNodeContents(host)
+  before.setEnd(range.startContainer, range.startOffset)
+  const start = before.toString().length
+  return [start, start + range.toString().length]
+}
+
+/** The range over `[start, end)` of `host.textContent`; undefined past its end. */
+export function rangeAt(host: Node, [start, end]: readonly [number, number]): Range | undefined {
+  const range = document.createRange()
+  const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT)
+  let seen = 0
+  let opened = false
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const length = node.nodeValue?.length ?? 0
+    if (!opened && start < seen + length) {
+      range.setStart(node, start - seen)
+      opened = true
+    }
+    if (opened && end <= seen + length) {
+      range.setEnd(node, end - seen)
+      return range
+    }
+    seen += length
+  }
+  return undefined
+}
+
 const lineOf = (node: Node): number | undefined => {
   const line = Number(closestAcross(node, '[data-line]')?.getAttribute('data-line'))
   return Number.isInteger(line) && line > 0 ? line : undefined

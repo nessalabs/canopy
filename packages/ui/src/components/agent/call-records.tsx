@@ -92,7 +92,7 @@ type Prompt = { about: React.ReactNode; text: string }
 
 /** How each kind of message sent from the whiteboard reads in the transcript: a line naming what it is about, and the words. */
 const PROMPTS: { [K in WhiteboardMessage['kind']]: (message: Extract<WhiteboardMessage, { kind: K }>) => Prompt } = {
-  box: (box) => ({ about: `About “${box.label}”`, text: boxQuestion(box.text) }),
+  box: (box) => ({ about: `About “${box.label}”`, text: boxQuestion(box) }),
   quote: (quote) => ({ about: <span className="line-clamp-2 italic">About “{quote.quote}”</span>, text: quote.text.trim() }),
   decision: (decision) => ({
     about: decision.choices.length === 1 ? 'Your decision' : `Your ${decision.choices.length} decisions`,

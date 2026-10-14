@@ -61,7 +61,7 @@ export function BoardPane({
           busy={busy}
           waiting={whiteboard.waiting}
           onAsk={(question) => whiteboard.ask(info.ref, info.node.label, question)}
-          onDeeper={() => whiteboard.deeper(info.ref, info.node.label)}
+          onDraw={(question) => whiteboard.draw(info.ref, info.node.label, question)}
           onOpenDetail={() => info.detail && onOpenBoard(info.detail)}
           onOpenRef={onOpenRef}
           onShowChanges={onShowChanges}

@@ -1,6 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef } from 'react'
 
-import { CodeBlockProvider } from '@/components/ui/code-block'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { useFileContents } from '@/lib/api-hooks'
 import { resolveDocLink, slugify } from '@/lib/doc-links'
@@ -166,28 +165,18 @@ function MarkdownDiffDoc({ text, patch, path, onOpenPath }: { text: string; patc
  * viewer: `onOpenPath` is called with the file a relative link resolves to.
  */
 export function MarkdownPreview({ worktreeId, path, rev, anchor, onOpenPath }: FileProps & { anchor?: string; onOpenPath?: OpenPath }): React.JSX.Element {
-  const { theme } = useTheme()
   return (
     <FileText worktreeId={worktreeId} path={path} rev={rev}>
-      {(text) => (
-        <CodeBlockProvider mode={theme}>
-          <MarkdownDoc text={text} path={path} anchor={anchor} onOpenPath={onOpenPath} />
-        </CodeBlockProvider>
-      )}
+      {(text) => <MarkdownDoc text={text} path={path} anchor={anchor} onOpenPath={onOpenPath} />}
     </FileText>
   )
 }
 
 /** The same rendering, over the file's patch: prose with the change marked on it. */
 export function MarkdownDiff({ worktreeId, path, rev, patch, onOpenPath }: FileProps & { patch: string; onOpenPath?: OpenPath }): React.JSX.Element {
-  const { theme } = useTheme()
   return (
     <FileText worktreeId={worktreeId} path={path} rev={rev}>
-      {(text) => (
-        <CodeBlockProvider mode={theme}>
-          <MarkdownDiffDoc text={text} patch={patch} path={path} onOpenPath={onOpenPath} />
-        </CodeBlockProvider>
-      )}
+      {(text) => <MarkdownDiffDoc text={text} patch={patch} path={path} onOpenPath={onOpenPath} />}
     </FileText>
   )
 }

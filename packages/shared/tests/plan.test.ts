@@ -447,6 +447,11 @@ describe('whiteboard messages', () => {
     expect(parseWhiteboardMessage('just typed')).toBeUndefined()
   })
 
+  it('marks a box question the reader asked to have drawn', () => {
+    expect(parseWhiteboardMessage(boxMessage({ board: 'b', box: 'x' }, 'X', '', true))).toEqual({ kind: 'box', ref: 'b/x', label: 'X', text: '', draw: true })
+    expect(parseWhiteboardMessage(boxMessage({ board: 'b', box: 'x' }, 'X', 'And the tests?', true))).toMatchObject({ text: 'And the tests?', draw: true })
+  })
+
   it('keeps the plan document the agent asked approval with', () => {
     const events = [event(0, { type: 'tool_call_started', callId: 'x', name: 'ExitPlanMode', kind: 'other', input: { plan: '# The plan' }, title: '' })]
     expect(foldPlan(events).document).toBe('# The plan')

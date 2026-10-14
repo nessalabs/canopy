@@ -12,8 +12,9 @@ import { Drawer } from './drawer'
 const placeOf = (view: PlanView, ref: string): string => (ref === 'plan' ? 'the plan document' : `the board “${view.state.boards[ref]?.versions.at(-1)?.title ?? ref}”`)
 
 /**
- * A passage the reader selected and asked about: the passage, what the agent made of it (asked in
- * the same session, so it answers from what it already read), and room for a follow-up.
+ * A passage the reader selected to ask about: the passage, and the questions they asked about it
+ * with what the agent made of them (asked in the same session, so it answers from what it already
+ * read). Nothing is asked until they write a question.
  */
 export function AskDrawer({
   view,
@@ -49,7 +50,7 @@ export function AskDrawer({
       <Section icon={<Quote />} title={`From ${placeOf(view, refId)}`}>
         <blockquote className="border-l-2 border-foreground/30 pl-3 text-[13px] leading-relaxed text-foreground/90 italic">{quote}</blockquote>
       </Section>
-      {thread.length > 0 ? <Thread thread={thread} /> : <p className="text-[13px] text-muted-foreground">Asking the agent…</p>}
+      {thread.length > 0 ? <Thread thread={thread} /> : <p className="text-[13px] text-muted-foreground">Ask what you want to know about this passage below; nothing is sent until you do.</p>}
     </Drawer>
   )
 }

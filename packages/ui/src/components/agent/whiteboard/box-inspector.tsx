@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { ArrowRight, CircleHelp, FileCode2, FileDiff, Layers, Lightbulb, StickyNote, X } from 'lucide-react'
 
 import { PART_STATUS, type ProgressStatus } from '@canopy/shared'
 
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { STATUS } from '@/components/ui/change-map/diagram-parts'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
 import { Textarea } from '@/components/ui/textarea'
@@ -27,8 +28,11 @@ export interface BoxInspectorProps {
   /** The running turn has no board tools, so asking and going deeper wait for it to end. */
   waiting?: boolean
   onAsk: (question: string) => void
-  /** Asks the agent for a detail board of this box. */
-  onDeeper: () => void
+  /** Has the agent write the box up on the whiteboard as a detail board; the question is optional. */
+  onDraw: (question: string) => void
+  /** A passage selected in this drawer, waiting in the ask bar as context for the next question. */
+  quote?: string
+  onDropQuote?: () => void
   /** Shows the detail board the box already has. */
   onOpenDetail: () => void
   /** Opens a `path:lines` reference; absent where nothing opens files. */
@@ -60,7 +64,10 @@ export function Thread({ thread }: { thread: ThreadEntry[] }): React.JSX.Element
       <ol className="flex flex-col gap-3">
         {thread.map((entry) => (
           <li key={entry.id} className="flex flex-col gap-1.5">
-            <p className="self-end rounded-xl rounded-br-sm bg-primary px-3 py-1.5 text-[13px] text-primary-foreground">{entry.question}</p>
+            <div className="self-end rounded-xl rounded-br-sm bg-primary px-3 py-1.5">
+              {/* The bubble's own colours, not the markdown's: it sits on primary in either theme. */}
+              <MessageMarkdown className="text-[13px] leading-relaxed text-primary-foreground [&_blockquote]:my-1 [&_blockquote]:border-primary-foreground/40 [&_blockquote]:text-primary-foreground/75">{entry.question}</MessageMarkdown>
+            </div>
             <div className="rounded-xl rounded-bl-sm bg-muted/60 px-3 py-2 text-[13px] leading-relaxed">
               {entry.answer ? <MessageMarkdown>{entry.answer}</MessageMarkdown> : <span className="text-muted-foreground">Answering…</span>}
             </div>
@@ -115,13 +122,50 @@ function Notes({ notes, onAdd, onRemove }: { notes: readonly string[]; onAdd: (n
 
 const ASK_HINT = { waiting: 'Wait for the current answer to finish', busy: 'Sent after the current answer finishes', idle: 'Enter to send · Shift+Enter for a new line' }
 
-export function AskBox({ label, busy, waiting = false, onAsk }: { label: string; busy: boolean; waiting?: boolean; onAsk: (question: string) => void }): React.JSX.Element {
+/** A question asked with a passage as its context, as the agent and the thread both read it. */
+export const withQuote = (quote: string | undefined, question: string): string => (quote ? `${quote.replace(/^/gm, '> ')}\n\n${question}` : question)
+
+/**
+ * Asking about something on the whiteboard. A passage staged as `quote` rides along with the next
+ * question, shown above the field until sent or dropped. A question is answered in words; with `onDraw`, the
+ * "Draw in whiteboard" switch has the agent write it up on the board instead, the question then
+ * optional. The switch is off by default and turns itself off again once sent, so a board is only
+ * ever drawn when asked for.
+ */
+export function AskBox({
+  label,
+  busy,
+  waiting = false,
+  onAsk,
+  onDraw,
+  quote,
+  onDropQuote
+}: {
+  label: string
+  busy: boolean
+  waiting?: boolean
+  onAsk: (question: string) => void
+  onDraw?: (question: string) => void
+  quote?: string
+  onDropQuote?: () => void
+}): React.JSX.Element {
   const [draft, setDraft] = useState('')
+  const field = useRef<HTMLTextAreaElement>(null)
+  // A passage just staged is asked about next, so the cursor goes where the question is typed.
+  useEffect(() => {
+    if (quote) field.current?.focus()
+  }, [quote])
+  const [drawing, setDrawing] = useState(false)
+  const switchId = useId()
+  const question = draft.trim()
+  const ready = !waiting && (drawing || question !== '')
   const send = (): void => {
-    const question = draft.trim()
-    if (!question) return
-    onAsk(question)
+    if (!ready) return
+    if (drawing && onDraw) onDraw(withQuote(quote, question))
+    else onAsk(withQuote(quote, question))
     setDraft('')
+    setDrawing(false)
+    onDropQuote?.()
   }
   return (
     <form
@@ -131,7 +175,18 @@ export function AskBox({ label, busy, waiting = false, onAsk }: { label: string;
         send()
       }}
     >
+      {quote ? (
+        <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 py-1.5 pr-1.5 pl-2.5">
+          <blockquote className="line-clamp-3 min-w-0 flex-1 border-l-2 border-foreground/30 pl-2 text-xs leading-relaxed text-foreground/80 italic">{quote}</blockquote>
+          {onDropQuote ? (
+            <button type="button" aria-label="Remove the quoted passage" onClick={onDropQuote} className="inline-flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-3.5">
+              <X />
+            </button>
+          ) : null}
+        </div>
+      ) : null}
       <Textarea
+        ref={field}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => {
@@ -140,15 +195,21 @@ export function AskBox({ label, busy, waiting = false, onAsk }: { label: string;
             send()
           }
         }}
-        placeholder={`Ask about ${label}…`}
+        placeholder={drawing ? 'Anything the drawing should answer? (optional)' : `Ask about ${label}…`}
         aria-label={`Ask about ${label}`}
         rows={2}
         className="min-h-16 resize-none text-[13px]"
       />
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] text-muted-foreground">{ASK_HINT[waiting ? 'waiting' : busy ? 'busy' : 'idle']}</span>
-        <Button type="submit" size="sm" disabled={waiting || !draft.trim()}>
-          Ask
+      <div className="flex items-center gap-3">
+        {onDraw ? (
+          <label htmlFor={switchId} className="flex shrink-0 cursor-pointer items-center gap-2 text-xs">
+            <Switch id={switchId} checked={drawing} onCheckedChange={setDrawing} />
+            Draw in whiteboard
+          </label>
+        ) : null}
+        <span className="min-w-0 flex-1 truncate text-right text-[11px] text-muted-foreground">{ASK_HINT[waiting ? 'waiting' : busy ? 'busy' : 'idle']}</span>
+        <Button type="submit" size="sm" disabled={!ready}>
+          {drawing ? 'Draw' : 'Ask'}
         </Button>
       </div>
     </form>
@@ -157,10 +218,10 @@ export function AskBox({ label, busy, waiting = false, onAsk }: { label: string;
 
 /**
  * Everything about one box, beside the board: what it is in plain words, why the plan does what it
- * does, where its code is, what was asked about it — and the two ways to learn more: ask, or have
- * the agent draw what is inside it.
+ * does, where its code is, what was asked about it — and the ask bar below, which answers in words
+ * or, switched to drawing, has the agent write the box up on the whiteboard.
  */
-export function BoxInspector({ info, thread, busy, waiting = false, onAsk, onDeeper, onOpenDetail, onOpenRef, onShowChanges, notes, onAddNote, onRemoveNote, onClose, className }: BoxInspectorProps): React.JSX.Element {
+export function BoxInspector({ info, thread, busy, waiting = false, onAsk, onDraw, quote, onDropQuote, onOpenDetail, onOpenRef, onShowChanges, notes, onAddNote, onRemoveNote, onClose, className }: BoxInspectorProps): React.JSX.Element {
   const status = PART_STATUS[info.note?.status ?? 'context']
   const title = (
     <>
@@ -176,7 +237,7 @@ export function BoxInspector({ info, thread, busy, waiting = false, onAsk, onDee
     </>
   )
   return (
-    <Drawer label={`About ${info.node.label}`} title={title} onClose={onClose} footer={<AskBox label={info.node.label} busy={busy} waiting={waiting} onAsk={onAsk} />} className={className}>
+    <Drawer label={`About ${info.node.label}`} title={title} onClose={onClose} footer={<AskBox label={info.node.label} busy={busy} waiting={waiting} onAsk={onAsk} onDraw={onDraw} quote={quote} onDropQuote={onDropQuote} />} className={className}>
       <>
         {info.note ? <p className="text-sm leading-relaxed">{info.note.explain}</p> : <p className="text-sm text-muted-foreground">The agent has not explained this box yet.</p>}
         {info.note?.why ? (
@@ -216,17 +277,13 @@ export function BoxInspector({ info, thread, busy, waiting = false, onAsk, onDee
             See what the build changed <FileDiff />
           </Button>
         ) : null}
-        <Section icon={<Layers />} title="Go deeper">
-          {info.detail ? (
+        {info.detail ? (
+          <Section icon={<Layers />} title="Go deeper">
             <Button variant="outline" size="sm" className="justify-between" onClick={onOpenDetail}>
               Show what is inside <ArrowRight />
             </Button>
-          ) : (
-            <Button variant="outline" size="sm" className="justify-between" disabled={waiting} onClick={onDeeper}>
-              Draw what is inside {info.node.label} <ArrowRight />
-            </Button>
-          )}
-        </Section>
+          </Section>
+        ) : null}
         <Notes notes={notes} onAdd={onAddNote} onRemove={onRemoveNote} />
         <Thread thread={thread} />
       </>

@@ -74,6 +74,8 @@ export const AgentSessionSummary = z.object({
   transcriptPath: z.string().optional(),
   /** A terminal has this session open right now. */
   active: z.boolean().optional(),
+  /** The session drew a whiteboard plan (not just an explanation). */
+  planned: z.boolean().optional(),
   /**
    * What the session is doing this moment, when anything knows: `busy` while a turn is running
    * (its terminal says so, or its hooks reported a tool call seconds ago), `idle` when a terminal
