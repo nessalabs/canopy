@@ -113,7 +113,7 @@ export function useWorktreeAgent(
     () => ({ autonomy, model: picked, effort, instructions, ...(drawing ? { whiteboard: drawing } : {}), ...(configAgent ? { configAgent } : {}) }),
     [autonomy, picked, effort, instructions, drawing, configAgent?.projectId]
   )
-  const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options, selected?.running === true)
+  const turn = useAgentTurn(worktree.id, ref, fresh, cwd, options, selected?.running === true, selected?.asks)
   busyRef.current = turn.busy
 
   // A knob moved mid-turn is meant for the turn on screen, so it goes to the running one as well.

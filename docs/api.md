@@ -41,7 +41,7 @@ Schemas are zod in `packages/shared/src/schemas`; route paths in `packages/share
 | POST | `/worktrees/:id/comments` | `{ file, line, side, text, code?, commitSha? }` | 201 `{ comment }` |
 | DELETE | `/worktrees/:id/comments/:cid` | | 204 |
 | POST | `/worktrees/:id/review` | `{ provider, sessionId \| null, commentIds?, note?, autonomy? }` — `null` starts a new session (its id arrives in the `session` event and is pinned) | SSE `AgentStreamEvent` |
-| GET | `/worktrees/:id/agent/sessions` | `?limit=25` | `{ sessions, pinned? }` |
+| GET | `/worktrees/:id/agent/sessions` | `?limit=25` | `{ sessions, pinned? }` — a session with a turn Canopy runs has `running` and `asks`, that turn's open `permission_requested` events |
 | PUT | `/worktrees/:id/agent/pin` | `{ provider, sessionId }` | 204 |
 | GET | `/agents/providers` | | `{ providers }` |
 | GET | `/agents/fleet` | | `{ agents: FleetAgent[] }` — the 10 most recent sessions of every checkout, each once, with `kind` (`canopy` for Git Agent conversations, else `project`) and `activity` (`approval` while a permission ask is parked, `running`, `done`) and `asks` — the open `permission_requested` events of a turn Canopy runs there, answered through `/agent/sessions/:provider/:sid/permissions` |

@@ -19,8 +19,9 @@ const said = (text: string) => ev({ type: 'assistant_text', text, block: null })
 const read = (callId: string) => ev({ type: 'tool_call_started', callId, name: 'Read', kind: 'file_read', input: {}, title: callId })
 
 const history = (events: AgentEvent[]): TranscriptResponse => ({ events, files: {}, extras: {}, nextSeq: seq })
-const turn = (events: AgentEvent[], busy = false): AgentTurn =>
-  ({ ...initialTurnState, events, busy, sendMessage: () => Promise.resolve(), sendReview: () => Promise.resolve(), answerPermission: () => Promise.resolve(), stop: () => undefined }) as AgentTurn
+const asked = (requestId: string) => ev({ type: 'permission_requested', requestId, callId: requestId, toolName: 'Bash', input: { command: 'ls' }, reason: null, displayName: null, description: null })
+const turn = (events: AgentEvent[], busy = false, parkedAsks: AgentEvent[] = []): AgentTurn =>
+  ({ ...initialTurnState, events, busy, parkedAsks, sendMessage: () => Promise.resolve(), sendReview: () => Promise.resolve(), answerPermission: () => Promise.resolve(), stop: () => undefined }) as AgentTurn
 
 describe('useTranscriptModel', () => {
   let host: HTMLDivElement
@@ -74,5 +75,16 @@ describe('useTranscriptModel', () => {
     expect(after.turns).toHaveLength(2)
     // A finished session's unanswered call is abandoned, not still running.
     expect(after.abandonedCallIds.has('c1')).toBe(true)
+  })
+
+  it("shows the daemon's open asks while nothing streams here, and the stream's own while it does", () => {
+    const replay = history([prompt('one'), asked('old')])
+    // A replayed ask nobody answered is history; what the daemon says is still open is not.
+    const parked = asked('req-1')
+    expect(render(replay, turn([], false, [parked])).pendingAsks).toEqual([parked])
+    expect(render(replay, turn([])).pendingAsks).toEqual([])
+
+    const live = [prompt('two'), asked('req-2')]
+    expect(render(replay, turn(live, true, [parked])).pendingAsks.map((ask) => ask.id)).toEqual([live[1]!.id])
   })
 })

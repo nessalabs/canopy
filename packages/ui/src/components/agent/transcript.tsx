@@ -706,8 +706,8 @@ export function TranscriptView({
     return { beats, runs }
   }, [beatsByTurn])
   const empty = turns.length === 0 && !pending && !streamingText
-  // Asks only matter while a turn is running here; a replayed one nobody answered is just history.
-  const asks = startedAt !== null && onAnswerPermission ? transcript.pendingAsks.filter((ask) => ask.agentPath.length === 0) : []
+  // Open asks of the turn running here, whether this page follows its stream or not.
+  const asks = onAnswerPermission ? transcript.pendingAsks.filter((ask) => ask.agentPath.length === 0) : []
   const jumpTo = (key: string): void => {
     setActiveTurn(key)
     rowRefs.current.get(key)?.scrollIntoView({ behavior: 'smooth', block: 'start' })

@@ -34,10 +34,12 @@ export function registerAgentRoutes(app: FastifyInstance, services: Services): v
   app.get(routes.agentSessions(':id'), async (request) => {
     const worktree = await worktrees.get(IdParams.parse(request.params).id)
     const { limit } = LimitQuery.parse(request.query)
-    // A turn Canopy is running counts as busy whatever else is watching the session.
-    const listed = (await sessions.list(worktree, limit)).map((session) =>
-      turns.isRunning(session.provider, session.sessionId) ? { ...session, running: true, status: 'busy' as const } : session
-    )
+    // A turn Canopy is running counts as busy whatever else is watching the session, and brings
+    // the asks it is parked on: a chat that is not following the turn still has to show them.
+    const listed = (await sessions.list(worktree, limit)).map((session) => {
+      const turn = turns.find(session.provider, session.sessionId)
+      return turn ? { ...session, running: true, status: 'busy' as const, asks: openAsks(turn.events) } : session
+    })
     return { sessions: listed, pinned: review.pinned(worktree.id) }
   })
 
