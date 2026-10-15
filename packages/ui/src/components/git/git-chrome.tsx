@@ -25,8 +25,8 @@ export function GitViewTabs({ dirty, comments, unreviewed, onPrefetchPr }: { dir
         <TabsTrigger value="changes" title="Changes  ⇧1">
           Changes {badge(dirty)}
         </TabsTrigger>
-        <TabsTrigger value="groups" title="Groups  ⇧2">
-          Groups {badge(unreviewed)}
+        <TabsTrigger value="graph" title="Graph  ⇧2">
+          Graph {badge(unreviewed)}
         </TabsTrigger>
         <TabsTrigger value="history" title="History  ⇧3">
           History
@@ -113,7 +113,7 @@ export interface GitActionsProps {
 /** Each view's primary action: commit what is checked, open the PR, send the comments. */
 const CTA_FOR: Record<GitPane, (props: GitActionsProps, openExternal: (url: string) => void) => Cta | undefined> = {
   changes: ({ worktree, against }) => (against === 'head' ? { label: 'Commit', icon: GitCommitHorizontal, form: commitFormId(worktree.id) } : undefined),
-  groups: () => undefined,
+  graph: () => undefined,
   history: () => undefined,
   pr: ({ prUrl }, openExternal) => (prUrl ? { label: 'Open on GitHub', icon: ExternalLink, variant: 'outline', onClick: () => openExternal(prUrl) } : undefined),
   comments: ({ pendingReview, sending, onSendForReview }) => ({ label: 'Send for review', icon: Send, disabled: pendingReview === 0 || sending, onClick: onSendForReview }),

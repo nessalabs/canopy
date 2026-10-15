@@ -18,7 +18,8 @@ import { createSessionLister } from './agents/sessions'
 import { TurnHub } from './agents/turn-hub'
 import { CommitService } from './commit/service'
 import { claudeText, draftText, type TextGenerator } from './drafts/draft'
-import { startGrouping } from './drafts/groups'
+import { startGraph } from './graphs/brief'
+import { GraphStore } from './graphs/store'
 import { GitAgentStore } from './git-agent/store'
 import { registerAuth } from './auth'
 import type { DaemonConfig } from './config'
@@ -52,6 +53,7 @@ import type { Services } from './routes/context'
 import { registerEnvironmentRoutes } from './routes/environment'
 import { registerFsRoutes } from './routes/fs'
 import { registerGitAgentRoutes } from './routes/git-agent'
+import { registerGraphRoutes } from './routes/graphs'
 import { registerGitHubRoutes } from './routes/github'
 import { registerTerminalRoutes } from './routes/terminals'
 import { spawnPty } from './terminals/pty'
@@ -151,6 +153,7 @@ export function buildServices(deps: ServerDeps): Services {
   const snapshots = createSnapshots(git)
   const history = new HistoryService({ repo, diffs, worktrees, snapshots })
   const gitAgent = new GitAgentStore({ db: deps.db, worktrees })
+  const graphs = new GraphStore({ db: deps.db, worktrees })
   const review = new ReviewService({ db: deps.db, worktrees, agents })
   const gh = deps.gh ?? runGh
   const github = new GitHubService({ git, gh, worktrees, review })
@@ -165,7 +168,8 @@ export function buildServices(deps: ServerDeps): Services {
     commits: new CommitService({ repo, diffs, git, worktrees, history, events }),
     draftText: (worktreeId, input) =>
       draftText({ git, worktrees, settings: (projectId) => environment.settings(projectId), generate: deps.generateText ?? claudeText }, worktreeId, input),
-    startGrouping: (worktreeId, input) => startGrouping({ history, store: gitAgent }, worktreeId, input),
+    startGraph: (worktreeId, input) => startGraph({ history, github, store: graphs }, worktreeId, input),
+    graphs,
     gitAgent,
     merges: new MergeService({ repo, git, worktrees, projects, events }),
     destroyJobs: new DestroyJobsService({ worktrees, events }),
@@ -217,6 +221,7 @@ export async function buildServer(deps: ServerDeps): Promise<FastifyInstance> {
   registerTerminalRoutes(app, services)
   registerReviewRoutes(app, services)
   registerGitAgentRoutes(app, services)
+  registerGraphRoutes(app, services)
   registerAgentRoutes(app, services)
   registerEnvironmentRoutes(app, services)
   registerFsRoutes(app)

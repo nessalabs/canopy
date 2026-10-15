@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useState } from 'react'
 import type { Components } from 'react-markdown'
 
-import { BeforeAfterSpec, BlastRadiusSpec, CallFlowSpec, DataModelSpec, parseGroupJson } from '@canopy/shared'
+import { BeforeAfterSpec, BlastRadiusSpec, CallFlowSpec, DataModelSpec, parseGraphJson } from '@canopy/shared'
 
 import { BeforeAfter } from '@/components/ui/before-after'
 import { BlastRadius } from '@/components/ui/blast-radius'
@@ -56,24 +56,27 @@ function ChangeMapBlock({ source = '' }: { source?: string }): React.JSX.Element
 }
 
 /**
- * A ```change-groups block — a grouping the Groups pane draws — as the list of features it names,
- * so the chat reads as prose rather than JSON. The cards themselves live in the Groups tab.
+ * A ```review-graph block — a graph the Graph pane draws — as the outline of nodes it names, so
+ * the chat reads as prose rather than JSON. The graph itself lives in the Graph tab.
  */
-function ChangeGroupsBlock({ source = '' }: { source?: string }): React.JSX.Element {
-  const reply = useMemo(() => parseGroupJson(source), [source])
-  if (!reply) return <div className="my-2 animate-pulse rounded-xl border border-border bg-muted/40 px-4 py-4 text-center text-xs text-muted-foreground">Grouping the change…</div>
+function ReviewGraphBlock({ source = '' }: { source?: string }): React.JSX.Element {
+  const reply = useMemo(() => parseGraphJson(source), [source])
+  if (!reply) return <div className="my-2 animate-pulse rounded-xl border border-border bg-muted/40 px-4 py-4 text-center text-xs text-muted-foreground">Drawing the graph…</div>
+  const refs = new Set(reply.nodes.map((node) => node.ref).filter(Boolean))
+  const top = reply.nodes.filter((node) => !node.parent || !refs.has(node.parent))
+  const inside = (ref?: string) => (ref ? reply.nodes.filter((node) => node.parent === ref).length : 0)
   return (
     <section className="my-3 rounded-xl border border-border bg-card px-4 py-3 text-card-foreground">
       <p className="text-xs font-medium text-muted-foreground">
-        {reply.groups.length} {reply.groups.length === 1 ? 'group' : 'groups'} · open the Groups tab to review them
+        {reply.nodes.length} {reply.nodes.length === 1 ? 'node' : 'nodes'}, {reply.edges.length} {reply.edges.length === 1 ? 'link' : 'links'} · open the Graph tab to review them
       </p>
       <ol className="mt-2 flex flex-col gap-1 text-sm">
-        {reply.groups.map((group, i) => (
+        {top.map((node, i) => (
           <li key={i} className="flex gap-2">
             <span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">{i + 1}</span>
             <span className="min-w-0">
-              {group.title}
-              {group.parts.length > 0 ? <span className="text-muted-foreground"> · {group.parts.length} parts</span> : null}
+              {node.title}
+              {inside(node.ref) > 0 ? <span className="text-muted-foreground"> · {inside(node.ref)} inside</span> : null}
             </span>
           </li>
         ))}
@@ -168,7 +171,7 @@ const FILE_PLUGINS = [remarkFileRefs, remarkDrawnBlocks]
 // Each drawn block is an element named for its language; react-markdown renders any element it is given a component for.
 const COMPONENTS = {
   'change-map': ChangeMapBlock,
-  'change-groups': ChangeGroupsBlock,
+  'review-graph': ReviewGraphBlock,
   'call-flow': CallFlowBlock,
   'blast-radius': BlastRadiusBlock,
   'before-after': BeforeAfterBlock,

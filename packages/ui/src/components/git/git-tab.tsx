@@ -11,13 +11,13 @@ import type { DiffMode } from '@/components/worktree-diff'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { toStaged } from '@/lib/agent-context'
 import { useComments, useDiffFiles, usePrefetchPullRequest, useProviders, usePullRequest, usePullRequestThreads, useWorktreeFiles } from '@/lib/api-hooks'
-import { reviewedKey, reviewSections } from '@/lib/change-groups'
 import { snippetSource, useSnippetDrag } from '@/lib/dom-selection'
 import { parseFileRef, resolvePath } from '@/lib/file-refs'
 import { plural } from '@/lib/format'
 import { GIT_PANES, linkQuery, parseGitLink, parseSessionLink, parseTab, type GitPane } from '@/lib/environment-ui'
 import type { ReviewTarget } from '@/lib/use-agent-turn'
-import { useChangeGroups } from '@/lib/use-change-groups'
+import { isReviewed, tourSteps } from '@/lib/review-graph'
+import { useReviewGraph } from '@/lib/use-review-graph'
 import { useGitAgent } from '@/lib/use-git-agent'
 import { useHotkeys } from '@/lib/use-hotkeys'
 import { cn } from '@/lib/utils'
@@ -33,7 +33,8 @@ import { DiffTools, GitActions, GitViewTabs } from './git-chrome'
 import { HistoryView } from './history-view'
 import { MergeDialog } from './merge-dialog'
 import { PullRequestView } from './pull-request-view'
-import { GroupsView } from './groups-view'
+import type { CommitRange } from './graph/graph-bar'
+import { GraphView } from './graph/graph-view'
 import { GitHubThreadsPanel, threadAsNote, threadsAsComments } from './pull-request/threads'
 import { ReviewTargetDialog } from './review-target-dialog'
 import { SendToAgentProvider } from './send-to-agent'
@@ -97,6 +98,8 @@ export function GitTab({
   // GitHub's review threads: read once the Comments or Pull request pane is open, and shown in
   // both — as cards under the local comments, and on their lines in the PR's Files changed.
   const showsThreads = pane === 'comments' || pane === 'pr'
+  // Commits picked in History for the Graph pane's Commits scope.
+  const [range, setRange] = useState<CommitRange>()
   const gitAgent = useGitAgent(worktree.id)
   // A link to one Git Agent conversation opens it in its tab, whatever tab was left open here.
   useEffect(() => {
@@ -104,7 +107,7 @@ export function GitTab({
     if (session) gitAgent.show(session)
   }, [])
   const agentSeed = `git-agent:${worktree.id}`
-  const prQuery = usePullRequest(worktree.id, showsThreads)
+  const prQuery = usePullRequest(worktree.id, showsThreads || pane === 'graph')
   const host = prQuery.data?.gh.host ?? null
   const threadsQuery = usePullRequestThreads(worktree.id, showsThreads && Boolean(prQuery.data?.pr))
   const threads = threadsQuery.data?.threads ?? []
@@ -131,12 +134,11 @@ export function GitTab({
   const sendPicked = (): void => setRequest({ github: threads.filter((thread) => pickedThreads.has(thread.id)).map(threadAsNote), local: true })
   const sendOne = (note: GitHubNote): void => setRequest({ github: [note], local: false })
   const shared = { comments, mode }
-  // Groups reads the same diff Changes lists, and its tab counts the sections still to review.
-  const changeGroups = useChangeGroups(worktree, against, gitAgent)
-  const diff = useDiffFiles(worktree.id, { kind: 'worktree', against }).data
+  // The Graph tab counts the tour stops still to review.
+  const graph = useReviewGraph(worktree, gitAgent)
   const unreviewed = useMemo(
-    () => (changeGroups.result ? reviewSections(changeGroups.result.groups).filter((section) => !changeGroups.reviewed.has(reviewedKey(section.refs))).length : 0),
-    [changeGroups.result, changeGroups.reviewed]
+    () => (graph.result ? tourSteps(graph.result).filter((step) => step.reviewable && !isReviewed(graph.reviewed, step.node)).length : 0),
+    [graph.result, graph.reviewed]
   )
 
   // Code highlighted or dragged out of any pane reaches the agent with its file and lines.
@@ -186,7 +188,7 @@ export function GitTab({
     <SendToAgentProvider value={sendOne}>
       <Tabs value={pane} onValueChange={(value) => onPaneChange(value as Pane)} className="flex min-h-0 flex-1 flex-col">
         <GitViewTabs dirty={worktree.status?.dirtyTotal ?? 0} comments={comments.length} unreviewed={unreviewed} onPrefetchPr={prefetchPr} />
-        {pane === 'comments' || pane === 'issues' ? null : <DiffTools mode={mode} onModeChange={setMode} against={pane === 'changes' || pane === 'groups' ? against : undefined} onAgainstChange={setAgainst} baseBranch={worktree.baseBranch} />}
+        {pane === 'comments' || pane === 'issues' ? null : <DiffTools mode={mode} onModeChange={setMode} against={pane === 'changes' ? against : undefined} onAgainstChange={setAgainst} baseBranch={worktree.baseBranch} />}
         <GitActions
           worktree={worktree}
           pane={pane}
@@ -209,11 +211,29 @@ export function GitTab({
               <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
                 <ChangesView worktree={worktree} focus={focusFor('changes')} against={against} {...shared} />
               </TabsContent>
-              <TabsContent value="groups" className="flex min-h-0 flex-1 flex-col">
-                <GroupsView worktreeId={worktree.id} files={diff?.files ?? []} groups={changeGroups} comments={comments} mode={mode} onOpenRef={openRef} />
+              <TabsContent value="graph" className="flex min-h-0 flex-1 flex-col">
+                <GraphView
+                  worktreeId={worktree.id}
+                  state={graph}
+                  range={range}
+                  prHead={prQuery.data?.pr?.headSha}
+                  onPickCommits={() => onPaneChange('history')}
+                  comments={comments}
+                  mode={mode}
+                  onOpenRef={openRef}
+                />
               </TabsContent>
               <TabsContent value="history" className="flex min-h-0 flex-1 flex-col">
-                <HistoryView worktreeId={worktree.id} focusCommit={jump?.commitSha ?? link.commit} focus={focusFor('history')} {...shared} />
+                <HistoryView
+                  worktreeId={worktree.id}
+                  focusCommit={jump?.commitSha ?? link.commit}
+                  focus={focusFor('history')}
+                  onGraph={(picked) => {
+                    setRange(picked)
+                    onPaneChange('graph')
+                  }}
+                  {...shared}
+                />
               </TabsContent>
               <TabsContent value="pr" className="flex min-h-0 flex-1 flex-col">
                 <PullRequestView worktree={worktree} review={shared} githubComments={githubComments} focus={prFocus} onOpenChanges={() => onPaneChange('changes')} />

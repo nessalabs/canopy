@@ -1,16 +1,14 @@
 /**
- * The brief a grouping session starts from. Every hunk of the change goes to the agent under a
- * short id, and the agent answers in the Git Agent with groups of those ids; the UI reads them
- * back (`groupsFromAnswer` in shared) so each hunk lands in exactly one group whatever it wrote.
+ * Every hunk of a change under a short id, for an agent brief. The agent answers with those ids;
+ * the UI reads them back (`graphFromAnswer` in shared) so each hunk lands in exactly one node
+ * whatever it wrote.
  *
- * Hunks are cut with the same `splitPatch` the UI renders with, from the same two snapshot trees
- * it shows the grouping against, so `{ path, hunk: 3 }` is the same hunk on both sides of the wire.
+ * Hunks are cut with the same `splitPatch` the UI renders with, from the same two pinned trees
+ * it shows the graph against, so `{ path, hunk: 3 }` is the same hunk on both sides of the wire.
  */
-import { DEFAULT_GROUP_PROMPT, diffFingerprint, splitPatch } from '@canopy/shared'
-import type { ChangedFile, DiffSpec, GroupInput, GroupingStarted, HunkRef } from '@canopy/shared'
+import { splitPatch } from '@canopy/shared'
+import type { ChangedFile, DiffSpec, HunkRef } from '@canopy/shared'
 
-import type { GitAgentStore } from '../git-agent/store'
-import { badRequest } from '../lib/errors'
 import type { HistoryService } from '../worktrees/history'
 
 /** A hunk body past this many lines is cut short; its header still says how big it is. */
@@ -65,17 +63,8 @@ export function hunkTable(files: FileDiff[], maxBodyChars = MAX_BODY_CHARS): Hun
   return { refs, text: text.join('\n') }
 }
 
-export function groupsPrompt(table: string, instructions?: string): string {
-  const asked = instructions ? [`How the user wants it grouped:\n${instructions}`] : []
-  return [DEFAULT_GROUP_PROMPT, ...asked, `The change:\n${table}`].join('\n\n')
-}
-
-interface Deps {
-  history: Pick<HistoryService, 'snapshot' | 'trees' | 'filePatch'>
-  store: Pick<GitAgentStore, 'addGrouping'>
-}
-
-async function readPatches(history: Deps['history'], worktreeId: string, spec: DiffSpec, files: ChangedFile[]): Promise<FileDiff[]> {
+/** Each file's patch between the two trees; a binary file has none. */
+export async function readPatches(history: Pick<HistoryService, 'filePatch'>, worktreeId: string, spec: DiffSpec, files: ChangedFile[]): Promise<FileDiff[]> {
   const out: FileDiff[] = []
   for (let at = 0; at < files.length; at += PATCH_BATCH) {
     const batch = files.slice(at, at + PATCH_BATCH)
@@ -83,25 +72,4 @@ async function readPatches(history: Deps['history'], worktreeId: string, spec: D
     out.push(...batch.map((file, i) => ({ file, patch: patches[i] ?? null })))
   }
   return out
-}
-
-/**
- * A new grouping of the working-tree change, and the brief its conversation opens with. The change
- * is read from two pinned snapshot trees rather than the live checkout, so the hunks its answer
- * names can still be shown once the change is committed.
- */
-export async function startGrouping({ history, store }: Deps, worktreeId: string, input: GroupInput): Promise<GroupingStarted> {
-  const spec = await history.snapshot(worktreeId, input.against)
-  const { files } = await history.trees(worktreeId, spec.before, spec.after)
-  if (files.length === 0) throw badRequest('nothing_to_group', 'there are no changes to group')
-  const table = hunkTable(await readPatches(history, worktreeId, spec, files))
-  const grouping = store.addGrouping(worktreeId, {
-    against: input.against,
-    instructions: input.instructions ?? '',
-    before: spec.before,
-    after: spec.after,
-    ids: Object.fromEntries(table.refs),
-    fingerprint: diffFingerprint(files)
-  })
-  return { grouping, prompt: groupsPrompt(table.text, input.instructions) }
 }

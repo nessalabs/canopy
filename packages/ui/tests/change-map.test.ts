@@ -26,7 +26,7 @@ describe('change map helpers', () => {
     const { hasDrawnBlock, partLabel } = await import('../src/lib/change-map')
     expect(partLabel({ id: 'a', label: 'A', path: 'packages/daemon/src/routes/agents.ts', lines: '22-26', status: 'modified' })).toBe('routes/agents.ts:22-26')
     expect(hasDrawnBlock('Here:\n\n```change-map\n{}\n```')).toBe(true)
-    expect(hasDrawnBlock('```change-groups\n{}\n```')).toBe(true)
+    expect(hasDrawnBlock('```review-graph\n{}\n```')).toBe(true)
     expect(hasDrawnBlock('use a `change-map` block')).toBe(false)
   })
 })
