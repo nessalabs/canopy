@@ -8,6 +8,7 @@ import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } f
 import { Button } from '@/components/ui/button'
 import { useLog } from '@/lib/api-hooks'
 import { plural } from '@/lib/format'
+import { useHotkeys } from '@/lib/use-hotkeys'
 
 import { CommitDetail } from './commit-detail'
 import type { ExplorerFocus } from './diff-explorer'
@@ -47,6 +48,7 @@ export function HistoryView({
     return commits.slice(Math.min(a, b), Math.max(a, b) + 1)
   }, [commits, current, end])
   const marked = useMemo(() => new Set(run.map((c) => c.sha)), [run])
+  useHotkeys(run.length > 1 ? { Escape: () => setEnd(undefined) } : {})
   const select = (sha: string, extend: boolean): void => {
     // Ticking the run's far end again, or the selected commit itself, lets the run go.
     if (extend && current) setEnd(sha === end || sha === current ? undefined : sha)
@@ -75,7 +77,10 @@ export function HistoryView({
               {run.length > 1 ? (
                 <>
                   <span>{plural(run.length, 'commit')} picked</span>
-                  <Button size="sm" variant="outline" className="ml-auto h-7 gap-1.5 text-xs" onClick={() => onGraph({ from: run.at(-1)!.sha, to: run[0]!.sha, count: run.length })}>
+                  <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={() => setEnd(undefined)} title="Let go of the picked run  Esc">
+                    Clear
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => onGraph({ from: run.at(-1)!.sha, to: run[0]!.sha, count: run.length })}>
                     <Network className="size-3.5" />
                     Graph these
                   </Button>
