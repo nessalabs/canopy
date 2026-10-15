@@ -292,7 +292,7 @@ describe('claude adapter live controls', () => {
 
     expect(fake.captured.interrupts).toBe(1)
     expect(fake.captured.models).toEqual(['opus'])
-    expect(fake.captured.modes).toEqual(['plan'])
+    expect(fake.captured.modes).toEqual(['default'])
     // The turn is over: its handle is gone, and a stale client learns so from the 404 this drives.
     expect(await adapter.interrupt('sess-i')).toBe(false)
     expect(await adapter.control('sess-i', { model: 'opus' })).toBe(false)
@@ -424,10 +424,38 @@ describe('claude adapter autonomy', () => {
   it('starts every turn able to switch to full access later, still routing prompts through canUseTool', async () => {
     const edit = oneShot()
     await drain(new ClaudeAdapter({ loadSdk: async () => edit.module }).send('sess-a', 'go', { autonomy: 'edit' }))
-    expect(edit.captured.options?.permissionMode).toBe('acceptEdits')
+    expect(edit.captured.options?.permissionMode).toBe('auto')
     expect(typeof edit.captured.options?.canUseTool).toBe('function')
     // Without it the SDK refuses a mid-turn switch to bypassPermissions, and the turn keeps asking.
     expect(edit.captured.options?.allowDangerouslySkipPermissions).toBe(true)
+  })
+
+  it('runs auto approval in auto mode, and asks for approval in the default mode', async () => {
+    const ask = oneShot()
+    await drain(new ClaudeAdapter({ loadSdk: async () => ask.module }).send('sess-a', 'go', { autonomy: 'read-only' }))
+    expect(ask.captured.options?.permissionMode).toBe('default')
+  })
+
+  it('steps down to acceptEdits when the CLI cannot start the turn in auto mode', async () => {
+    const fake = fakeSdk(() =>
+      (async function* () {
+        yield { ...initMessage('sess-a'), permissionMode: 'default' }
+        yield resultMessage('sess-a')
+      })()
+    )
+    await drain(new ClaudeAdapter({ loadSdk: async () => fake.module }).send('sess-a', 'go', { autonomy: 'edit' }))
+    expect(fake.captured.modes).toEqual(['acceptEdits'])
+  })
+
+  it('stays in auto mode when the CLI started the turn in it', async () => {
+    const fake = fakeSdk(() =>
+      (async function* () {
+        yield { ...initMessage('sess-a'), permissionMode: 'auto' }
+        yield resultMessage('sess-a')
+      })()
+    )
+    await drain(new ClaudeAdapter({ loadSdk: async () => fake.module }).send('sess-a', 'go', { autonomy: 'edit' }))
+    expect(fake.captured.modes).toEqual([])
   })
 
   it('adds the surface instructions after the Claude Code prompt, and leaves the prompt alone without them', async () => {
@@ -850,7 +878,7 @@ describe('claude adapter whiteboard turns', () => {
   it('builds with the board tools and the user’s own autonomy, every other tool allowed', async () => {
     const { module, captured } = fakeSdk(run)
     await drain(new ClaudeAdapter({ loadSdk: async () => module }).send(null, 'build it', { whiteboard: 'build', autonomy: 'edit', cwd: '/tmp' }))
-    expect(captured.options?.permissionMode).toBe('acceptEdits')
+    expect(captured.options?.permissionMode).toBe('auto')
     expect(Object.keys(captured.options?.mcpServers ?? {})).toEqual(['canopy'])
     expect(captured.options?.tools).toBeUndefined()
     expect(captured.options?.strictMcpConfig).toBeUndefined()
@@ -890,7 +918,7 @@ describe('claude adapter whiteboard turns', () => {
     for await (const frame of adapter.send(null, 'plan', { whiteboard: 'plan', cwd: '/tmp' })) {
       if (payloadOf(frame)?.type === 'permission_requested') adapter.answerPermission('sess-p', { requestId: 'tu-plan', behavior: 'allow', autonomy: 'edit' })
     }
-    expect(decisions).toEqual([{ behavior: 'allow', updatedInput: { plan: 'x' }, updatedPermissions: [{ type: 'setMode', mode: 'acceptEdits', destination: 'session' }] }])
+    expect(decisions).toEqual([{ behavior: 'allow', updatedInput: { plan: 'x' }, updatedPermissions: [{ type: 'setMode', mode: 'auto', destination: 'session' }] }])
   })
 
   it('changes no mode when any other tool is allowed, whatever autonomy the answer names', async () => {

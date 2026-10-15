@@ -4,8 +4,8 @@ import type { ComposerAccessModeValue } from '@/components/ui/composer-access-mo
 
 /** The composer's shield states ↔ the daemon's autonomy levels (Claude permission modes). */
 export const ACCESS_TO_AUTONOMY: Record<ComposerAccessModeValue, Autonomy> = {
-  'ask-approval': 'read-only', // plan: the agent proposes, edits nothing
-  'auto-approval': 'edit', // acceptEdits: edits the worktree, asks for anything else
+  'ask-approval': 'read-only', // default: asks before every edit or command that is not read-only
+  'auto-approval': 'edit', // auto: a classifier approves routine calls, asks only for risky ones
   'full-access': 'full' // bypassPermissions
 }
 

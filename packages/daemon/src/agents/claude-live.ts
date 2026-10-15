@@ -105,7 +105,10 @@ export function createLiveTurn(query: LiveQuery, channel: PromptChannel, options
     },
     interrupt: () => swallow(query.interrupt?.()),
     setModel: (model) => swallow(query.setModel?.(model)),
-    setPermissionMode: (mode) => swallow(query.setPermissionMode?.(mode)),
+    // The CLI refuses auto mode where it is unavailable (plan, model, org policy); `acceptEdits` is the
+    // nearest mode that still lets edits through, so a refused switch does not leave the old mode on.
+    setPermissionMode: (mode) =>
+      swallow(query.setPermissionMode?.(mode).catch((error: unknown) => (mode === 'auto' && query.setPermissionMode ? query.setPermissionMode('acceptEdits') : Promise.reject(error)))),
     // Unlike the other three this one has an answer to carry back, so a CLI too old to offer it
     // says so rather than being swallowed into a silent no-op.
     rewindFiles: async (messageId, dryRun) =>
