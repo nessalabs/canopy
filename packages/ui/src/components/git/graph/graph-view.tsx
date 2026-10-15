@@ -12,6 +12,7 @@ import type { DiffMode } from '@/components/worktree-diff'
 import { useDiffFiles } from '@/lib/api-hooks'
 import { isMissingRoute, isReviewed, isStale, reviewedKey, tourSteps, type NodeCard, type TourStep } from '@/lib/review-graph'
 import type { ReviewGraphState } from '@/lib/use-review-graph'
+import { oneOf, useStoredState } from '@/lib/local-store'
 import { useHotkeys } from '@/lib/use-hotkeys'
 import { cn } from '@/lib/utils'
 
@@ -19,6 +20,8 @@ import { GraphBar, type CommitRange } from './graph-bar'
 import { GraphCards, GraphLayered, type Depth } from './graph-map'
 import { GraphNetwork, type NetworkLayout } from './graph-network'
 import { TourStepView } from './graph-tour'
+
+const NO_LINES: Readonly<Record<string, [number, number]>> = {}
 
 type View = 'cards' | 'layered' | 'network' | 'tour'
 
@@ -67,16 +70,17 @@ function GraphReview({
   const snapshot = useDiffFiles(worktreeId, spec).data
   const files = useMemo(() => (snapshot && 'files' in snapshot ? snapshot.files : []), [snapshot])
   const steps = useMemo(() => tourSteps(graph), [graph])
+  const lines = state.record?.lines ?? NO_LINES
   const indexOf = useMemo(() => new Map(steps.map((step, index) => [step.node.id, index])), [steps])
 
-  const [view, setView] = useState<View>('cards')
+  // How the graph is looked at is the reviewer's preference, so it is kept across graphs and reloads.
+  const [view, setView] = useStoredState<View>('canopy-graph-view', 'cards', oneOf<View>('cards', 'layered', 'network', 'tour'))
   const [current, setCurrent] = useState(0)
   const [at, setAt] = useState<string>()
-  const [depth, setDepth] = useState<Depth>('top')
-  const [layout, setLayout] = useState<NetworkLayout>('flat')
-  // A new graph starts over at its cards.
+  const [depth, setDepth] = useStoredState<Depth>('canopy-graph-depth', 'top', oneOf<Depth>('top', 'all'))
+  const [layout, setLayout] = useStoredState<NetworkLayout>('canopy-graph-network-layout', 'flat', oneOf<NetworkLayout>('flat', 'hierarchical'))
+  // A new graph starts over at its top; the view the reviewer chose stays.
   useEffect(() => {
-    setView('cards')
     setCurrent(0)
     setAt(undefined)
   }, [graph])
@@ -123,6 +127,7 @@ function GraphReview({
           spec={spec}
           graph={graph}
           step={step}
+          lines={lines}
           index={index}
           total={steps.length}
           files={files}
@@ -139,6 +144,7 @@ function GraphReview({
         <GraphNetwork
           graph={graph}
           reviewed={state.reviewed}
+          lines={lines}
           layout={layout}
           onLayout={setLayout}
           current={step?.node.id}
@@ -150,9 +156,9 @@ function GraphReview({
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
           {view === 'layered' ? (
-            <GraphLayered graph={graph} files={files} reviewed={state.reviewed} depth={depth} onDepth={setDepth} current={step?.node.id} onTour={tour} />
+            <GraphLayered graph={graph} files={files} reviewed={state.reviewed} lines={lines} depth={depth} onDepth={setDepth} current={step?.node.id} onTour={tour} />
           ) : (
-            <GraphCards graph={graph} files={files} reviewed={state.reviewed} at={at} onAt={setAt} current={step?.node.id} onTour={tour} />
+            <GraphCards graph={graph} files={files} reviewed={state.reviewed} lines={lines} at={at} onAt={setAt} current={step?.node.id} onTour={tour} />
           )}
         </div>
       )}

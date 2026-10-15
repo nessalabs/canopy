@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import type { DiffMode } from '@/components/worktree-diff'
 import { useFilePatches } from '@/lib/api-hooks'
 import { slicePatch } from '@/lib/patch'
-import { edgeWords, nodeFiles, type TourStep } from '@/lib/review-graph'
+import { changeShape, edgeWords, lineTotals, nodeFiles, type TourStep } from '@/lib/review-graph'
 import { cn } from '@/lib/utils'
 
 import { ContentPane } from '../content-pane'
@@ -61,6 +61,7 @@ export function TourStepView({
   spec,
   graph,
   step,
+  lines,
   index,
   total,
   files,
@@ -77,6 +78,8 @@ export function TourStepView({
   spec: DiffSpec
   graph: ReviewGraph
   step: TourStep
+  /** Lines each hunk adds and removes, by `lineKey`. */
+  lines: Readonly<Record<string, [number, number]>>
   index: number
   total: number
   files: ChangedFile[]
@@ -95,6 +98,7 @@ export function TourStepView({
 }): React.JSX.Element {
   const { node, trail, children, reviewable } = step
   const own = useMemo(() => nodeFiles(node.refs), [node.refs])
+  const totals = lineTotals(node.refs, lines)
   const patches = useFilePatches(worktreeId, spec, own.map((file) => file.path))
   const [picked, setPicked] = useState(0)
   const shown = own[Math.min(picked, own.length - 1)]
@@ -123,6 +127,12 @@ export function TourStepView({
           </span>
         </div>
         <h3 className="text-base leading-snug font-semibold">{node.title}</h3>
+        {totals ? (
+          <p className="text-xs text-muted-foreground tabular-nums">
+            <span className="text-nessa-diff-addition">+{totals.added}</span> <span className="text-nessa-diff-deletion">−{totals.removed}</span> ·{' '}
+            {{ added: 'mostly new code', deleted: 'mostly removed code', modified: 'reshapes existing code' }[changeShape(totals)]}
+          </p>
+        ) : null}
         {node.summary ? <LinkedMarkdown className="text-sm text-muted-foreground">{node.summary}</LinkedMarkdown> : null}
         {node.layers.length > 0 ? (
           <div className="flex flex-wrap gap-1">

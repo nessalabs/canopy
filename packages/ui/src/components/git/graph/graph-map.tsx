@@ -17,6 +17,11 @@ function CardBody({ card }: { card: NodeCard }): React.JSX.Element {
       <span className="line-clamp-2 text-sm leading-snug font-semibold">{card.title}</span>
       <span className="line-clamp-2 text-xs leading-snug text-muted-foreground">{card.summary}</span>
       <span className="mt-auto flex items-center gap-2 pt-1 font-mono text-[10px] text-muted-foreground">
+        {card.added !== undefined ? (
+          <span className="tabular-nums" title={`${card.added} lines added, ${card.removed} removed`}>
+            <span className="text-nessa-diff-addition">+{card.added}</span> <span className="text-nessa-diff-deletion">−{card.removed}</span>
+          </span>
+        ) : null}
         <span>
           {card.files} {card.files === 1 ? 'file' : 'files'} · {card.hunks} {card.hunks === 1 ? 'hunk' : 'hunks'}
           {card.inside > 0 ? ` · ${card.inside} inside` : ''}
@@ -29,6 +34,9 @@ function CardBody({ card }: { card: NodeCard }): React.JSX.Element {
     </>
   )
 }
+
+/** Card colours read as what a node mostly does to the code. */
+const SHAPE_LABELS = { added: 'Mostly added', modified: 'Added and removed', deleted: 'Mostly removed' } as const
 
 const toMapNodes = (cards: NodeCard[]): ChangeMapNode[] => cards.map((card) => ({ id: card.id, label: card.title, status: card.status, badge: card.id === 'rest' ? undefined : card.id, children: <CardBody card={card} /> }))
 
@@ -61,6 +69,7 @@ export function GraphCards({
   graph,
   files,
   reviewed,
+  lines,
   at,
   onAt,
   current,
@@ -69,6 +78,8 @@ export function GraphCards({
   graph: ReviewGraph
   files: ChangedFile[]
   reviewed: ReadonlySet<string>
+  /** Lines each hunk adds and removes, by `lineKey`. */
+  lines: Readonly<Record<string, [number, number]>>
   /** The node whose inside is shown; the top level when undefined. */
   at?: string
   onAt: (id?: string) => void
@@ -77,7 +88,7 @@ export function GraphCards({
   onTour: (card: NodeCard) => void
 }): React.JSX.Element {
   const shown = useMemo(() => childrenOf(graph, at), [graph, at])
-  const cards = useMemo(() => cardsOf(graph, shown, files, reviewed), [graph, shown, files, reviewed])
+  const cards = useMemo(() => cardsOf(graph, shown, files, reviewed, lines), [graph, shown, files, reviewed, lines])
   const nodes = useMemo(() => toMapNodes(cards), [cards])
   const edges = useMemo(() => liftEdges(graph, shown).map(({ from, to }) => ({ from, to })), [graph, shown])
   const byId = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards])
@@ -86,12 +97,13 @@ export function GraphCards({
       <div className="flex items-center gap-2">
         <Trail graph={graph} at={at} onGo={onAt} />
         {at ? (
-          <Button size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onTour(cardsOf(graph, [graph.nodes.find((node) => node.id === at)!], files, reviewed)[0]!)}>
+          <Button size="sm" variant="outline" className="ml-auto h-7 text-xs" onClick={() => onTour(cardsOf(graph, [graph.nodes.find((node) => node.id === at)!], files, reviewed, lines)[0]!)}>
             Tour this
           </Button>
         ) : null}
       </div>
       <ChangeMap
+        statusLabels={SHAPE_LABELS}
         title={at ? 'Inside it' : 'How the change fits together'}
         nodes={nodes}
         // Only the arrows: with a label on every one, a dozen cards read as noise. The layered view labels them.
@@ -120,6 +132,7 @@ export function GraphLayered({
   graph,
   files,
   reviewed,
+  lines,
   depth,
   onDepth,
   current,
@@ -128,13 +141,15 @@ export function GraphLayered({
   graph: ReviewGraph
   files: ChangedFile[]
   reviewed: ReadonlySet<string>
+  /** Lines each hunk adds and removes, by `lineKey`. */
+  lines: Readonly<Record<string, [number, number]>>
   depth: Depth
   onDepth: (depth: Depth) => void
   current?: string
   onTour: (card: NodeCard) => void
 }): React.JSX.Element {
   const shown = useMemo<ReviewNode[]>(() => (depth === 'top' ? childrenOf(graph) : leaves(graph)), [graph, depth])
-  const cards = useMemo(() => cardsOf(graph, shown, files, reviewed), [graph, shown, files, reviewed])
+  const cards = useMemo(() => cardsOf(graph, shown, files, reviewed, lines), [graph, shown, files, reviewed, lines])
   const nodes = useMemo(() => toMapNodes(cards), [cards])
   const edges = useMemo(() => liftEdges(graph, shown).map(({ from, to, kind }) => ({ from, to, label: edgeWords(kind) })), [graph, shown])
   const byId = useMemo(() => new Map(cards.map((card) => [card.id, card])), [cards])
@@ -150,6 +165,7 @@ export function GraphLayered({
         </Button>
       </div>
       <ChangeMap
+        statusLabels={SHAPE_LABELS}
         title="How the pieces depend on each other"
         nodes={nodes}
         edges={edges}

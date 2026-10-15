@@ -89,6 +89,11 @@ export const GraphRecord = z.object({
   after: z.string(),
   /** The short ids the brief named hunks by, which the agent's answers use. */
   ids: z.record(z.string(), HunkRef),
+  /**
+   * Lines added and removed by each hunk, under `lineKey` (`path#hunk`, `path#*` for a whole file),
+   * so a node can say whether it mostly adds or mostly removes. Empty for graphs made before it.
+   */
+  lines: z.record(z.string(), z.tuple([z.number().int().nonnegative(), z.number().int().nonnegative()])).default({}),
   fingerprint: z.string(),
   /** The pull request it describes, for a pull-request graph. */
   prNumber: z.number().int().optional(),
@@ -132,6 +137,9 @@ export const GraphReply = z.object({
   edges: z.array(z.object({ from: z.string(), to: z.string(), kind: z.string().optional(), label: z.string().optional() })).default([])
 })
 export type GraphReply = z.infer<typeof GraphReply>
+
+/** Where a hunk's line counts are kept in `GraphRecord.lines`. */
+export const lineKey = ({ path, hunk }: HunkRef): string => `${path}#${hunk ?? '*'}`
 
 /** The diff's shape, worked out the same way on both sides of the wire: which files, how much each changed. */
 export const diffFingerprint = (files: Pick<ChangedFile, 'path' | 'additions' | 'deletions'>[]): string =>

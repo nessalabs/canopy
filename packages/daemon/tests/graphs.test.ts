@@ -32,6 +32,8 @@ describe('hunkTable', () => {
     ])
     expect(text).toContain('### logo.png (binary)\nf3 whole file')
     expect(text).toContain('h4 @@ -5,1 +5,1 @@\n-old\n+new')
+    expect(hunkTable(files).lines.get('a.ts#0')).toEqual([1, 1])
+    expect(hunkTable(files).lines.get('logo.png#*')).toEqual([1, 1])
   })
 
   it('keeps headers but leaves bodies out once the budget is spent', () => {
@@ -72,6 +74,7 @@ describe('graph brief route', () => {
     expect(res.body.prompt).toContain('How the user wants it drawn:\nby layer')
     expect(res.body.prompt).toContain('feeds')
     expect(res.body.prompt).toContain('h2 @@')
+    expect(res.body.graph.lines).toEqual({ 'a.txt#0': [1, 1], 'c.txt#0': [1, 0] })
   })
 
   it('defaults to features and refuses when there is nothing to draw', async () => {

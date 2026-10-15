@@ -9,6 +9,7 @@ import { CONTAINS, type ReviewGraph } from '@canopy/shared'
 import { Button } from '@/components/ui/button'
 import { neighbourhood, networkOf, ownerOf, SHAPE_RELATIONS, type NetNode, type NetNodeKind, type NetState, type Network } from '@/lib/graph-network'
 import { edgeWords } from '@/lib/review-graph'
+import { useStoredState } from '@/lib/local-store'
 import { useTheme } from '@/lib/use-theme'
 import { cn } from '@/lib/utils'
 
@@ -33,7 +34,21 @@ const STATE_FILL: Record<NetState, string> = {
   intro: 'var(--muted-foreground)'
 }
 const ATOM_FILL: Record<Exclude<NetNodeKind, 'root' | 'node'>, string> = { hunk: '#818cf8', test: '#34d399', commit: '#38bdf8' }
-const fillOf = (dot: NetNode): string => (dot.kind === 'root' ? 'var(--foreground)' : dot.kind === 'node' ? STATE_FILL[dot.state ?? 'intro'] : ATOM_FILL[dot.kind])
+export type ColourBy = 'review' | 'change'
+
+const ADD = 'var(--nessa-diff-addition)'
+const DEL = 'var(--nessa-diff-deletion)'
+
+/** A node's added share as a pie, green then red, so the split reads at a glance. */
+const changeFill = (dot: NetNode): string => {
+  const all = (dot.added ?? 0) + (dot.removed ?? 0)
+  if (all === 0) return 'var(--muted-foreground)'
+  const share = Math.round(((dot.added ?? 0) / all) * 100)
+  return `conic-gradient(${ADD} 0 ${share}%, ${DEL} ${share}% 100%)`
+}
+
+const fillOf = (dot: NetNode, by: ColourBy = 'review'): string =>
+  dot.kind === 'root' ? 'var(--foreground)' : dot.kind === 'node' ? (by === 'change' ? changeFill(dot) : STATE_FILL[dot.state ?? 'intro']) : ATOM_FILL[dot.kind]
 
 const SHAPE_STYLE: Record<string, { stroke: string; dash?: string; width: number }> = {
   [CONTAINS]: { stroke: 'var(--muted-foreground)', width: 1.4 },
@@ -79,6 +94,7 @@ function tree(network: Network): Map<string, XY> {
 
 interface DotData extends Record<string, unknown> {
   dot: NetNode
+  by: ColourBy
   dimmed: boolean
   picked: boolean
 }
@@ -86,16 +102,16 @@ interface DotData extends Record<string, unknown> {
 const CENTER = { left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } as const
 
 function Dot({ data }: NodeProps<Node<DotData>>): React.JSX.Element {
-  const { dot, dimmed, picked } = data
+  const { dot, by, dimmed, picked } = data
   const r = radiusOf(dot)
   const labelled = dot.kind === 'root' || dot.kind === 'node' || dot.kind === 'commit' || dot.kind === 'test'
   return (
-    <div className={cn('relative transition-opacity duration-150', dimmed && 'opacity-15')} title={dot.node?.summary ?? dot.path ?? dot.sha ?? dot.label}>
+    <div className={cn('relative transition-opacity duration-150', dimmed && 'opacity-15')} title={[dot.node?.summary ?? dot.path ?? dot.sha ?? dot.label, dot.added !== undefined ? `+${dot.added} −${dot.removed}` : ''].filter(Boolean).join('\n')}>
       <Handle type="target" position={Position.Top} style={CENTER} className="opacity-0!" />
       <Handle type="source" position={Position.Top} style={CENTER} className="opacity-0!" />
       <div
         className={cn('rounded-full border-2 border-background shadow-sm', dot.state === 'intro' && 'border-dashed! border-muted-foreground!', picked && 'ring-2 ring-primary ring-offset-1 ring-offset-background')}
-        style={{ width: r * 2, height: r * 2, background: fillOf(dot) }}
+        style={{ width: r * 2, height: r * 2, background: fillOf(dot, by) }}
       />
       {labelled ? (
         <span
@@ -113,7 +129,7 @@ function Dot({ data }: NodeProps<Node<DotData>>): React.JSX.Element {
 
 const nodeTypes = { dot: Dot }
 
-function NetworkCanvas({ network, layout, picked, onOpen }: { network: Network; layout: NetworkLayout; picked?: string; onOpen: (id: string) => void }): React.JSX.Element {
+function NetworkCanvas({ network, layout, by, picked, onOpen }: { network: Network; layout: NetworkLayout; by: ColourBy; picked?: string; onOpen: (id: string) => void }): React.JSX.Element {
   const { theme } = useTheme()
   const [hovered, setHovered] = useState<string>()
   const lit = useMemo(() => (hovered ? neighbourhood(network, hovered) : undefined), [network, hovered])
@@ -198,10 +214,10 @@ function NetworkCanvas({ network, layout, picked, onOpen }: { network: Network; 
           width: r * 2,
           height: r * 2,
           draggable: layout === 'flat',
-          data: { dot, dimmed: lit !== undefined && !lit.has(dot.id), picked: dot.id === picked }
+          data: { dot, by, dimmed: lit !== undefined && !lit.has(dot.id), picked: dot.id === picked }
         }
       }),
-    [network, positions, lit, picked, layout]
+    [network, positions, lit, picked, layout, by]
   )
 
   const edges: Edge[] = useMemo(
@@ -264,18 +280,28 @@ function NetworkCanvas({ network, layout, picked, onOpen }: { network: Network; 
     >
       <Background gap={18} size={1} />
       <Controls showInteractive={false} />
-      <MiniMap pannable zoomable nodeColor={(n) => fillOf((n.data as DotData).dot)} />
+      <MiniMap pannable zoomable nodeColor={(n) => { const d = n.data as DotData; return by === 'change' && d.dot.kind === 'node' ? ((d.dot.added ?? 0) >= (d.dot.removed ?? 0) ? ADD : DEL) : fillOf(d.dot) }} />
     </ReactFlow>
   )
 }
 
-function Legend(): React.JSX.Element {
+function Legend({ by }: { by: ColourBy }): React.JSX.Element {
   const dot = (fill: string, extra?: string) => <span className={cn('inline-block size-2.5 rounded-full', extra)} style={{ background: fill }} />
   return (
     <div className="pointer-events-none absolute top-2 left-2 z-10 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-card/90 px-2.5 py-1.5 text-[10px] text-muted-foreground backdrop-blur">
-      <span className="flex items-center gap-1">{dot(STATE_FILL.unreviewed)} to review</span>
-      <span className="flex items-center gap-1">{dot(STATE_FILL.reviewed)} reviewed</span>
-      <span className="flex items-center gap-1">{dot('transparent', 'border border-dashed border-muted-foreground')} group</span>
+      {by === 'change' ? (
+        <>
+          <span className="flex items-center gap-1">{dot(ADD)} lines added</span>
+          <span className="flex items-center gap-1">{dot(DEL)} lines removed</span>
+          <span className="flex items-center gap-1">{dot(`conic-gradient(${ADD} 0 60%, ${DEL} 60% 100%)`)} the split</span>
+        </>
+      ) : (
+        <>
+          <span className="flex items-center gap-1">{dot(STATE_FILL.unreviewed)} to review</span>
+          <span className="flex items-center gap-1">{dot(STATE_FILL.reviewed)} reviewed</span>
+          <span className="flex items-center gap-1">{dot('transparent', 'border border-dashed border-muted-foreground')} group</span>
+        </>
+      )}
       <span className="text-border">|</span>
       <span className="flex items-center gap-1">{dot(ATOM_FILL.hunk)} hunk</span>
       <span className="flex items-center gap-1">{dot(ATOM_FILL.test)} test</span>
@@ -295,6 +321,7 @@ function Legend(): React.JSX.Element {
 export function GraphNetwork({
   graph,
   reviewed,
+  lines,
   layout,
   onLayout,
   current,
@@ -302,13 +329,17 @@ export function GraphNetwork({
 }: {
   graph: ReviewGraph
   reviewed: ReadonlySet<string>
+  /** Lines each hunk adds and removes, by `lineKey`. */
+  lines: Readonly<Record<string, [number, number]>>
   layout: NetworkLayout
   onLayout: (layout: NetworkLayout) => void
   current?: string
   onOpen: (id: string) => void
 }): React.JSX.Element {
-  const [atoms, setAtoms] = useState(true)
-  const network = useMemo(() => networkOf(graph, reviewed, { atoms }), [graph, reviewed, atoms])
+  const [atoms, setAtoms] = useStoredState('canopy-graph-network-atoms', false, (v): v is boolean => typeof v === 'boolean')
+  const [by, setBy] = useStoredState<ColourBy>('canopy-graph-network-colour', 'review', (v): v is ColourBy => v === 'review' || v === 'change')
+  const counted = Object.keys(lines).length > 0
+  const network = useMemo(() => networkOf(graph, reviewed, { atoms, lines }), [graph, reviewed, atoms, lines])
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-1 border-b border-border px-4 py-1.5 text-xs">
@@ -322,12 +353,26 @@ export function GraphNetwork({
           <input type="checkbox" checked={atoms} onChange={() => setAtoms(!atoms)} className="size-3.5" />
           Hunks and commits
         </label>
+        <span className="ml-3 text-muted-foreground">Colour by</span>
+        <Button size="sm" variant={by === 'review' ? 'secondary' : 'ghost'} className="h-7 text-xs" onClick={() => setBy('review')}>
+          Review
+        </Button>
+        <Button
+          size="sm"
+          variant={by === 'change' ? 'secondary' : 'ghost'}
+          className="h-7 text-xs"
+          disabled={!counted}
+          title={counted ? 'Green for lines added, red for lines removed' : 'This graph was made before line counts were kept; make a new one to see them'}
+          onClick={() => setBy('change')}
+        >
+          Added / removed
+        </Button>
         <span className="ml-auto text-muted-foreground">Hover to light what a node touches; click to review it.</span>
       </div>
       <div className="relative min-h-0 flex-1">
-        <Legend />
+        <Legend by={counted ? by : 'review'} />
         {/* Keyed so a new layout or a new set of dots opens fitted to the view, not where the last one left the camera. */}
-        <NetworkCanvas key={`${layout}:${atoms}`} network={network} layout={layout} picked={current} onOpen={onOpen} />
+        <NetworkCanvas key={`${layout}:${atoms}`} network={network} layout={layout} by={counted ? by : 'review'} picked={current} onOpen={onOpen} />
       </div>
     </div>
   )

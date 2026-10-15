@@ -1,6 +1,6 @@
-import { CONTAINS, childrenOf, type ReviewGraph, type ReviewNode } from '@canopy/shared'
+import { CONTAINS, childrenOf, coverageOf, type ReviewGraph, type ReviewNode } from '@canopy/shared'
 
-import { isReviewed } from './review-graph'
+import { isReviewed, lineTotals } from './review-graph'
 
 /**
  * A review graph as a network: one dot for the whole change at the centre, every node at every
@@ -23,6 +23,9 @@ export interface NetNode {
   level: number
   node?: ReviewNode
   state?: NetState
+  /** Lines added and removed across everything the node covers, when the graph kept counts. */
+  added?: number
+  removed?: number
   path?: string
   hunk?: number
   sha?: string
@@ -51,7 +54,7 @@ export const looksLikeTest = (path: string): boolean => /(^|\/)(tests?|__tests__
 
 const leaf = (path: string): string => path.split('/').pop() ?? path
 
-export function networkOf(graph: Pick<ReviewGraph, 'nodes' | 'edges'>, reviewed: ReadonlySet<string>, opts: { atoms?: boolean } = {}): Network {
+export function networkOf(graph: Pick<ReviewGraph, 'nodes' | 'edges'>, reviewed: ReadonlySet<string>, opts: { atoms?: boolean; lines?: Readonly<Record<string, [number, number]>> } = {}): Network {
   const atoms = opts.atoms ?? true
   const nodes = new Map<string, NetNode>()
   const edges = new Map<string, NetEdge>()
@@ -69,7 +72,8 @@ export function networkOf(graph: Pick<ReviewGraph, 'nodes' | 'edges'>, reviewed:
   for (const node of graph.nodes) {
     const level = levels.get(node.id) ?? 1
     const state: NetState = node.refs.length === 0 ? 'intro' : isReviewed(reviewed, node) ? 'reviewed' : 'unreviewed'
-    nodes.set(node.id, { id: node.id, kind: 'node', label: node.title, level, node, state })
+    const totals = lineTotals(coverageOf(graph, node.id), opts.lines ?? {})
+    nodes.set(node.id, { id: node.id, kind: 'node', label: node.title, level, node, state, ...(totals ? { added: totals.added, removed: totals.removed } : {}) })
     if (level === 1) edge({ id: `contains:${ROOT_ID}>${node.id}`, source: ROOT_ID, target: node.id, relation: CONTAINS })
     if (!atoms) continue
     for (const ref of node.refs) {

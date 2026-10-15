@@ -13,6 +13,7 @@ import {
   type GraphRecord,
   type GraphScope,
   type HunkIds,
+  lineKey,
   type HunkRef,
   type ReviewEdge,
   type ReviewGraph,
@@ -75,8 +76,11 @@ export interface NodeCard {
   layers: string[]
   files: number
   hunks: number
-  /** Added when every file it touches is new, deleted when every one goes, modified otherwise. */
+  /** Mostly new code, mostly removed code, or both: by line counts when the graph has them, else by file. */
   status: 'added' | 'modified' | 'deleted'
+  /** Lines added and removed across everything it covers; absent for a graph made before counts were kept. */
+  added?: number
+  removed?: number
   /** Reviewable steps at or inside it, and how many of those are ticked. */
   steps: number
   reviewed: number
@@ -89,7 +93,28 @@ export interface NodeCard {
 const KIND: Record<ChangedFile['status'], NodeCard['status']> = { A: 'added', U: 'added', D: 'deleted', M: 'modified', T: 'modified' }
 
 /** The given nodes as cards, each counting everything inside it. */
-export function cardsOf(graph: Graph, nodes: ReviewNode[], files: ChangedFile[], reviewed: ReadonlySet<string>): NodeCard[] {
+/** Lines added and removed across some hunks, or undefined when the graph kept no counts for them. */
+export function lineTotals(refs: HunkRef[], lines: Readonly<Record<string, [number, number]>>): { added: number; removed: number } | undefined {
+  let [added, removed, known] = [0, 0, false]
+  for (const ref of refs) {
+    const counted = lines[lineKey(ref)]
+    if (!counted) continue
+    known = true
+    added += counted[0]
+    removed += counted[1]
+  }
+  return known ? { added, removed } : undefined
+}
+
+/** What a node mostly does to the code: a split under 20% either way counts as all one way. */
+export function changeShape(totals: { added: number; removed: number }): NodeCard['status'] {
+  const all = totals.added + totals.removed
+  if (all === 0) return 'modified'
+  const share = totals.added / all
+  return share >= 0.8 ? 'added' : share <= 0.2 ? 'deleted' : 'modified'
+}
+
+export function cardsOf(graph: Graph, nodes: ReviewNode[], files: ChangedFile[], reviewed: ReadonlySet<string>, lines: Readonly<Record<string, [number, number]>> = {}): NodeCard[] {
   const status = new Map(files.map((file) => [file.path, KIND[file.status]]))
   const order = new Map(tourOrder(graph).map((node, index) => [node.id, index]))
   return nodes.map((node) => {
@@ -97,6 +122,7 @@ export function cardsOf(graph: Graph, nodes: ReviewNode[], files: ChangedFile[],
     const inner = [node, ...descendants(graph, node.id)]
     const steps = inner.filter((step) => step.refs.length > 0)
     const kinds = new Set(refs.map((ref) => status.get(ref.path) ?? 'modified'))
+    const totals = lineTotals(refs, lines)
     return {
       id: node.id,
       title: node.title,
@@ -105,7 +131,8 @@ export function cardsOf(graph: Graph, nodes: ReviewNode[], files: ChangedFile[],
       layers: node.layers,
       files: new Set(refs.map((ref) => ref.path)).size,
       hunks: refs.length,
-      status: kinds.size === 1 ? [...kinds][0]! : 'modified',
+      status: totals ? changeShape(totals) : kinds.size === 1 ? [...kinds][0]! : 'modified',
+      ...(totals ? { added: totals.added, removed: totals.removed } : {}),
       steps: steps.length,
       reviewed: steps.filter((step) => isReviewed(reviewed, step)).length,
       inside: childrenOf(graph, node.id).length,

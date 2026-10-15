@@ -6,7 +6,7 @@ import type { AgentEvent } from '@canopy/shared/agent-stream'
 
 import { parseGitLink } from '../src/lib/environment-ui'
 import { slicePatch } from '../src/lib/patch'
-import { cardsOf, graphTitle, isMissingRoute, isStale, latestGraph, leaves, liftEdges, nodeFiles, pickGraph, reviewedKey, tourSteps } from '../src/lib/review-graph'
+import { cardsOf, changeShape, graphTitle, lineTotals, isMissingRoute, isStale, latestGraph, leaves, liftEdges, nodeFiles, pickGraph, reviewedKey, tourSteps } from '../src/lib/review-graph'
 
 const ids = { h1: { path: 'db.sql', hunk: 0 }, h2: { path: 'api.ts', hunk: 0 }, h3: { path: 'api.ts', hunk: 1 }, h4: { path: 'ui.tsx', hunk: 0 } }
 const reply = (nodes: object[], edges: object[] = []) => ({ nodes, edges }) as unknown as GraphReply
@@ -139,5 +139,23 @@ describe('networkOf', () => {
     expect(ownerOf(net, 'hunk:api.ts#1')).toBe('2.1')
     expect(net.edges.some((e) => e.relation === 'reads' && e.source === '2.2' && e.target === '1')).toBe(true)
     expect(networkOf(graph, new Set(), { atoms: false }).nodes.some((n) => n.kind === 'hunk')).toBe(false)
+  })
+})
+
+describe('line counts', () => {
+  const lines = { 'db.sql#0': [12, 0], 'api.ts#0': [3, 9], 'api.ts#1': [0, 20] } as Record<string, [number, number]>
+
+  it('sums what a node covers, and says whether it mostly adds or removes', () => {
+    expect(lineTotals([{ path: 'api.ts', hunk: 0 }, { path: 'api.ts', hunk: 1 }], lines)).toEqual({ added: 3, removed: 29 })
+    expect(lineTotals([{ path: 'ui.tsx', hunk: 0 }], lines)).toBeUndefined()
+    expect([changeShape({ added: 12, removed: 0 }), changeShape({ added: 3, removed: 29 }), changeShape({ added: 5, removed: 5 })]).toEqual(['added', 'deleted', 'modified'])
+  })
+
+  it('colours a card by its line split when the graph has counts', () => {
+    const top = graph.nodes.filter((n) => n.title === 'Schema' || n.title === 'Refunds')
+    expect(cardsOf(graph, top, [], new Set(), lines).map((c) => [c.title, c.status, c.added, c.removed])).toEqual([
+      ['Schema', 'added', 12, 0],
+      ['Refunds', 'deleted', 3, 29]
+    ])
   })
 })
