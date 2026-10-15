@@ -6,7 +6,7 @@
  * Hunks are cut with the same `splitPatch` the UI renders with, from the same two pinned trees
  * it shows the graph against, so `{ path, hunk: 3 }` is the same hunk on both sides of the wire.
  */
-import { splitPatch } from '@canopy/shared'
+import { lineKey, splitPatch } from '@canopy/shared'
 import type { ChangedFile, DiffSpec, HunkRef } from '@canopy/shared'
 
 import type { HistoryService } from '../worktrees/history'
@@ -27,6 +27,8 @@ export interface FileDiff {
 export interface HunkTable {
   /** Every id the prompt mentions, in the order the diff reads. */
   refs: Map<string, HunkRef>
+  /** Lines each hunk adds and removes, by `lineKey`; a whole file counts as its diff stat says. */
+  lines: Map<string, [number, number]>
   text: string
 }
 
@@ -39,9 +41,13 @@ function hunkLines(id: string, header: string, body: string[], budget: { left: n
   return [`${id} ${header}`, shown, ...(more > 0 ? [`[… ${more} more lines]`] : [])]
 }
 
+/** Added and removed lines in a hunk's body. */
+const countLines = (body: string[]): [number, number] => [body.filter((line) => line.startsWith('+')).length, body.filter((line) => line.startsWith('-')).length]
+
 /** Numbers every hunk (`h…`) and every file with no hunks (`f…`), and writes them out for the prompt. */
 export function hunkTable(files: FileDiff[], maxBodyChars = MAX_BODY_CHARS): HunkTable {
   const refs = new Map<string, HunkRef>()
+  const lines = new Map<string, [number, number]>()
   const budget = { left: maxBodyChars }
   const text = files.flatMap(({ file, patch }) => {
     const hunks = patch ? splitPatch(patch).hunks : []
@@ -49,6 +55,7 @@ export function hunkTable(files: FileDiff[], maxBodyChars = MAX_BODY_CHARS): Hun
     if (hunks.length === 0) {
       const id = `f${refs.size + 1}`
       refs.set(id, { path: file.path })
+      lines.set(lineKey({ path: file.path }), [file.additions, file.deletions])
       return [title, `${id} whole file`]
     }
     return [
@@ -56,11 +63,12 @@ export function hunkTable(files: FileDiff[], maxBodyChars = MAX_BODY_CHARS): Hun
       ...hunks.flatMap((hunk) => {
         const id = `h${refs.size + 1}`
         refs.set(id, { path: file.path, hunk: hunk.index })
+        lines.set(lineKey({ path: file.path, hunk: hunk.index }), countLines(hunk.lines))
         return hunkLines(id, hunk.header, hunk.lines, budget)
       })
     ]
   })
-  return { refs, text: text.join('\n') }
+  return { refs, lines, text: text.join('\n') }
 }
 
 /** Each file's patch between the two trees; a binary file has none. */

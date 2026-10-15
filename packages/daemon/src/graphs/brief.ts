@@ -79,6 +79,7 @@ export async function startGraph(deps: GraphDeps, worktreeId: string, raw: Graph
     before: spec.before,
     after: spec.after,
     ids: Object.fromEntries(table.refs),
+    lines: Object.fromEntries(table.lines),
     fingerprint: diffFingerprint(files),
     ...(pr ? { prNumber: pr.number, headSha: pr.headSha } : {})
   })

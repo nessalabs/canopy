@@ -16,6 +16,7 @@ interface GraphRow {
   before_tree: string
   after_tree: string
   ids_json: string
+  lines_json: string | null
   fingerprint: string
   pr_number: number | null
   head_sha: string | null
@@ -44,6 +45,7 @@ function toRecord(row: GraphRow): GraphRecord {
     before: row.before_tree,
     after: row.after_tree,
     ids: JSON.parse(row.ids_json) as Record<string, HunkRef>,
+    lines: (parse(row.lines_json) as Record<string, [number, number]> | undefined) ?? {},
     fingerprint: row.fingerprint,
     ...(row.pr_number !== null ? { prNumber: row.pr_number } : {}),
     ...(row.head_sha ? { headSha: row.head_sha } : {}),
@@ -159,8 +161,8 @@ export class GraphStore {
     const id = newId()
     this.db
       .prepare(
-        `INSERT INTO review_graphs (id, worktree_id, scope_json, preset, instructions, before_tree, after_tree, ids_json, fingerprint, pr_number, head_sha, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO review_graphs (id, worktree_id, scope_json, preset, instructions, before_tree, after_tree, ids_json, lines_json, fingerprint, pr_number, head_sha, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         id,
@@ -171,6 +173,7 @@ export class GraphStore {
         graph.before,
         graph.after,
         JSON.stringify(graph.ids),
+        JSON.stringify(graph.lines ?? {}),
         graph.fingerprint,
         graph.prNumber ?? null,
         graph.headSha ?? null,
