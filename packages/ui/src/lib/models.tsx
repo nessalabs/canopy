@@ -23,8 +23,7 @@ export const MODEL_GROUPS: Record<AgentProvider, ModelPickerGroup> = {
     id: 'codex',
     label: 'Codex',
     icon: <ProviderIcon provider="codex" />,
-    // Model selection is not wired for Codex turns yet (docs/todo.md).
-    disabled: true,
+    // Codex has no fixed aliases; its catalog comes from the app-server's `model/list`.
     models: []
   }
 }
@@ -50,6 +49,28 @@ export function modelGroupFor(provider: AgentProvider, detected: string | undefi
       : base
   if (!detected || group.models.some((m) => m.id === detected)) return group
   return { ...group, models: [{ id: detected, label: detected, description: 'Model of this session', icon: group.icon }, ...group.models] }
+}
+
+/**
+ * The picker's tabs: one per installed provider. The session's own provider is the one its turns
+ * can switch between; another provider's models start a new chat, so they are offered only while
+ * the chat has no messages yet and are shown greyed out otherwise.
+ */
+export function modelGroupsFor(
+  providers: readonly AgentProvider[],
+  current: AgentProvider,
+  detected: string | undefined,
+  advertised: Partial<Record<AgentProvider, readonly AgentModel[]>>,
+  canSwitch: boolean
+): ModelPickerGroup[] {
+  const order = providers.includes(current) ? providers : [current, ...providers]
+  return order.map((provider) => {
+    if (provider === current) return modelGroupFor(provider, detected, advertised[provider])
+    const group = modelGroupFor(provider, undefined, advertised[provider])
+    if (canSwitch) return group
+    const note = `Start a new chat to use ${group.label}`
+    return { ...group, models: group.models.map((model) => ({ ...model, description: note, disabled: true })) }
+  })
 }
 
 /** Every effort the SDK names, labelled for the thinking slider. */

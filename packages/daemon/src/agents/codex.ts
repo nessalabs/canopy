@@ -1,4 +1,4 @@
-import { messageTitle, type AgentCapabilities } from '@canopy/shared'
+import { Effort, messageTitle, type AgentCapabilities, type AgentModel } from '@canopy/shared'
 import type { AgentEvent, CodexAppServerFrame } from '@canopy/shared/agent-stream'
 import { CodexAppServerMapper } from '@canopy/shared/agent-stream'
 
@@ -54,6 +54,27 @@ function sandboxFor(autonomy: SendOptions['autonomy'], cwd: string) {
 
 const frame = (raw: RawFrame): CodexAppServerFrame => raw as unknown as CodexAppServerFrame
 
+/** One row of `model/list`: what `turn/start` takes as `model`, and the efforts it accepts. */
+interface ListModel {
+  id: string
+  displayName?: string
+  description?: string
+  supportedReasoningEfforts?: Array<{ reasoningEffort?: string }>
+}
+
+/** Codex's catalog as the picker lists it. Efforts Canopy has no stop for (`minimal`, `none`) are left out. */
+export function codexModels(data: readonly ListModel[] | undefined): AgentModel[] {
+  return (data ?? []).map((model) => ({
+    id: model.id,
+    label: model.displayName || model.id,
+    description: model.description || undefined,
+    effortLevels: (model.supportedReasoningEfforts ?? []).flatMap((entry) => {
+      const parsed = Effort.safeParse(entry.reasoningEffort)
+      return parsed.success ? [parsed.data] : []
+    })
+  }))
+}
+
 export class CodexAdapter implements AgentAdapter {
   readonly provider = 'codex' as const
   /** Threads with a turn running now, and how to stop each — what `interrupt` reaches. */
@@ -64,11 +85,16 @@ export class CodexAdapter implements AgentAdapter {
   }
 
   /**
-   * Codex advertises no commands, skills or models to pick from here yet (its turns take no model
-   * from Canopy); what it does say is the model its config.toml starts a session on.
+   * The models this account may run, from `model/list`, and the one its config.toml starts a
+   * session on. Codex advertises no commands or skills to pick from here yet.
    */
   async capabilities(cwd: string): Promise<AgentCapabilities> {
-    const { config } = await codexAppServer().request<{ config?: { model?: string | null } }>('config/read', { cwd })
+    const server = codexAppServer()
+    const [{ config }, catalog] = await Promise.all([
+      server.request<{ config?: { model?: string | null } }>('config/read', { cwd }),
+      // An older app-server without `model/list` still answers the rest; the picker then lists the session's own model.
+      server.request<{ data?: ListModel[] }>('model/list', {}).catch(() => ({ data: [] }))
+    ])
     return {
       provider: 'codex',
       cwd,
@@ -77,7 +103,7 @@ export class CodexAdapter implements AgentAdapter {
       commands: [],
       skills: [],
       agents: [],
-      models: [],
+      models: codexModels(catalog.data),
       mcpServers: [],
       tools: [],
       plugins: [],
@@ -201,6 +227,9 @@ export class CodexAdapter implements AgentAdapter {
         threadId: sessionId,
         input,
         cwd,
+        ...(options.model ? { model: options.model } : {}),
+        // Codex has no `max`; its highest stop is `xhigh`.
+        ...(options.effort ? { effort: options.effort === 'max' ? 'xhigh' : options.effort } : {}),
         approvalPolicy: options.autonomy === 'read-only' ? 'untrusted' : 'never',
         sandboxPolicy: sandboxFor(options.autonomy, cwd)
       })
