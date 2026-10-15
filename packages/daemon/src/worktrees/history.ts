@@ -78,6 +78,17 @@ export class HistoryService {
     return { commit, files: await this.deps.diffs.files(cwd, resolved) }
   }
 
+  /**
+   * The tree of a revision, pinned under `refs/canopy/snapshots/` the way a working-tree snapshot
+   * is. A concept map of a pull request is cut from two of GitHub's own commits; pinning their
+   * trees is what lets it still read after a force-push, a rebase or a gc has left those commits
+   * unreachable. Answers the tree sha, which is what a `trees` diff is read between.
+   */
+  async pinned(worktreeId: string, rev: string): Promise<string> {
+    const { path } = this.deps.worktrees.location(worktreeId)
+    return this.deps.snapshots.pin(path, rev)
+  }
+
   /** Files that differ between two snapshot trees (see agents/edit-diffs). */
   async trees(worktreeId: string, before: string, after: string): Promise<TreesResponse> {
     const { cwd, resolved } = await this.resolve(worktreeId, { kind: 'trees', before, after })

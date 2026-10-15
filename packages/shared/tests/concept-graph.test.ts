@@ -91,8 +91,20 @@ describe('resolveConcepts', () => {
   })
 
   it('drops unknown hunk ids rather than inventing refs', () => {
-    const root = resolveConcepts(reply({ root: { title: 'Root', ids: ['h1', 'nope'] } }), ids)
-    expect(root.owns).toEqual([ids.h1])
+    const root = resolveConcepts(reply({ root: { title: 'Root', ids: ['h1', 'h2', 'h3', 'f1', 'nope'] } }), ids)
+    expect(root.owns).toEqual([ids.h1, ids.h2, ids.h3, ids.f1])
+  })
+
+  it('moves the root\'s own hunks into Groundwork when the sweep gives it children', () => {
+    // The sweep hands the root children it did not have when the leaves-only rule first ran, so
+    // the rule is applied again — otherwise the root keeps hunks while having children, and every
+    // rung below the top loses them.
+    const root = resolveConcepts(reply({ root: { title: 'Root', ids: ['h1'] } }), ids)
+    expect(root.owns).toEqual([])
+    expect(root.children.map((c) => c.title)).toEqual(['Groundwork', 'Everything else'])
+    expect(root.children[0]!.owns).toEqual([ids.h1])
+    // Every rung still accounts for the whole diff.
+    for (const rung of rungsOf(root)) expect(rung.flatMap(coverageOf)).toHaveLength(Object.keys(ids).length)
   })
 })
 

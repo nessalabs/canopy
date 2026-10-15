@@ -111,7 +111,12 @@ export function resolveConcepts(reply: ConceptReply, refs: HunkIds): Concept {
 
   const root = build(reply.root, 'root')
   const left = Object.keys(refs).filter((id) => !claimed.has(id))
-  return left.length > 0 ? { ...root, children: [...root.children, rest(ordered(left))] } : root
+  if (left.length === 0) return root
+  // The sweep gives the root children it may not have had, so the leaves-only rule has to be
+  // applied again: a root that kept hunks of its own puts them in a Groundwork box of their own,
+  // or they would belong to no rung below the top and vanish as the reviewer zooms in.
+  const kept = root.owns.length > 0 ? [groundwork(root, '0')] : []
+  return { ...root, owns: [], children: [...kept, ...root.children, rest(ordered(left))] }
 }
 
 /** Every concept in the map, in reading order, root first. */
@@ -119,13 +124,16 @@ export function walkConcepts(root: Concept): Concept[] {
   return [root, ...root.children.flatMap(walkConcepts)]
 }
 
-/** Concepts by id and by the slug the agent gave them, for resolving links either way. */
+/**
+ * Concepts by id and by the slug the agent gave them, for resolving links either way. Ids are
+ * taken first and never given up, so a slug that happens to read like a generated id — an agent
+ * ref of `2`, or of `rest` — cannot take a link from the concept that id belongs to.
+ */
 export function conceptIndex(root: Concept): Map<string, Concept> {
+  const concepts = walkConcepts(root)
   const index = new Map<string, Concept>()
-  for (const concept of walkConcepts(root)) {
-    index.set(concept.id, concept)
-    if (concept.ref && !index.has(concept.ref)) index.set(concept.ref, concept)
-  }
+  for (const concept of concepts) index.set(concept.id, concept)
+  for (const concept of concepts) if (concept.ref && !index.has(concept.ref)) index.set(concept.ref, concept)
   return index
 }
 
