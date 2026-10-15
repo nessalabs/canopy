@@ -17,9 +17,10 @@ import { cn } from '@/lib/utils'
 
 import { GraphBar, type CommitRange } from './graph-bar'
 import { GraphCards, GraphLayered, type Depth } from './graph-map'
+import { GraphNetwork, type NetworkLayout } from './graph-network'
 import { TourStepView } from './graph-tour'
 
-type View = 'cards' | 'layered' | 'tour'
+type View = 'cards' | 'layered' | 'network' | 'tour'
 
 /** The stops of the tour in a menu, ticked ones marked, indented by depth. */
 function StopMenu({ steps, at, onGo, reviewed }: { steps: TourStep[]; at: number; onGo: (index: number) => void; reviewed: ReadonlySet<string> }): React.JSX.Element | null {
@@ -72,6 +73,7 @@ function GraphReview({
   const [current, setCurrent] = useState(0)
   const [at, setAt] = useState<string>()
   const [depth, setDepth] = useState<Depth>('top')
+  const [layout, setLayout] = useState<NetworkLayout>('flat')
   // A new graph starts over at its cards.
   useEffect(() => {
     setView('cards')
@@ -105,6 +107,7 @@ function GraphReview({
         <SegmentedControl value={view} onValueChange={(value) => setView(value as View)} aria-label="Graph view" className="text-xs">
           <SegmentedControlOption value="cards">Cards</SegmentedControlOption>
           <SegmentedControlOption value="layered">Layered</SegmentedControlOption>
+          <SegmentedControlOption value="network">Network</SegmentedControlOption>
           <SegmentedControlOption value="tour">Guided tour</SegmentedControlOption>
         </SegmentedControl>
         {view === 'tour' ? (
@@ -131,6 +134,18 @@ function GraphReview({
           onJump={jump}
           comments={comments}
           mode={mode}
+        />
+      ) : view === 'network' ? (
+        <GraphNetwork
+          graph={graph}
+          reviewed={state.reviewed}
+          layout={layout}
+          onLayout={setLayout}
+          current={step?.node.id}
+          onOpen={(id) => {
+            jump(id)
+            setView('tour')
+          }}
         />
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto">
