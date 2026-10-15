@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import type { DiffMode } from '@/components/worktree-diff'
-import { useFilePatches } from '@/lib/api-hooks'
+import { useDiffFiles, useFilePatches } from '@/lib/api-hooks'
 import { conceptFiles, reviewedKey } from '@/lib/concept-graph'
 import type { NetEdge, NetNode, NetRelation, Network } from '@/lib/concept-network'
 import { slicePatch } from '@/lib/patch'
@@ -118,7 +118,6 @@ export function ConceptInspector({
   nodeId,
   worktreeId,
   spec,
-  files,
   comments,
   mode,
   reviewed,
@@ -130,7 +129,6 @@ export function ConceptInspector({
   nodeId: string
   worktreeId: string
   spec: DiffSpec
-  files: ChangedFile[]
   comments: ReviewComment[]
   mode: DiffMode
   reviewed: ReadonlySet<string>
@@ -139,6 +137,9 @@ export function ConceptInspector({
   onClose: () => void
 }): React.JSX.Element | null {
   const node = useMemo(() => network.nodes.find((candidate) => candidate.id === nodeId), [network, nodeId])
+  // Metadata from the same two trees the patch is read between. Taken from the worktree's diff, a
+  // file the PR adds showed as modified with no counts, and a committed file could not be opened.
+  const files = useDiffFiles(worktreeId, spec).data?.files ?? []
   const concept = node?.kind === 'concept' ? node.concept : undefined
 
   // What there is to read: a concept's whole coverage, an atom's one block, a changed file whole.

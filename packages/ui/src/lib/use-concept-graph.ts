@@ -22,10 +22,12 @@ const focusKey = (worktreeId: string): string => `canopy-concept-focus:${worktre
  * by side. Each runs as a Git Agent conversation of its own: the pane sends it a brief, follows the
  * picked map's answers, and keeps the newest — so "split concept 2" in that chat redraws the pane.
  */
-export function useConceptGraph(worktree: Worktree, agent: GitAgent) {
+export function useConceptGraph(worktree: Worktree, agent: GitAgent, enabled = true) {
   const api = useApi()
   const queryClient = useQueryClient()
-  const maps = useConceptMaps(worktree.id).data ?? []
+  // Idle while the pane is closed: the hook lives in the Git tab, so without this it fetches maps
+  // and follows the last mapping transcript for a reviewer who is reading Changes.
+  const maps = useConceptMaps(worktree.id, enabled).data ?? []
   const key = pickedKey(worktree.id)
   const [picked, setPicked] = useState(() => readStored<string>(key))
   const map = pickMap(maps, picked)
@@ -64,7 +66,7 @@ export function useConceptGraph(worktree: Worktree, agent: GitAgent) {
     }
   }, [agent.tabs, started, patch])
 
-  const transcript = useTranscript(map?.session, worktree.path).data
+  const transcript = useTranscript(enabled ? map?.session : undefined, worktree.path).data
   const latest = useMemo(
     () => (map && transcript ? latestConceptGraph(transcript.events, map.ids, map.fingerprint, map.headSha ?? undefined) : undefined),
     [transcript, map]
@@ -76,7 +78,11 @@ export function useConceptGraph(worktree: Worktree, agent: GitAgent) {
     const json = JSON.stringify(latest)
     if (sent.current[map.id] === json || json === JSON.stringify(map.result)) return
     sent.current[map.id] = json
-    void patch(map.id, { result: latest })
+    // Forgetting a failed write lets the next render try again: the answer is still in the
+    // transcript, so a save that lost the network is not a map the reviewer loses.
+    patch(map.id, { result: latest }).catch(() => {
+      if (sent.current[map.id] === json) delete sent.current[map.id]
+    })
   }, [latest, map, patch])
 
   const [preparing, setPreparing] = useState(false)

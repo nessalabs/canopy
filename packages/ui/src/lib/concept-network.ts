@@ -60,7 +60,10 @@ const leaf = (path: string): string => path.split('/').pop() ?? path
  */
 export function networkOf(graph: ConceptGraph): Network {
   const nodes = new Map<string, NetNode>()
-  const edges: NetEdge[] = []
+  // By id, not an array: a stored result is schema-valid without having been through the resolver,
+  // so it may repeat a hunk or a link, and React Flow needs every edge id to be unique.
+  const byEdgeId = new Map<string, NetEdge>()
+  const edges = { push: (edge: NetEdge): void => void (byEdgeId.has(edge.id) || byEdgeId.set(edge.id, edge)) }
   const concepts = walkConcepts(graph.root)
   const parents = new Map<string, string>()
   const levels = new Map<string, number>()
@@ -121,7 +124,7 @@ export function networkOf(graph: ConceptGraph): Network {
     edges.push({ id: `${link.kind}:${link.from}>${link.to}`, source: link.from, target: link.to, relation: link.kind, ...(link.label ? { label: link.label } : {}) })
   }
 
-  return { nodes: [...nodes.values()], edges, depth }
+  return { nodes: [...nodes.values()], edges: [...byEdgeId.values()], depth }
 }
 
 /** A node's neighbours one step out, and through an atom to whatever else shares it. */

@@ -216,9 +216,9 @@ export const useGroupings = (worktreeId: string) => {
   return useQuery({ queryKey: keys.groupings(worktreeId), queryFn: () => api.groupings(worktreeId) })
 }
 
-export const useConceptMaps = (worktreeId: string) => {
+export const useConceptMaps = (worktreeId: string, enabled = true) => {
   const api = useApi()
-  return useQuery({ queryKey: keys.conceptMaps(worktreeId), queryFn: () => api.conceptMaps(worktreeId) })
+  return useQuery({ queryKey: keys.conceptMaps(worktreeId), queryFn: () => api.conceptMaps(worktreeId), enabled })
 }
 
 /**

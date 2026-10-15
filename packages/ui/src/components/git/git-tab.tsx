@@ -135,7 +135,7 @@ export function GitTab({
   const shared = { comments, mode }
   // Groups reads the same diff Changes lists, and its tab counts the sections still to review.
   const changeGroups = useChangeGroups(worktree, against, gitAgent)
-  const conceptGraph = useConceptGraph(worktree, gitAgent)
+  const conceptGraph = useConceptGraph(worktree, gitAgent, pane === 'concepts')
   const diff = useDiffFiles(worktree.id, { kind: 'worktree', against }).data
   const unreviewed = useMemo(
     () => (changeGroups.result ? reviewSections(changeGroups.result.groups).filter((section) => !changeGroups.reviewed.has(reviewedKey(section.refs))).length : 0),
@@ -225,7 +225,7 @@ export function GitTab({
                 <IssuesBrowser projectId={worktree.projectId} reader={reader} />
               </TabsContent>
               <TabsContent value="concepts" className="flex min-h-0 flex-1 flex-col">
-                <ConceptGraphView worktreeId={worktree.id} files={diff?.files ?? []} graph={conceptGraph} comments={comments} mode={mode} onOpenRef={openRef} />
+                <ConceptGraphView worktreeId={worktree.id} graph={conceptGraph} comments={comments} mode={mode} onOpenRef={openRef} />
               </TabsContent>
               <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-5">
                 <CommentsPanel worktreeId={worktree.id} comments={comments} onJump={onJump} />

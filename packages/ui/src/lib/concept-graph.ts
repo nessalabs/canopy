@@ -85,6 +85,14 @@ export const pickMap = <T extends Pick<ConceptMap, 'id' | 'result'>>(maps: T[], 
   maps.find((map) => map.id === picked) ?? maps.find((map) => map.result !== undefined) ?? maps[0]
 
 /** A map made from a diff that has since changed shape, or from a PR head that has been pushed past. */
+/**
+ * A map made from a diff that has since changed shape, or from a PR head that has been pushed past.
+ *
+ * `files` must be the map's *own* files — the diff between the two trees it was cut from, not the
+ * worktree's. Comparing it against the working-tree diff was wrong in both directions: a clean PR
+ * branch has no uncommitted change, so the fingerprints never matched and the pane always claimed
+ * the PR had moved on, while an unrelated uncommitted edit raised the flag for nothing.
+ */
 export const isStale = (map: ConceptMap, result: ConceptGraph, files: ChangedFile[], headSha?: string | null): boolean =>
   result.fingerprint !== diffFingerprint(files) || (map.headSha !== null && headSha != null && map.headSha !== headSha)
 
