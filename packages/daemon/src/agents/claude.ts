@@ -46,9 +46,18 @@ async function sdk(): Promise<SdkModule | undefined> {
   return sdkPromise
 }
 
+/**
+ * The composer's shield, as Claude Code permission modes. `read-only` ("Ask for approval") asks a
+ * person before every edit or command that is not plainly read-only. `edit` ("Auto approval") is
+ * Claude Code's auto mode, the one a terminal runs with `defaultMode: "auto"`: a classifier lets
+ * routine calls through — a `grep` in a sibling folder, a `cd .. && …` — and asks only for risky
+ * ones. `acceptEdits` asked for every Bash call it could not prove stayed in the worktree, so the
+ * shield said "auto" and the turn kept stopping. Where auto mode is unavailable (plan, model, org
+ * policy) the turn steps down to `acceptEdits` rather than the CLI's own fallback, `default`.
+ */
 const PERMISSION_MODE = {
-  'read-only': 'plan',
-  edit: 'acceptEdits',
+  'read-only': 'default',
+  edit: 'auto',
   full: 'bypassPermissions'
 } as const
 
@@ -449,7 +458,11 @@ export class ClaudeAdapter implements AgentAdapter {
       }
       // Only a turn advertises what the session can do — the capability probe never sees an `init`
       // — so every turn's is folded into the cache for its checkout.
-      if (message.type === 'system' && message.subtype === 'init') this.capabilityCache.observeInit(options.cwd, message as unknown as InitAdvertisement)
+      if (message.type === 'system' && message.subtype === 'init') {
+        this.capabilityCache.observeInit(options.cwd, message as unknown as InitAdvertisement)
+        // Asked for auto and the CLI fell back (to `default`, which asks for everything): edits at least go through.
+        if (permissionMode === 'auto' && typeof message.permissionMode === 'string' && message.permissionMode !== 'auto') void turn.setPermissionMode('acceptEdits')
+      }
       if (message.type === 'system' && message.subtype === 'commands_changed') this.capabilityCache.observeCommands(options.cwd, message.commands)
       if (message.type === 'stream_event') {
         const event = message.event as { type?: string; usage?: { output_tokens?: number } }
