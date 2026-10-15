@@ -111,8 +111,9 @@ and a status bar (panel toggles, worktree branch/sync/changes, logs, health, the
   live path and `thread/read` replay shapes are covered only by fixture tests — verify end to end
   against a real `codex app-server` (0.144.1+). Codex approvals also emit no `permission_requested`;
   the daemon still auto-answers them, but a real approval UI would need the ACP transport.
-- Per-turn `model` / `effort` reach Claude via the SDK; the Codex adapter ignores them (its
-  app-server `turn/start` takes a model too — wire it when Codex turns are verified end to end).
+- Per-turn `model` / `effort` reach Claude via the SDK and Codex via `turn/start`; the picker lists
+  Codex's `model/list` catalog. Not yet verified against a real `codex app-server`. A model change
+  mid-turn is not sent to a running Codex turn.
 - Codex: `available()` is true whenever the binary exists; stale credentials surface as a
   401 `error` event mid-stream. Run `codex login` to refresh. One shared `codex app-server`
   child per daemon — fine single-user, wrong multi-tenant.

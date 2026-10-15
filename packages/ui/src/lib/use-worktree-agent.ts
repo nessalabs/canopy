@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { AgentProvider, Autonomy, Effort, SessionRef, TurnOptions, WhiteboardMode, Worktree } from '@canopy/shared'
+import type { AgentModel, AgentProvider, Autonomy, Effort, SessionRef, TurnOptions, WhiteboardMode, Worktree } from '@canopy/shared'
 
 import { useAgentCapabilities, useAgentSessions, usePinSession, useProviders, useTranscript } from './api-hooks'
 import { modelAlias } from './models'
@@ -99,6 +99,16 @@ export function useWorktreeAgent(
   const history = useTranscript(ref, transcriptCwd, () => busyRef.current)
   // What this provider can do in this checkout: the `/` and `@` menus, the model list, the details sheet.
   const capabilities = useAgentCapabilities(worktree.id, selected?.provider ?? fresh, selected?.sessionId)
+  // The other installed provider's catalog, for the picker's second tab. The Canopy Agent's tools
+  // are served to Claude only, so its chat offers no other provider.
+  const current = selected?.provider ?? fresh
+  const offered = configAgent ? providers.filter((p) => p === 'claude') : providers
+  const other = offered.find((p) => p !== current)
+  const otherCapabilities = useAgentCapabilities(worktree.id, current ? other : undefined)
+  const catalogs: Partial<Record<AgentProvider, AgentModel[]>> = {
+    ...(current && capabilities.data ? { [current]: capabilities.data.models } : {}),
+    ...(other && otherCapabilities.data ? { [other]: otherCapabilities.data.models } : {})
+  }
   const detected = { model: modelAlias(history.data?.model), effort: history.data?.effort }
   const picked = modelOverride ?? detected.model
   // A session with no model of its own runs on the one the provider is configured with. That is
@@ -120,6 +130,13 @@ export function useWorktreeAgent(
   const chooseModel = (next: string): void => {
     setModel(next)
     if (turn.busy) void turn.setLiveControls({ model: next })
+  }
+  /** A model of another provider starts the new chat with that provider; a session keeps its own. */
+  const chooseProviderModel = (provider: AgentProvider, next: string): void => {
+    if (provider === current) return chooseModel(next)
+    if (!fresh || turn.busy) return
+    startSession(provider)
+    setModel(next)
   }
   const chooseAutonomy = (next: Autonomy): void => {
     setAutonomy(next)
@@ -143,6 +160,10 @@ export function useWorktreeAgent(
     fresh,
     /** The providers installed here, which a new session can be started with. */
     providers,
+    /** The providers the model picker offers: every installed one, or Claude alone where only Claude has the tools. */
+    offered,
+    /** Each offered provider's advertised models, keyed by provider. */
+    catalogs,
     startSession,
     history,
     capabilities: capabilities.data,
@@ -150,6 +171,7 @@ export function useWorktreeAgent(
     setAutonomy: chooseAutonomy,
     model,
     setModel: chooseModel,
+    setProviderModel: chooseProviderModel,
     effort,
     setEffort,
     /** The whiteboard mode turns are sent in; undefined is an ordinary conversation. Claude only. */

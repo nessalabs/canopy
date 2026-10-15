@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AtSign, Brain, FileDiff, Paperclip, Plus, Square, Users } from 'lucide-react'
 
-import { ImageMediaType, type ChangedFile, type Effort, type IssueSummary } from '@canopy/shared'
+import { ImageMediaType, type AgentProvider, type ChangedFile, type Effort, type IssueSummary } from '@canopy/shared'
 import type { ContextUsage } from '@canopy/shared/agent-stream'
 
 import {
@@ -28,7 +28,7 @@ import { useFetchIssue, useIssueSearch } from '@/lib/api-hooks'
 import { ACCESS_TO_AUTONOMY, AUTONOMY_TO_ACCESS } from '@/lib/autonomy'
 import { agentMention, commandMenu, composeMessage, isNewSessionCommand, type Attachment, type CommandItem, type MentionItem } from '@/lib/compose'
 import { plural } from '@/lib/format'
-import { effortLevelsFor, modelGroupFor } from '@/lib/models'
+import { effortLevelsFor, modelGroupsFor } from '@/lib/models'
 import { issueContext, issueLabel } from '@/lib/issue-context'
 import { useDebounced } from '@/lib/use-debounced'
 import type { StagedText } from '@/lib/use-staging'
@@ -446,9 +446,9 @@ export function AgentComposer({
           ) : null}
           <ContextMeter usage={context} model={agent.history.data?.model} />
           <ModelPicker
-            groups={[modelGroupFor(provider, agent.model, capabilities?.models)]}
+            groups={modelGroupsFor(agent.offered, provider, agent.model, agent.catalogs, agent.fresh !== undefined && !busy)}
             value={agent.model ? { providerId: provider, modelId: agent.model } : undefined}
-            onValueChange={(value) => agent.setModel(value.modelId)}
+            onValueChange={(value) => agent.setProviderModel(value.providerId as AgentProvider, value.modelId)}
             placeholder="Session model"
             triggerLabel={busy ? 'Model, from the next call on' : 'Model for the next turn'}
           />
