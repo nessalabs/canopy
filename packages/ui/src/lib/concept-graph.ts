@@ -44,22 +44,6 @@ export const cardOf = (concept: Concept, repeated = false): ConceptCard => {
   }
 }
 
-/**
- * The map at one rung: rung 0 is the root alone, rung 1 its children, and so on. A branch that has
- * stopped refining repeats its deepest concept, so a rung stays a complete account of the whole
- * change rather than thinning out as you zoom in — the boxes repeating themselves are flagged so
- * the pane can grey them.
- */
-export function rungCards(root: Concept, rung: number): ConceptCard[] {
-  const rungs = rungsOf(root)
-  const at = rungs[Math.min(Math.max(rung, 0), rungs.length - 1)] ?? [root]
-  const above = new Set((rungs[Math.min(Math.max(rung, 0), rungs.length - 1) - 1] ?? []).map((concept) => concept.id))
-  return at.map((concept) => cardOf(concept, above.has(concept.id)))
-}
-
-/** How many rungs the map has, which is the range of the zoom control. */
-export const rungCount = (root: Concept): number => rungsOf(root).length
-
 /** A concept's files in the order they first appear, with the hunks it shows of each; `undefined` is the whole file. */
 export function conceptFiles(refs: HunkRef[]): Array<{ path: string; hunks?: number[] }> {
   const files = new Map<string, number[] | undefined>()
@@ -84,7 +68,6 @@ export const mapTitle = (map: Pick<ConceptMap, 'instructions' | 'subject' | 'prN
 export const pickMap = <T extends Pick<ConceptMap, 'id' | 'result'>>(maps: T[], picked: string | undefined): T | undefined =>
   maps.find((map) => map.id === picked) ?? maps.find((map) => map.result !== undefined) ?? maps[0]
 
-/** A map made from a diff that has since changed shape, or from a PR head that has been pushed past. */
 /**
  * A map made from a diff that has since changed shape, or from a PR head that has been pushed past.
  *
@@ -99,8 +82,22 @@ export const isStale = (map: ConceptMap, result: ConceptGraph, files: ChangedFil
 /** Concepts the change only leans on that depend on something it did change — a prompt, never a proof. */
 export const affectedCards = (graph: ConceptGraph): Array<{ concept: Concept; because: Concept[] }> => affectedIn(graph.root, graph.links)
 
-/** Every concept in reading order, for the jump-to-concept menu. */
-export const allConcepts = (root: Concept): Concept[] => walkConcepts(root)
+/**
+ * A file's stub for the content pane when the map's own diff no longer lists it — the map is older
+ * than the trees it was pinned to, or the path is one a context concept names without the change
+ * touching it. Shared by the pane and the inspector so they describe such a file the same way.
+ */
+export const stub = (path: string): ChangedFile =>
+  ({
+    path,
+    status: 'M',
+    additions: 0,
+    deletions: 0,
+    binary: false,
+    staged: 'unstaged',
+    conflicted: false,
+    headSha: null
+  }) as ChangedFile
 
 /**
  * The map a session last answered with: the newest main-conversation answer holding a

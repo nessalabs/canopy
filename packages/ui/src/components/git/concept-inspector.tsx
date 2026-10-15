@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import type { DiffMode } from '@/components/worktree-diff'
 import { useDiffFiles, useFilePatches } from '@/lib/api-hooks'
-import { conceptFiles, reviewedKey } from '@/lib/concept-graph'
+import { stub, conceptFiles, reviewedKey } from '@/lib/concept-graph'
 import type { NetEdge, NetNode, NetRelation, Network } from '@/lib/concept-network'
 import { slicePatch } from '@/lib/patch'
 import { cn } from '@/lib/utils'
@@ -59,8 +59,6 @@ const IN: Record<NetRelation, string> = {
 /** The order the groups read in: the spine first, then what it rests on, then the sideways links. */
 const ORDER: NetRelation[] = ['refines', 'owns', 'verified-by', 'cites', 'concerns', 'arrived-in', 'leans-on', 'replaces', 'implements']
 
-/** A file's stub for the content pane when the diff list no longer has it (the map is older than the diff). */
-const stub = (path: string): ChangedFile => ({ path, status: 'M', additions: 0, deletions: 0, binary: false, staged: 'unstaged', conflicted: false, headSha: null }) as ChangedFile
 
 function Chip({ node, onPick }: { node: NetNode; onPick: (id: string) => void }): React.JSX.Element {
   return (
