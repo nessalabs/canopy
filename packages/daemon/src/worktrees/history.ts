@@ -5,7 +5,7 @@
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, normalize } from 'node:path'
 
-import type { Against, ChangesResponse, CommitResponse, DiffSpec, FileContents, FilePatch, LogResponse, TreeResponse, TreesResponse } from '@canopy/shared'
+import type { Against, ChangesResponse, Commit, CommitResponse, DiffSpec, FileContents, FilePatch, LogResponse, TreeResponse, TreesResponse } from '@canopy/shared'
 
 import type { Snapshots } from '../agents/edit-diffs/snapshots'
 import { worktreeChanges } from '../commit/status'
@@ -76,6 +76,31 @@ export class HistoryService {
     const commit = await this.deps.repo.commit(cwd, sha)
     if (!commit) throw notFound('commit', sha)
     return { commit, files: await this.deps.diffs.files(cwd, resolved) }
+  }
+
+  /**
+   * The tree of a revision, pinned under `refs/canopy/snapshots/` the way a working-tree snapshot
+   * is, so a graph cut from commits still reads after a force-push, a rebase or a gc has left them
+   * unreachable. Answers the tree sha, which is what a `trees` diff is read between.
+   */
+  async pinned(worktreeId: string, rev: string): Promise<string> {
+    const { path } = this.deps.worktrees.location(worktreeId)
+    return this.deps.snapshots.pin(path, rev)
+  }
+
+  /**
+   * A contiguous run of commits as two pinned trees — the parent of `from` (the empty tree for a
+   * root commit) and `to` — and the commits in it, oldest first. Refuses a run that is not one
+   * unbroken line of history.
+   */
+  async commitRange(worktreeId: string, from: string, to: string): Promise<{ spec: Extract<DiffSpec, { kind: 'trees' }>; commits: Commit[] }> {
+    const { path } = this.deps.worktrees.location(worktreeId)
+    const commits = await this.deps.repo.rangeLog(path, from, to)
+    const [first, last] = [commits?.[0], commits?.at(-1)]
+    if (!first || !last) throw badRequest('bad_range', `${from}..${to} is not a run of commits on one line of history`)
+    const parent = await this.deps.repo.resolveCommit(path, `${first.sha}^`)
+    const [before, after] = await Promise.all([parent ? this.deps.snapshots.pin(path, parent) : EMPTY_TREE, this.deps.snapshots.pin(path, last.sha)])
+    return { spec: { kind: 'trees', before, after }, commits: commits! }
   }
 
   /** Files that differ between two snapshot trees (see agents/edit-diffs). */

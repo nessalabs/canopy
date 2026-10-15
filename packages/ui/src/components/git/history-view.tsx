@@ -1,22 +1,30 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { Network } from 'lucide-react'
 
 import type { ReviewComment } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
+import { Button } from '@/components/ui/button'
 import { useLog } from '@/lib/api-hooks'
+import { plural } from '@/lib/format'
 
 import { CommitDetail } from './commit-detail'
 import type { ExplorerFocus } from './diff-explorer'
 import { CommitList } from './commit-list'
+import type { CommitRange } from './graph/graph-bar'
 
-/** Commit list on the left, the selected commit's files and diffs on the right. */
+/**
+ * Commit list on the left, the selected commit's files and diffs on the right. Shift-click
+ * stretches a run of commits from the selected one, which can then be drawn as a graph.
+ */
 export function HistoryView({
   worktreeId,
   comments,
   mode,
   focusCommit,
-  focus
+  focus,
+  onGraph
 }: {
   worktreeId: string
   comments: ReviewComment[]
@@ -24,11 +32,28 @@ export function HistoryView({
   /** A commit to select (a jump from the Comments pane). */
   focusCommit?: string
   focus?: ExplorerFocus
+  /** Draws a picked run of commits as a graph. */
+  onGraph?: (range: CommitRange) => void
 }): React.JSX.Element {
   const log = useLog(worktreeId)
   const commits = log.data?.pages.flatMap((page) => page.commits) ?? []
   const [selected, setSelected] = useState<string>()
   const current = selected ?? commits[0]?.sha
+  const [end, setEnd] = useState<string>()
+  // The run between the selected commit and the shift-clicked one, newest first as the list reads.
+  const run = useMemo(() => {
+    const [a, b] = [commits.findIndex((c) => c.sha === current), commits.findIndex((c) => c.sha === end)]
+    if (a < 0 || b < 0 || a === b) return []
+    return commits.slice(Math.min(a, b), Math.max(a, b) + 1)
+  }, [commits, current, end])
+  const marked = useMemo(() => new Set(run.map((c) => c.sha)), [run])
+  const select = (sha: string, extend: boolean): void => {
+    if (extend && current) setEnd(sha)
+    else {
+      setSelected(sha)
+      setEnd(undefined)
+    }
+  }
 
   useEffect(() => {
     // Only once the log is in: an empty list while it loads would drop a commit a link asked for.
@@ -43,15 +68,41 @@ export function HistoryView({
   return (
     <div className="min-h-0 flex-1 overflow-hidden">
       <SplitView orientation={SplitViewOrientation.Horizontal} className="h-full">
-        <SplitViewPanel id="commits" defaultSize={32} minSize={20} className="min-h-0 border-r border-border bg-card">
-          <CommitList
-            commits={commits}
-            selected={current}
-            onSelect={setSelected}
-            hasMore={log.hasNextPage}
-            loadingMore={log.isFetchingNextPage}
-            onLoadMore={() => void log.fetchNextPage()}
-          />
+        <SplitViewPanel id="commits" defaultSize={32} minSize={20} className="flex min-h-0 flex-col border-r border-border bg-card">
+          {onGraph ? (
+            <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
+              {run.length > 1 ? (
+                <>
+                  <span>{plural(run.length, 'commit')} picked</span>
+                  <Button size="sm" variant="outline" className="ml-auto h-7 gap-1.5 text-xs" onClick={() => onGraph({ from: run.at(-1)!.sha, to: run[0]!.sha, count: run.length })}>
+                    <Network className="size-3.5" />
+                    Graph these
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <span className="truncate">Shift-click to pick a run of commits</span>
+                  {current ? (
+                    <Button size="sm" variant="ghost" className="ml-auto h-7 gap-1.5 text-xs" onClick={() => onGraph({ from: current, to: current, count: 1 })}>
+                      <Network className="size-3.5" />
+                      Graph this commit
+                    </Button>
+                  ) : null}
+                </>
+              )}
+            </div>
+          ) : null}
+          <div className="min-h-0 flex-1">
+            <CommitList
+              commits={commits}
+              selected={current}
+              onSelect={select}
+              marked={marked}
+              hasMore={log.hasNextPage}
+              loadingMore={log.isFetchingNextPage}
+              onLoadMore={() => void log.fetchNextPage()}
+            />
+          </div>
         </SplitViewPanel>
         <SplitViewSeparator />
         <SplitViewPanel id="detail" minSize={40} className="min-h-0">

@@ -1,4 +1,4 @@
-import type { DraftInput, GroupInput, GroupingStarted, TextDraft } from '@canopy/shared'
+import type { DraftInput, GraphInput, GraphStarted, TextDraft } from '@canopy/shared'
 
 import type { EditDiffsService } from '../agents/edit-diffs/service'
 import type { CommitService } from '../commit/service'
@@ -9,6 +9,7 @@ import type { SessionLister } from '../agents/sessions'
 import type { DaemonConfig } from '../config'
 import type { EnvironmentService } from '../env/service'
 import type { GitAgentStore } from '../git-agent/store'
+import type { GraphStore } from '../graphs/store'
 import type { EventBus, LogStore } from '../env/types'
 import type { IssuesService } from '../github/issues'
 import type { TerminalsService } from '../terminals/service'
@@ -32,7 +33,8 @@ export interface Services {
   watch: WatchService
   commits: CommitService
   draftText: (worktreeId: string, input: DraftInput) => Promise<TextDraft>
-  startGrouping: (worktreeId: string, input: GroupInput) => Promise<GroupingStarted>
+  startGraph: (worktreeId: string, input: GraphInput) => Promise<GraphStarted>
+  graphs: GraphStore
   gitAgent: GitAgentStore
   merges: MergeService
   destroyJobs: DestroyJobsService

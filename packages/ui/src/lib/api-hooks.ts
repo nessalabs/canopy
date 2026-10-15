@@ -211,9 +211,9 @@ export const useGitAgentSessions = (worktreeId: string) => {
   return useQuery({ queryKey: keys.gitAgentSessions(worktreeId), queryFn: () => api.gitAgentSessions(worktreeId) })
 }
 
-export const useGroupings = (worktreeId: string) => {
+export const useGraphs = (worktreeId: string) => {
   const api = useApi()
-  return useQuery({ queryKey: keys.groupings(worktreeId), queryFn: () => api.groupings(worktreeId) })
+  return useQuery({ queryKey: keys.graphs(worktreeId), queryFn: () => api.graphs(worktreeId) })
 }
 
 /**

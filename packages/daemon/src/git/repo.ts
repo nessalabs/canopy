@@ -46,6 +46,11 @@ export interface Repo {
   /** The commit a revision names, or null when it does not exist (e.g. HEAD on an unborn branch). */
   resolveCommit(cwd: string, rev: string): Promise<string | null>
   log(cwd: string, limit: number, skip: number): Promise<{ commits: Commit[]; hasMore: boolean }>
+  /**
+   * The commits from `from` to `to` inclusive, oldest first; null when either is not a commit or
+   * `from` is not an ancestor of `to`, so the run is not one unbroken line of history.
+   */
+  rangeLog(cwd: string, from: string, to: string): Promise<Commit[] | null>
   commit(cwd: string, sha: string): Promise<Commit | null>
   /** Untracked, non-ignored files; scoped to `path` when given, which answers "is this one new?". */
   untracked(cwd: string, path?: string): Promise<string[]>
@@ -187,6 +192,14 @@ export function createRepo(run: GitRunner): Repo {
       const out = await run(cwd, ['log', '-z', `--format=${COMMIT_FORMAT}`, '-n', String(limit + 1), '--skip', String(skip), 'HEAD'])
       const commits = parseLogZ(out)
       return { commits: commits.slice(0, limit), hasMore: commits.length > limit }
+    },
+
+    async rangeLog(cwd, from, to) {
+      const [a, b] = await Promise.all([this.resolveCommit(cwd, from), this.resolveCommit(cwd, to)])
+      if (!a || !b) return null
+      if (a !== b && (await tryRun(cwd, ['merge-base', '--is-ancestor', a, b])) === null) return null
+      const out = await run(cwd, ['log', '-z', '--reverse', `--format=${COMMIT_FORMAT}`, b, '--not', ...(await this.resolveCommit(cwd, `${a}^`) ? [`${a}^`] : []), '--'])
+      return parseLogZ(out)
     },
 
     async commit(cwd, sha) {

@@ -50,9 +50,12 @@ export function parseTab(hash: string): DashboardTab | undefined {
   return DASHBOARD_TABS.includes(requested as DashboardTab) ? (requested as DashboardTab) : undefined
 }
 
-export type GitPane = 'changes' | 'groups' | 'history' | 'pr' | 'comments' | 'issues'
+export type GitPane = 'changes' | 'graph' | 'history' | 'pr' | 'comments' | 'issues'
 
-export const GIT_PANES: readonly GitPane[] = ['changes', 'groups', 'history', 'pr', 'comments', 'issues']
+export const GIT_PANES: readonly GitPane[] = ['changes', 'graph', 'history', 'pr', 'comments', 'issues']
+
+/** Panes that were renamed, so an old link still lands: Groups became Graph. */
+const PANE_ALIASES: Record<string, GitPane> = { groups: 'graph' }
 
 /**
  * Where a link into the Git tab lands: the pane, what Changes compares against, and the commit
@@ -65,7 +68,8 @@ export interface GitLink {
 }
 
 export function parseGitLink(hash: string): GitLink {
-  const pane = hashParam(hash, 'pane')
+  const raw = hashParam(hash, 'pane')
+  const pane = raw !== null ? (PANE_ALIASES[raw] ?? raw) : raw
   const against = hashParam(hash, 'against')
   const commit = hashParam(hash, 'commit')
   return {

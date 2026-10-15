@@ -1,0 +1,173 @@
+import { useState } from 'react'
+import { ChevronDown, History, MessageSquare, Trash2 } from 'lucide-react'
+
+import { GRAPH_PRESETS, presetSpec, type AgentProvider, type GraphPreset, type GraphScope } from '@canopy/shared'
+
+import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { Input } from '@/components/ui/input'
+import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
+import { plural, relativeTime } from '@/lib/format'
+import { graphTitle, scopeLabel } from '@/lib/review-graph'
+import type { ReviewGraphState } from '@/lib/use-review-graph'
+import { cn } from '@/lib/utils'
+
+const PROVIDER_NAME = { claude: 'Claude', codex: 'Codex' } as const
+
+export type ScopeKind = GraphScope['kind']
+
+/** A contiguous run of commits picked in History, oldest first. */
+export interface CommitRange {
+  from: string
+  to: string
+  count: number
+}
+
+/** Which of the worktree's graphs is on screen, and the way to drop the one that is. */
+function GraphPicker({ state }: { state: ReviewGraphState }): React.JSX.Element | null {
+  const { record, graphs } = state
+  if (!record) return null
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="sm" className="h-8 max-w-64 min-w-0 gap-1.5 px-2 text-xs" title="Graphs of this worktree">
+          <span className="truncate">{graphTitle(record)}</span>
+          <span className="shrink-0 text-muted-foreground">{relativeTime(record.createdAt)}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-96 w-96 overflow-y-auto">
+        <DropdownMenuLabel className="text-xs">Graphs of this worktree</DropdownMenuLabel>
+        {graphs.map((item) => (
+          <DropdownMenuItem key={item.id} onSelect={() => state.pick(item.id)} className={cn('gap-2 text-xs', item.id === record.id && 'bg-accent')}>
+            <span className="min-w-0 flex-1 truncate">{graphTitle(item)}</span>
+            <span className="shrink-0 text-muted-foreground">{item.result ? plural(item.result.nodes.length, 'node') : 'no answer yet'}</span>
+            <span className="shrink-0 text-muted-foreground tabular-nums">{relativeTime(item.createdAt)}</span>
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => void state.remove(record.id)} className="gap-2 text-xs text-muted-foreground">
+          <Trash2 className="size-3.5" />
+          Delete this graph
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/** What the graph is about: one of the presets, each with a line on what it draws. */
+function PresetPicker({ value, onChange }: { value: GraphPreset; onChange: (preset: GraphPreset) => void }): React.JSX.Element {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5 px-2.5 text-xs" title="What the graph is about">
+          {presetSpec(value).label}
+          <ChevronDown className="size-3.5 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-72">
+        <DropdownMenuLabel className="text-xs">Draw the change as…</DropdownMenuLabel>
+        {GRAPH_PRESETS.map((preset) => (
+          <DropdownMenuItem key={preset.id} onSelect={() => onChange(preset.id)} className={cn('flex-col items-start gap-0 text-xs', preset.id === value && 'bg-accent')}>
+            <span className="font-medium">{preset.label}</span>
+            <span className="text-muted-foreground">{preset.hint}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+/**
+ * The bar over everything: which graph is shown, and how to make a new one — of which change,
+ * about what, in whose words, by which agent — plus the way to its chat and how far review has got.
+ */
+export function GraphBar({
+  state,
+  range,
+  hasPr,
+  onPickCommits,
+  done,
+  total,
+  stale
+}: {
+  state: ReviewGraphState
+  /** Commits picked in History, for the Commits scope. */
+  range?: CommitRange
+  hasPr: boolean
+  /** Goes to History to pick commits. */
+  onPickCommits: () => void
+  done: number
+  total: number
+  stale: boolean
+}): React.JSX.Element {
+  const record = state.record
+  const [kind, setKind] = useState<ScopeKind>(range ? 'commits' : (record?.scope.kind ?? 'uncommitted'))
+  const [preset, setPreset] = useState<GraphPreset>(record?.preset ?? 'features')
+  const [wording, setWording] = useState('')
+  const [provider, setProvider] = useState<AgentProvider | undefined>(undefined)
+  const chosen = provider ?? state.providers[0]
+  const scope: GraphScope | undefined = kind === 'commits' ? (range ? { kind, from: range.from, to: range.to } : undefined) : { kind }
+  const has = record !== undefined
+  return (
+    <form
+      className="flex flex-col gap-2 border-b border-border px-4 py-2.5"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (chosen && scope) void state.make({ scope, preset, instructions: wording, provider: chosen })
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <GraphPicker state={state} />
+        <SegmentedControl value={kind} onValueChange={(value) => setKind(value as ScopeKind)} aria-label="Which change to draw" className="text-xs">
+          <SegmentedControlOption type="button" value="uncommitted">Uncommitted</SegmentedControlOption>
+          <SegmentedControlOption type="button" value="branch">Branch</SegmentedControlOption>
+          <SegmentedControlOption type="button" value="commits">{range ? plural(range.count, 'commit') : 'Commits'}</SegmentedControlOption>
+          <SegmentedControlOption type="button" value="pull-request" disabled={!hasPr}>
+            Pull request
+          </SegmentedControlOption>
+        </SegmentedControl>
+        {kind === 'commits' ? (
+          <Button type="button" size="sm" variant="ghost" className="h-8 gap-1.5 text-xs" onClick={onPickCommits} title="Shift-click commits in History to pick a run of them">
+            <History className="size-3.5" />
+            {range ? 'Change in History' : 'Pick in History…'}
+          </Button>
+        ) : null}
+        <PresetPicker value={preset} onChange={setPreset} />
+        {has ? (
+          <span className="ml-auto text-xs text-muted-foreground tabular-nums">
+            {done} of {total} reviewed
+          </span>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          value={wording}
+          onChange={(event) => setWording(event.target.value)}
+          placeholder={`Anything else? For example: ${preset === 'features' ? 'tests with what they test' : 'keep it to two levels'}`}
+          aria-label="How to draw the graph"
+          className="h-8 min-w-48 flex-1 text-xs"
+        />
+        {state.providers.length > 1 ? (
+          <SegmentedControl value={chosen} onValueChange={(value) => setProvider(value as AgentProvider)} aria-label="Agent that draws the graph" className="text-xs">
+            {state.providers.map((name) => (
+              <SegmentedControlOption type="button" key={name} value={name}>
+                {PROVIDER_NAME[name]}
+              </SegmentedControlOption>
+            ))}
+          </SegmentedControl>
+        ) : null}
+        <Button type="submit" size="sm" variant={has ? 'outline' : 'default'} disabled={state.running || !chosen || !scope} title={scope ? `Draw ${scopeLabel(scope).toLowerCase()} as ${presetSpec(preset).label.toLowerCase()}` : 'Pick commits in History first'}>
+          {state.running ? 'Drawing…' : has ? 'New graph' : 'Make graph'}
+        </Button>
+        {state.openChat ? (
+          <Button type="button" size="sm" variant="ghost" className="gap-1.5" onClick={state.openChat} title="The graph conversation, in the Git Agent: ask it to merge, split or rename nodes">
+            <MessageSquare className="size-3.5" />
+            Open chat
+          </Button>
+        ) : null}
+      </div>
+      {stale && !state.running ? <p className="text-xs text-muted-foreground">The change has moved on since this graph was drawn. It shows the change as it was then; make a new graph to include the new work.</p> : null}
+    </form>
+  )
+}

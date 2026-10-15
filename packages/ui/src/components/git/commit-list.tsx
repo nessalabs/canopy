@@ -13,31 +13,35 @@ export function CommitList({
   commits,
   selected,
   onSelect,
+  marked,
   hasMore,
   loadingMore,
   onLoadMore
 }: {
   commits: Commit[]
   selected?: string
-  onSelect: (sha: string) => void
+  /** `extend` when shift was held: the click stretches a run of commits from the selected one. */
+  onSelect: (sha: string, extend: boolean) => void
+  /** Commits in the picked run, drawn as picked. */
+  marked?: ReadonlySet<string>
   hasMore: boolean
   loadingMore: boolean
   onLoadMore: () => void
 }): React.JSX.Element {
   return (
     <ScrollArea className="h-full">
-      <ul className="flex flex-col" role="listbox" aria-label="Commits">
+      <ul className="flex flex-col" role="listbox" aria-label="Commits" aria-multiselectable>
         {commits.map((commit) => (
           <li key={commit.sha}>
             <button
               type="button"
               role="option"
-              aria-selected={commit.sha === selected}
+              aria-selected={commit.sha === selected || marked?.has(commit.sha)}
               className={cn(
                 'flex w-full items-start gap-2.5 border-b border-border/60 px-3 py-2 text-left transition-colors hover:bg-accent/50',
-                commit.sha === selected && 'bg-accent'
+                (commit.sha === selected || marked?.has(commit.sha)) && 'bg-accent'
               )}
-              onClick={() => onSelect(commit.sha)}
+              onClick={(event) => onSelect(commit.sha, event.shiftKey)}
             >
               <RandomAvatar seed={commit.email} name={commit.author} className="mt-0.5 size-6 shrink-0 rounded-full" />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">

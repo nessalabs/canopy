@@ -22,7 +22,7 @@ export const parseChangeMap = (source: string): ChangeMapSpec | null => parseDra
  * Fenced blocks an answer draws rather than prints. Each language becomes an element of the same
  * name carrying the block's source, for the answer's renderer to give a component.
  */
-export const DRAWN_BLOCKS: ReadonlySet<string> = new Set(['change-map', 'change-groups', 'call-flow', 'blast-radius', 'before-after', 'data-model'])
+export const DRAWN_BLOCKS: ReadonlySet<string> = new Set(['change-map', 'review-graph', 'call-flow', 'blast-radius', 'before-after', 'data-model'])
 
 const DRAWN = new RegExp(`^\\s*\`\`\`(${[...DRAWN_BLOCKS].join('|')})\\b`, 'm')
 
