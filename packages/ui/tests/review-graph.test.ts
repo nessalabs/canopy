@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { diffFingerprint, resolveGraph, type ChangedFile, type GraphReply } from '@canopy/shared'
+import { ApiError, diffFingerprint, resolveGraph, type ChangedFile, type GraphReply } from '@canopy/shared'
 
 import type { AgentEvent } from '@canopy/shared/agent-stream'
 
 import { parseGitLink } from '../src/lib/environment-ui'
 import { slicePatch } from '../src/lib/patch'
-import { cardsOf, graphTitle, isStale, latestGraph, leaves, liftEdges, nodeFiles, pickGraph, reviewedKey, tourSteps } from '../src/lib/review-graph'
+import { cardsOf, graphTitle, isMissingRoute, isStale, latestGraph, leaves, liftEdges, nodeFiles, pickGraph, reviewedKey, tourSteps } from '../src/lib/review-graph'
 
 const ids = { h1: { path: 'db.sql', hunk: 0 }, h2: { path: 'api.ts', hunk: 0 }, h3: { path: 'api.ts', hunk: 1 }, h4: { path: 'ui.tsx', hunk: 0 } }
 const reply = (nodes: object[], edges: object[] = []) => ({ nodes, edges }) as unknown as GraphReply
@@ -117,5 +117,13 @@ describe('latestGraph', () => {
 
   it('has nothing before the agent has answered with a graph', () => {
     expect(latestGraph([said('Reading the diff…')], { h1: ids.h1 }, 'fp')).toBeUndefined()
+  })
+})
+
+describe('isMissingRoute', () => {
+  it('tells a daemon with no Graph routes from an ordinary failure', () => {
+    expect(isMissingRoute(new ApiError(404, 'http_error', '{"message":"Route POST:/api/v1/worktrees/w/graphs not found"}'))).toBe(true)
+    expect(isMissingRoute(new ApiError(404, 'worktree_not_found', 'worktree w not found'))).toBe(false)
+    expect(isMissingRoute(new ApiError(400, 'no_pull_request', 'this branch has no pull request'))).toBe(false)
   })
 })

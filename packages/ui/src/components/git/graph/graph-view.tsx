@@ -10,7 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import type { DiffMode } from '@/components/worktree-diff'
 import { useDiffFiles } from '@/lib/api-hooks'
-import { isReviewed, isStale, reviewedKey, tourSteps, type NodeCard, type TourStep } from '@/lib/review-graph'
+import { isMissingRoute, isReviewed, isStale, reviewedKey, tourSteps, type NodeCard, type TourStep } from '@/lib/review-graph'
 import type { ReviewGraphState } from '@/lib/use-review-graph'
 import { useHotkeys } from '@/lib/use-hotkeys'
 import { cn } from '@/lib/utils'
@@ -195,7 +195,13 @@ export function GraphView({
         />
         {state.error ? (
           <div className="px-4 pt-3">
-            <ErrorNote error={state.error} />
+            {isMissingRoute(state.error) ? (
+              <p role="alert" className="text-xs text-destructive">
+                The daemon this window is connected to is older than this app and has no Graph yet. Restart it from a checkout that has Graph (or connect this window to one that does), then try again.
+              </p>
+            ) : (
+              <ErrorNote error={state.error} />
+            )}
           </div>
         ) : null}
         {result && spec && steps.length > 0 ? (

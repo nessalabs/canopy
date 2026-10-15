@@ -1,4 +1,5 @@
 import {
+  ApiError,
   CONTAINS,
   childrenOf,
   coverageOf,
@@ -191,3 +192,9 @@ export function latestGraph(events: readonly AgentEvent[], ids: HunkIds, fingerp
   }
   return undefined
 }
+
+/**
+ * The daemon has no Graph routes at all: it was started from a checkout older than this client.
+ * Fastify answers an unknown route with its own 404 body, which the client reads as `http_error`.
+ */
+export const isMissingRoute = (error: unknown): boolean => error instanceof ApiError && error.status === 404 && error.code === 'http_error' && /Route .* not found/.test(error.message)

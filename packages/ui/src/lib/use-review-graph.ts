@@ -27,7 +27,8 @@ const oldReviewedKey = (worktreeId: string): string => `canopy-groups-reviewed:$
 export function useReviewGraph(worktree: Worktree, agent: GitAgent) {
   const api = useApi()
   const queryClient = useQueryClient()
-  const graphs = useGraphs(worktree.id).data ?? []
+  const listed = useGraphs(worktree.id)
+  const graphs = listed.data ?? []
   const key = pickedKey(worktree.id)
   const [picked, setPicked] = useState(() => ({ key, id: readStored<string>(key) }))
   if (picked.key !== key) setPicked({ key, id: readStored<string>(key) })
@@ -144,7 +145,8 @@ export function useReviewGraph(worktree: Worktree, agent: GitAgent) {
     make,
     /** Fetching the brief, or the graph conversation is answering. */
     running: preparing || status === 'running' || status === 'input',
-    error,
+    /** Making a graph failed, or the daemon could not list them. */
+    error: error ?? listed.error ?? undefined,
     /** Opens the graph conversation in the Git Agent — reopening its tab if it was closed. */
     openChat,
     reviewed,
