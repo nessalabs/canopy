@@ -2,6 +2,7 @@ import type { Commit } from '@canopy/shared'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { RandomAvatar } from '@/components/ui/random-avatar'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -32,15 +33,23 @@ export function CommitList({
     <ScrollArea className="h-full">
       <ul className="flex flex-col" role="listbox" aria-label="Commits" aria-multiselectable>
         {commits.map((commit) => (
-          <li key={commit.sha}>
+          <li
+            key={commit.sha}
+            className={cn('flex items-start border-b border-border/60 transition-colors hover:bg-accent/50', (commit.sha === selected || marked?.has(commit.sha)) && 'bg-accent')}
+          >
+            {/* Ticked for every commit in the picked run, or the one selected when there is no run; a tick stretches the run to it, as shift-click does. */}
+            <Checkbox
+              checked={marked && marked.size > 0 ? marked.has(commit.sha) : commit.sha === selected}
+              onChange={() => onSelect(commit.sha, true)}
+              aria-label={`Pick ${commit.shortSha} for a run of commits`}
+              title="Pick a run of commits from the selected one (or shift-click)"
+              className="mt-2.5 ml-3 size-3.5 shrink-0"
+            />
             <button
               type="button"
               role="option"
               aria-selected={commit.sha === selected || marked?.has(commit.sha)}
-              className={cn(
-                'flex w-full items-start gap-2.5 border-b border-border/60 px-3 py-2 text-left transition-colors hover:bg-accent/50',
-                (commit.sha === selected || marked?.has(commit.sha)) && 'bg-accent'
-              )}
+              className="flex min-w-0 flex-1 items-start gap-2.5 py-2 pr-3 pl-2.5 text-left"
               onClick={(event) => onSelect(commit.sha, event.shiftKey)}
             >
               <RandomAvatar seed={commit.email} name={commit.author} className="mt-0.5 size-6 shrink-0 rounded-full" />
