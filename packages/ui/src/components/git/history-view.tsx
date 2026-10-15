@@ -48,7 +48,8 @@ export function HistoryView({
   }, [commits, current, end])
   const marked = useMemo(() => new Set(run.map((c) => c.sha)), [run])
   const select = (sha: string, extend: boolean): void => {
-    if (extend && current) setEnd(sha)
+    // Ticking the run's far end again, or the selected commit itself, lets the run go.
+    if (extend && current) setEnd(sha === end || sha === current ? undefined : sha)
     else {
       setSelected(sha)
       setEnd(undefined)
@@ -81,7 +82,7 @@ export function HistoryView({
                 </>
               ) : (
                 <>
-                  <span className="truncate">Shift-click to pick a run of commits</span>
+                  <span className="truncate">Tick or shift-click to pick a run of commits</span>
                   {current ? (
                     <Button size="sm" variant="ghost" className="ml-auto h-7 gap-1.5 text-xs" onClick={() => onGraph({ from: current, to: current, count: 1 })}>
                       <Network className="size-3.5" />
