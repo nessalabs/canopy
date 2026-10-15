@@ -37,6 +37,7 @@ export function layoutChangeMapGrid({ nodes, edges, columns, cardWidth: w, cardH
   const under = (row: number): number => (row < 0 ? -rowGap / 2 : rowTop[row]! + rowHeight[row]! + rowGap / 2)
   const leftOf = (column: number): number => column * (w + columnGap) - columnGap / 2
 
+  let lowest = 0
   const routed = edges.flatMap((edge, index) => {
     const [a, b] = [cell.get(edge.from), cell.get(edge.to)]
     if (!a || !b || edge.from === edge.to) return []
@@ -61,12 +62,15 @@ export function layoutChangeMapGrid({ nodes, edges, columns, cardWidth: w, cardH
       points.push({ x: endX, y: gapB }, { x: endX, y: rowTop[b.row]! })
     }
     const path = points.filter((point, i) => i === 0 || point.x !== points[i - 1]!.x || point.y !== points[i - 1]!.y)
+    lowest = Math.max(lowest, ...path.map((point) => point.y))
     // The label sits where the edge turns into its target, so labels for different targets never share a spot.
     const turn = path[path.length - 2]!
     return [{ index, path: rounded(path), label: { x: turn.x, y: turn.y }, back: b.row < a.row }]
   })
 
-  const height = rows === 0 ? 0 : rowTop[rows - 1]! + rowHeight[rows - 1]!
+  // Edges leaving the last row run through a gap under it, so the drawing keeps that gap whole.
+  const cards = rows === 0 ? 0 : rowTop[rows - 1]! + rowHeight[rows - 1]!
+  const height = lowest > cards ? cards + rowGap : cards
   return { boxes, edges: routed, width: across * w + (across - 1) * columnGap, height }
 }
 
