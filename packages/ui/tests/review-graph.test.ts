@@ -127,3 +127,17 @@ describe('isMissingRoute', () => {
     expect(isMissingRoute(new ApiError(400, 'no_pull_request', 'this branch has no pull request'))).toBe(false)
   })
 })
+
+describe('networkOf', () => {
+  it('hangs every node off one centre, gives each its hunks, and opens an atom at the node that owns it', async () => {
+    const { networkOf, ownerOf, ROOT_ID } = await import('../src/lib/graph-network')
+    const net = networkOf(graph, new Set())
+    const byId = new Map(net.nodes.map((n) => [n.id, n]))
+    expect(byId.get(ROOT_ID)?.level).toBe(0)
+    expect(net.edges.filter((e) => e.source === ROOT_ID).map((e) => e.target)).toEqual(['1', '2'])
+    expect(byId.get('2')?.state).toBe('intro')
+    expect(ownerOf(net, 'hunk:api.ts#1')).toBe('2.1')
+    expect(net.edges.some((e) => e.relation === 'reads' && e.source === '2.2' && e.target === '1')).toBe(true)
+    expect(networkOf(graph, new Set(), { atoms: false }).nodes.some((n) => n.kind === 'hunk')).toBe(false)
+  })
+})
