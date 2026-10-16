@@ -1,6 +1,10 @@
+import { useState } from 'react'
+import { ChevronRight } from 'lucide-react'
+
 import { FileDiffPath } from '@/components/ui/file-diff-list'
 import { FileIcon } from '@/components/ui/file-icon'
 import { plural } from '@/lib/format'
+import { cn } from '@/lib/utils'
 
 type Icon = React.ComponentType<{ className?: string }>
 
@@ -38,14 +42,19 @@ export function PaneSection({
 
 /** A file's comments as one card, headed by the file. */
 export function FileGroup({ file, count, noun, children }: { file: string; count: number; noun: string; children: React.ReactNode }): React.JSX.Element {
+  // Clicking the file's header folds its items away, as a diff's file header does.
+  const [open, setOpen] = useState(true)
   return (
     <div className="overflow-hidden rounded-xl border border-border bg-card/40">
-      <h4 className="flex items-center gap-2 border-b border-border/60 px-3 py-2 text-xs">
-        <FileIcon name={file} />
-        <FileDiffPath path={file} className="min-w-0 flex-1 font-mono" />
-        <span className="text-muted-foreground">{plural(count, noun)}</span>
+      <h4 className={cn('text-xs', open && 'border-b border-border/60')}>
+        <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/40">
+          <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} aria-hidden="true" />
+          <FileIcon name={file} />
+          <FileDiffPath path={file} className="min-w-0 flex-1 font-mono" />
+          <span className="text-muted-foreground">{plural(count, noun)}</span>
+        </button>
       </h4>
-      <ul className="flex flex-col p-1">{children}</ul>
+      {open ? <ul className="flex flex-col p-1">{children}</ul> : null}
     </div>
   )
 }
