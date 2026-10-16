@@ -10,6 +10,7 @@ import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmen
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { absoluteTime, plural, relativeTime } from '@/lib/format'
 import { groupBy } from '@/lib/group'
+import { useFileContents } from '@/lib/api-hooks'
 import { cn } from '@/lib/utils'
 
 import { HOVER_ACTIONS } from '../comment-card'
@@ -84,7 +85,9 @@ export function GitHubThreadsPanel({
   onPick,
   onJump,
   onSend,
-  sending
+  sending,
+  worktreeId,
+  range
 }: {
   number: number
   threads: GitHubThread[]
@@ -94,6 +97,8 @@ export function GitHubThreadsPanel({
   onJump: (thread: GitHubThread) => void
   onSend: () => void
   sending: boolean
+  worktreeId?: string
+  range?: ThreadRange
 }): React.JSX.Element {
   const [filter, setFilter] = useState<Filter>('open')
   const unresolved = threads.filter((thread) => !thread.resolved)
@@ -131,7 +136,7 @@ export function GitHubThreadsPanel({
         groups.map(([file, list]) => (
           <FileGroup key={file} file={file} count={list.length} noun="thread">
             {list.map((thread) => (
-              <ThreadRow key={thread.id} thread={thread} host={host} picked={picked.has(thread.id)} onPick={(on) => onPick(thread.id, on)} onJump={() => onJump(thread)} />
+              <ThreadRow key={thread.id} thread={thread} host={host} worktreeId={worktreeId} range={range} picked={picked.has(thread.id)} onPick={(on) => onPick(thread.id, on)} onJump={() => onJump(thread)} />
             ))}
           </FileGroup>
         ))
@@ -151,10 +156,15 @@ export function ThreadRow({
   picked = false,
   onPick,
   onJump,
-  showFile = false
+  showFile = false,
+  worktreeId,
+  range
 }: {
   thread: GitHubThread
   host: string | null
+  /** Where to read the lines after the commented one; without them only GitHub's hunk shows. */
+  worktreeId?: string
+  range?: ThreadRange
   picked?: boolean
   onPick?: (on: boolean) => void
   onJump?: () => void
@@ -201,7 +211,7 @@ export function ThreadRow({
             ) : null}
           </div>
         </div>
-        {thread.hunk ? <HunkTail hunk={thread.hunk} /> : null}
+        <ThreadCode thread={thread} worktreeId={worktreeId} range={range} />
         {thread.comments.map((comment) => (
           <article key={comment.id} className="flex gap-2.5">
             <GitHubAvatar login={comment.author} host={host} className="mt-0.5 size-6 shrink-0 rounded-full" />
@@ -224,22 +234,59 @@ export function ThreadRow({
   )
 }
 
-/** How many lines of code above a comment show with it, as GitHub's conversation does. */
-const HUNK_LINES = 4
+/** Lines of code shown above and below a comment's line until the reader asks for the rest. */
+const ABOVE = 5
+const BELOW = 3
 
-/** The last few lines of the thread's diff hunk: the commented line and what leads up to it. */
-export function HunkTail({ hunk }: { hunk: string }): React.JSX.Element {
-  const lines = hunk.split('\n').filter((line) => !line.startsWith('@@') && !line.startsWith('\\')).slice(-HUNK_LINES)
+/** The commits holding a PR's old-side lines (`before`) and new-side lines (`after`, its head). */
+export type ThreadRange = { before?: string; after?: string }
+
+/** Where a PR's lines are read: the head always names the new side; the old side needs the merge base. */
+export const threadRange = (pr: { headSha: string; filesRange: { before: string; after: string } | null } | undefined | null): ThreadRange =>
+  pr ? { before: pr.filesRange?.before, after: pr.filesRange?.after ?? pr.headSha } : {}
+
+/**
+ * The code a thread was left on, as GitHub's conversation shows it with a little more context:
+ * the lines leading up to it from GitHub's diff hunk (the whole hunk on request), the commented
+ * line marked, and a few lines after it read from the PR's own commit. GitHub's hunk stops at the
+ * commented line, so the lines after it need that commit in this checkout; an outdated thread's
+ * line no longer matches it, so it shows only the hunk.
+ */
+export function ThreadCode({ thread, worktreeId, range }: { thread: GitHubThread; worktreeId?: string; range?: ThreadRange }): React.JSX.Element | null {
+  const [all, setAll] = useState(false)
+  const rev = thread.side === 'old' ? range?.before : range?.after
+  const canRead = Boolean(worktreeId && rev && thread.line !== null && !thread.outdated)
+  const file = useFileContents(worktreeId ?? '', thread.file, rev, canRead)
+  const hunk = (thread.hunk ?? '').split('\n').filter((line) => !line.startsWith('@@') && !line.startsWith('\\'))
+  if (hunk.length === 0) return null
+  const above = all ? hunk : hunk.slice(-(ABOVE + 1))
+  const hidden = hunk.length - above.length
+  const content = canRead ? file.data?.content : undefined
+  // `line` is 1-based, so the lines after it start at index `line`.
+  const below = content != null && thread.line !== null ? content.split('\n').slice(thread.line, thread.line + BELOW).map((line) => ` ${line}`) : []
+  const row = (line: string, key: string, mark = false): React.JSX.Element => (
+    <div
+      key={key}
+      className={cn(
+        'border-l-2 border-transparent px-2 whitespace-pre',
+        line.startsWith('+') && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300',
+        line.startsWith('-') && 'bg-red-500/10 text-red-700 dark:text-red-300',
+        !line.startsWith('+') && !line.startsWith('-') && 'text-muted-foreground',
+        mark && 'border-primary font-medium'
+      )}
+    >
+      {line || ' '}
+    </div>
+  )
   return (
     <pre className="overflow-x-auto rounded-md border border-border/70 bg-muted/30 py-1 font-mono text-[11px] leading-5">
-      {lines.map((line, index) => (
-        <div
-          key={index}
-          className={cn('px-2 whitespace-pre', line.startsWith('+') && 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', line.startsWith('-') && 'bg-red-500/10 text-red-700 dark:text-red-300')}
-        >
-          {line || ' '}
-        </div>
-      ))}
+      {hidden > 0 ? (
+        <button type="button" onClick={() => setAll(true)} className="block w-full px-2 text-left text-muted-foreground hover:bg-muted/60 hover:text-foreground">
+          ⋯ {plural(hidden, 'more line')} above
+        </button>
+      ) : null}
+      {above.map((line, index) => row(line, `a${index}`, index === above.length - 1))}
+      {below.map((line, index) => row(line, `b${index}`))}
     </pre>
   )
 }
