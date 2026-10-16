@@ -22,7 +22,7 @@ import { CommitDetail } from '../commit-detail'
 import { CommitList } from '../commit-list'
 import { DiffExplorer, type ExplorerFocus } from '../diff-explorer'
 import { DraftButton } from '../draft-button'
-import { AskAgentButton, SendToAgentButton } from '../send-to-agent'
+import { AskAgentButton } from '../send-to-agent'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
 import { SidePicker } from './pickers'
 import { CHECK_ICON, Empty, GitHubAvatar, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
@@ -450,6 +450,7 @@ function Conversation({ worktreeId, pr, host }: { worktreeId: string; pr: PullRe
 function ConversationItem({ event, threads, prUrl, host, worktreeId, range }: { event: PullRequestEvent; threads: GitHubThread[] | undefined; prUrl: string; host: string | null; worktreeId: string; range: ThreadRange }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   const hasBody = event.body.trim() !== ''
+  const openThreads = (threads ?? []).filter((thread) => !thread.resolved)
   return (
     <article className="flex gap-3">
       <GitHubAvatar login={event.author} host={host} className="mt-0.5 size-6 shrink-0 rounded-full" />
@@ -467,7 +468,18 @@ function ConversationItem({ event, threads, prUrl, host, worktreeId, range }: { 
             </Tooltip>
             {!open && threads?.length ? <span>· {plural(threads.length, 'line comment')}</span> : null}
           </button>
-          {hasBody ? <SendToAgentButton note={() => eventAsNote(event, prUrl)} className="ml-auto" /> : null}
+          {hasBody || openThreads.length ? (
+            <AskAgentButton
+              className="ml-auto shrink-0"
+              notes={() => [...(hasBody ? [eventAsNote(event, prUrl)] : []), ...openThreads.map(threadAsNote)]}
+              label="Send to agent"
+              hint={
+                openThreads.length
+                  ? `Hand this ${event.kind} and its ${plural(openThreads.length, 'open line comment')} to an agent to address`
+                  : `Hand this ${event.kind} to an agent to address`
+              }
+            />
+          ) : null}
         </div>
         {open && hasBody ? (
           <div className="rounded-lg border border-border px-3 py-2">
@@ -480,25 +492,14 @@ function ConversationItem({ event, threads, prUrl, host, worktreeId, range }: { 
   )
 }
 
-/** The line comments a review was posted with, and one button to hand the open ones to an agent. */
+/** The line comments a review was posted with; the review's header sends the open ones to an agent. */
 function ReviewThreads({ threads, host, worktreeId, range }: { threads: GitHubThread[]; host: string | null; worktreeId: string; range: ThreadRange }): React.JSX.Element {
-  const open = threads.filter((thread) => !thread.resolved)
   return (
-    <div className="flex flex-col gap-2">
-      <ul className="flex flex-col gap-1 rounded-lg border border-border py-1">
-        {threads.map((thread) => (
-          <ThreadRow key={thread.id} thread={thread} host={host} worktreeId={worktreeId} range={range} showFile />
-        ))}
-      </ul>
-      {open.length ? (
-        <AskAgentButton
-          className="self-start"
-          notes={() => open.map(threadAsNote)}
-          label={open.length === 1 ? 'Ask an agent to address this' : `Ask an agent to address these ${open.length}`}
-          hint={`Hand ${plural(open.length, 'open comment')} from this review to an agent to fix`}
-        />
-      ) : null}
-    </div>
+    <ul className="flex flex-col gap-1 rounded-lg border border-border py-1">
+      {threads.map((thread) => (
+        <ThreadRow key={thread.id} thread={thread} host={host} worktreeId={worktreeId} range={range} showFile />
+      ))}
+    </ul>
   )
 }
 
