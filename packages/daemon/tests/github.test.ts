@@ -69,7 +69,7 @@ const RAW_PR = {
     { __typename: 'StatusContext', context: 'deploy', state: 'ERROR', targetUrl: 'https://deploy' }
   ],
   reviews: [
-    { author: { login: 'rev' }, body: '', state: 'COMMENTED', submittedAt: '2026-09-01T02:00:00Z' },
+    { id: 'PRR_1', author: { login: 'rev' }, body: '', state: 'COMMENTED', submittedAt: '2026-09-01T02:00:00Z' },
     { author: { login: 'rev' }, body: '', state: 'APPROVED', submittedAt: '2026-09-01T03:00:00Z' }
   ],
   comments: [
@@ -91,7 +91,7 @@ describe('github helpers', () => {
     expect(titleFromBranch('feat/add-pr_tab')).toBe('Add pr tab')
   })
 
-  it('normalizes checks, drops empty review wrappers and hidden comments, and orders the timeline', () => {
+  it('normalizes checks, keeps review ids and empty review wrappers, drops hidden comments, and orders the timeline', () => {
     const pr = toPullRequest(RAW_PR as never)
     expect(pr.closedAt).toBeNull()
     expect(pr.reviewDecision).toBeNull()
@@ -117,9 +117,11 @@ describe('github helpers', () => {
       { name: 'core', team: true, state: 'requested' }
     ])
     expect([pr.labels, pr.milestone]).toEqual([[{ name: 'bug', color: 'd73a4a' }], 'v1'])
-    expect(pr.events.map((event) => [event.kind, event.author, event.verdict])).toEqual([
-      ['comment', 'pal', null],
-      ['review', 'rev', 'APPROVED']
+    // The empty COMMENTED review wraps line comments; the conversation shows it with its threads.
+    expect(pr.events.map((event) => [event.kind, event.id, event.author, event.verdict])).toEqual([
+      ['comment', undefined, 'pal', null],
+      ['review', 'PRR_1', 'rev', 'COMMENTED'],
+      ['review', undefined, 'rev', 'APPROVED']
     ])
   })
 })
@@ -442,7 +444,7 @@ describe('GitHubService', () => {
           pullRequest: {
             reviewThreads: {
               nodes: [
-                { id: 'T1', isResolved: true, isOutdated: true, path: 'infra/ecs.tf', line: null, originalLine: 40, diffSide: 'RIGHT', comments: { nodes: [{ databaseId: 1, author: { login: 'sanzog03' }, body: 'secrets?', createdAt: '2026-09-24T19:40:36Z', url: 'https://x/1' }] } },
+                { id: 'T1', isResolved: true, isOutdated: true, path: 'infra/ecs.tf', line: null, originalLine: 40, diffSide: 'RIGHT', comments: { nodes: [{ databaseId: 1, author: { login: 'sanzog03' }, body: 'secrets?', createdAt: '2026-09-24T19:40:36Z', url: 'https://x/1', diffHunk: '@@ -1,2 +1,2 @@\n a\n+b', pullRequestReview: { id: 'PRR_1' } }] } },
                 { id: 'T2', isResolved: false, isOutdated: false, path: 'api/auth.py', line: 12, originalLine: 12, diffSide: 'LEFT', comments: { nodes: [{ databaseId: 2, author: null, body: 'gone user', createdAt: '2026-09-24T19:41:00Z', url: 'https://x/2' }] } }
               ]
             }
@@ -456,7 +458,7 @@ describe('GitHubService', () => {
     const threads = await github.threads('w')
     expect(threads.number).toBe(7)
     expect(threads.threads).toEqual([
-      { id: 'T1', file: 'infra/ecs.tf', line: null, originalLine: 40, side: 'new', resolved: true, outdated: true, comments: [{ id: '1', author: 'sanzog03', body: 'secrets?', at: '2026-09-24T19:40:36Z', url: 'https://x/1' }] },
+      { id: 'T1', file: 'infra/ecs.tf', line: null, originalLine: 40, side: 'new', resolved: true, outdated: true, reviewId: 'PRR_1', hunk: '@@ -1,2 +1,2 @@\n a\n+b', comments: [{ id: '1', author: 'sanzog03', body: 'secrets?', at: '2026-09-24T19:40:36Z', url: 'https://x/1' }] },
       { id: 'T2', file: 'api/auth.py', line: 12, originalLine: 12, side: 'old', resolved: false, outdated: false, comments: [{ id: '2', author: 'ghost', body: 'gone user', at: '2026-09-24T19:41:00Z', url: 'https://x/2' }] }
     ])
     await github.threads('w')

@@ -129,7 +129,7 @@ export function GitTab({
       return next
     })
   const sendPicked = (): void => setRequest({ github: threads.filter((thread) => pickedThreads.has(thread.id)).map(threadAsNote), local: true })
-  const sendOne = (note: GitHubNote): void => setRequest({ github: [note], local: false })
+  const sendNotes = (notes: GitHubNote[]): void => setRequest({ github: notes, local: false })
   const shared = { comments, mode }
   // Groups reads the same diff Changes lists, and its tab counts the sections still to review.
   const changeGroups = useChangeGroups(worktree, against, gitAgent)
@@ -183,7 +183,7 @@ export function GitTab({
   const focusFor = (target: Pane): ExplorerFocus | undefined => (jump?.pane === target ? jump.focus : undefined)
 
   return (
-    <SendToAgentProvider value={sendOne}>
+    <SendToAgentProvider value={sendNotes}>
       <Tabs value={pane} onValueChange={(value) => onPaneChange(value as Pane)} className="flex min-h-0 flex-1 flex-col">
         <GitViewTabs dirty={worktree.status?.dirtyTotal ?? 0} comments={comments.length} unreviewed={unreviewed} onPrefetchPr={prefetchPr} />
         {pane === 'comments' || pane === 'issues' ? null : <DiffTools mode={mode} onModeChange={setMode} against={pane === 'changes' || pane === 'groups' ? against : undefined} onAgainstChange={setAgainst} baseBranch={worktree.baseBranch} />}
