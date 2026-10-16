@@ -43,6 +43,12 @@ export interface Repo {
   cherryApplied(cwd: string, upstream: string, head: string): Promise<boolean>
   /** A dangling commit with `tree`'s content on `parent` — one patch standing for a whole branch. */
   commitTree(cwd: string, tree: string, parent: string, message: string): Promise<string>
+  /**
+   * True when merging `head` into `base` would change nothing: `base` already holds every line
+   * `head` adds, however the commits that brought them were rewritten (a rebase-merge onto a
+   * moved base, a squash of a branch with a merge in it). False on a conflict or an old git.
+   */
+  mergeChangesNothing(cwd: string, base: string, head: string): Promise<boolean>
   /** The commit a revision names, or null when it does not exist (e.g. HEAD on an unborn branch). */
   resolveCommit(cwd: string, rev: string): Promise<string | null>
   log(cwd: string, limit: number, skip: number): Promise<{ commits: Commit[]; hasMore: boolean }>
@@ -186,6 +192,12 @@ export function createRepo(run: GitRunner): Repo {
 
     async commitTree(cwd, tree, parent, message) {
       return (await run(cwd, ['commit-tree', tree, '-p', parent, '-m', message])).trim()
+    },
+
+    async mergeChangesNothing(cwd, base, head) {
+      const [merged, tree] = await Promise.all([tryRun(cwd, ['merge-tree', '--write-tree', base, head]), tryRun(cwd, ['rev-parse', `${base}^{tree}`])])
+      const result = merged?.split('\n')[0]?.trim()
+      return !!result && result === tree?.trim()
     },
 
     async log(cwd, limit, skip) {

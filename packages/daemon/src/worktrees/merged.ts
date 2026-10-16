@@ -1,14 +1,19 @@
 /**
  * "Is this worktree's HEAD already in its base branch?" — the fact that says a worktree is
  * safe to throw away. Ancestry alone misses the way most branches land today (a squash or a
- * rebase-merge leaves the original commits unreachable from base), so three questions are
+ * rebase-merge leaves the original commits unreachable from base), so four questions are
  * asked in turn, cheapest first, against the local base and its `origin/` counterpart:
  *
  *   1. is HEAD an ancestor of a base tip?                      (`for-each-ref --contains`)
  *   2. does every commit on the branch have a patch there?      (`cherry`, rebase-merge)
  *   3. does the branch squashed into one patch exist there?     (`commit-tree` + `cherry`)
+ *   4. would merging the branch in change nothing?              (`merge-tree`)
  *
- * 2 and 3 cost a patch-id for every base commit since the merge base, so the answer is cached
+ * 4 catches what the patch questions cannot: a rebase-merge onto a base that moved since the
+ * branch was cut rewrites a commit's surrounding lines, so its patch-id no longer matches
+ * although every line it adds is there (PR #54, 2026-10-15).
+ *
+ * 2 to 4 cost a patch-id for every base commit since the merge base, so the answer is cached
  * per (HEAD, base tips): a worktree nobody commits to and a base nobody moves is one cheap
  * `for-each-ref` per listing. The probe commit of step 3 is dangling and gc collects it.
  */
@@ -19,7 +24,7 @@ const MAX_BEHIND_FOR_PATCH_CHECK = 1000
 /** Keyed by shas, so entries die of irrelevance rather than age; a bound keeps it a cache. */
 const MAX_ENTRIES = 500
 
-type MergedRepo = Pick<Repo, 'refTips' | 'refsContaining' | 'cherryApplied' | 'commitTree' | 'mergeBase'>
+type MergedRepo = Pick<Repo, 'refTips' | 'refsContaining' | 'cherryApplied' | 'commitTree' | 'mergeBase' | 'mergeChangesNothing'>
 
 export interface MergedQuery {
   cwd: string
@@ -73,6 +78,7 @@ export class MergedDetector {
       if (mergeBase === null || mergeBase === head) continue
       const probe = await this.repo.commitTree(cwd, `${head}^{tree}`, mergeBase, 'canopy merged probe')
       if (await this.repo.cherryApplied(cwd, sha, probe)) return true
+      if (await this.repo.mergeChangesNothing(cwd, sha, head)) return true
     }
     return false
   }
