@@ -212,7 +212,7 @@ function AssistantTurn({ text, avatarSeed, streaming, prompt, capabilities, onPi
   const card = streaming ? null : localCard(text, prompt, capabilities, onPickModel)
   return (
     <Message from="assistant">
-      <RandomAvatar seed={avatarSeed} name="Agent" className="size-8 shrink-0 self-end rounded-full" />
+      <RandomAvatar seed={avatarSeed} name="Agent" className="size-8 shrink-0 self-center rounded-full" />
       <MessageContent className={card ? 'w-full max-w-full' : undefined}>
         <MessageBubble variant="muted" className={cn('min-w-0 max-w-full overflow-hidden [&_pre]:max-w-full [&_pre]:overflow-x-auto', card && 'w-full')}>
           {card ?? <MessageMarkdown className="text-sm" streaming={streaming}>{text}</MessageMarkdown>}
