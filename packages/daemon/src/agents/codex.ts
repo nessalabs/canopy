@@ -59,12 +59,13 @@ interface ListModel {
   id: string
   displayName?: string
   description?: string
+  hidden?: boolean
   supportedReasoningEfforts?: Array<{ reasoningEffort?: string }>
 }
 
-/** Codex's catalog as the picker lists it. Efforts Canopy has no stop for (`minimal`, `none`) are left out. */
+/** Codex's catalog as the picker lists it, minus hidden models. Efforts Canopy has no stop for (`minimal`, `ultra`) are left out. */
 export function codexModels(data: readonly ListModel[] | undefined): AgentModel[] {
-  return (data ?? []).map((model) => ({
+  return (data ?? []).filter((model) => model.hidden !== true).map((model) => ({
     id: model.id,
     label: model.displayName || model.id,
     description: model.description || undefined,
@@ -228,8 +229,7 @@ export class CodexAdapter implements AgentAdapter {
         input,
         cwd,
         ...(options.model ? { model: options.model } : {}),
-        // Codex has no `max`; its highest stop is `xhigh`.
-        ...(options.effort ? { effort: options.effort === 'max' ? 'xhigh' : options.effort } : {}),
+        ...(options.effort ? { effort: options.effort } : {}),
         approvalPolicy: options.autonomy === 'read-only' ? 'untrusted' : 'never',
         sandboxPolicy: sandboxFor(options.autonomy, cwd)
       })
