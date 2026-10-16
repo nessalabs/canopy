@@ -18,6 +18,8 @@ export function comboOf(event: HotkeyEvent): string | undefined {
 /** Whether a key press is someone typing, which no plain-key binding may take. */
 export function isTyping(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
+  // A ticked checkbox or radio keeps focus but takes no text, so a shortcut still reaches the page.
+  if (target instanceof HTMLInputElement && (target.type === 'checkbox' || target.type === 'radio')) return false
   return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
 }
 
