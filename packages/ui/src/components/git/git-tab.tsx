@@ -35,7 +35,7 @@ import { MergeDialog } from './merge-dialog'
 import { PullRequestView } from './pull-request-view'
 import type { CommitRange } from './graph/graph-bar'
 import { GraphView } from './graph/graph-view'
-import { GitHubThreadsPanel, threadAsNote, threadsAsComments } from './pull-request/threads'
+import { GitHubThreadsPanel, threadAsNote, threadRange, threadsAsComments } from './pull-request/threads'
 import { ReviewTargetDialog } from './review-target-dialog'
 import { SendToAgentProvider } from './send-to-agent'
 
@@ -244,7 +244,7 @@ export function GitTab({
               <TabsContent value="comments" className="flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto px-6 py-5">
                 <CommentsPanel worktreeId={worktree.id} comments={comments} onJump={onJump} />
                 {threadsQuery.data ? (
-                  <GitHubThreadsPanel number={threadsQuery.data.number} threads={threads} host={host} picked={pickedThreads} onPick={pickThread} onJump={onJumpThread} onSend={sendPicked} sending={reviewQueued} />
+                  <GitHubThreadsPanel number={threadsQuery.data.number} threads={threads} host={host} picked={pickedThreads} onPick={pickThread} onJump={onJumpThread} onSend={sendPicked} sending={reviewQueued} worktreeId={worktree.id} range={threadRange(prQuery.data?.pr)} />
                 ) : null}
               </TabsContent>
             </div>

@@ -26,7 +26,7 @@ import { AskAgentButton, SendToAgentButton } from '../send-to-agent'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
 import { SidePicker } from './pickers'
 import { CHECK_ICON, Empty, GitHubAvatar, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
-import { ClampedBody, ThreadRow, eventAsNote, threadAsNote } from './threads'
+import { ClampedBody, ThreadRow, eventAsNote, threadAsNote, threadRange, type ThreadRange } from './threads'
 
 type View = 'overview' | 'commits' | 'files'
 
@@ -437,7 +437,7 @@ function Conversation({ worktreeId, pr, host }: { worktreeId: string; pr: PullRe
     <section className="flex flex-col gap-3">
       <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Conversation</h4>
       {events.map((event, index) => (
-        <ConversationItem key={`${event.at}:${index}`} event={event} threads={event.id ? byReview.get(event.id) : undefined} prUrl={pr.url} host={host} />
+        <ConversationItem key={`${event.at}:${index}`} event={event} threads={event.id ? byReview.get(event.id) : undefined} prUrl={pr.url} host={host} worktreeId={worktreeId} range={threadRange(pr)} />
       ))}
     </section>
   )
@@ -447,7 +447,7 @@ function Conversation({ worktreeId, pr, host }: { worktreeId: string; pr: PullRe
  * One comment or review. Its header folds it away — review bots write screens of text — and a
  * long body shows its first lines until asked for the rest.
  */
-function ConversationItem({ event, threads, prUrl, host }: { event: PullRequestEvent; threads: GitHubThread[] | undefined; prUrl: string; host: string | null }): React.JSX.Element {
+function ConversationItem({ event, threads, prUrl, host, worktreeId, range }: { event: PullRequestEvent; threads: GitHubThread[] | undefined; prUrl: string; host: string | null; worktreeId: string; range: ThreadRange }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   const hasBody = event.body.trim() !== ''
   return (
@@ -474,20 +474,20 @@ function ConversationItem({ event, threads, prUrl, host }: { event: PullRequestE
             <ClampedBody>{event.body}</ClampedBody>
           </div>
         ) : null}
-        {open && threads?.length ? <ReviewThreads threads={threads} host={host} /> : null}
+        {open && threads?.length ? <ReviewThreads threads={threads} host={host} worktreeId={worktreeId} range={range} /> : null}
       </div>
     </article>
   )
 }
 
 /** The line comments a review was posted with, and one button to hand the open ones to an agent. */
-function ReviewThreads({ threads, host }: { threads: GitHubThread[]; host: string | null }): React.JSX.Element {
+function ReviewThreads({ threads, host, worktreeId, range }: { threads: GitHubThread[]; host: string | null; worktreeId: string; range: ThreadRange }): React.JSX.Element {
   const open = threads.filter((thread) => !thread.resolved)
   return (
     <div className="flex flex-col gap-2">
       <ul className="flex flex-col gap-1 rounded-lg border border-border py-1">
         {threads.map((thread) => (
-          <ThreadRow key={thread.id} thread={thread} host={host} showFile />
+          <ThreadRow key={thread.id} thread={thread} host={host} worktreeId={worktreeId} range={range} showFile />
         ))}
       </ul>
       {open.length ? (
