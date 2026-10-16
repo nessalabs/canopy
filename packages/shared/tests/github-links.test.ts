@@ -54,7 +54,25 @@ describe('htmlImagesToMarkdown', () => {
 describe('githubBodyToMarkdown', () => {
   it('unfolds review-bot details into bold summaries and keeps code', () => {
     const body = '<details> <summary>🧹 Nitpick comments: 1</summary><blockquote> <details> <summary>a.ts: 1</summary><blockquote>\n\nFix it.\n\n</blockquote></details>\n\n</blockquote></details>\n`<details>`'
-    expect(githubBodyToMarkdown('para\n\n    indented code\n  \n\n  - nested')).toBe('para\n\n    indented code\n\n  - nested')
+    const kept = githubBodyToMarkdown('para\n\n    indented code\n  \n\n  - nested')
+    expect(kept).toContain('\n    indented code\n')
+    expect(kept).toMatch(/\n {2}- nested$/)
     expect(githubBodyToMarkdown(body).replace(/^[ \n]+/, '').replace(/ +\n/g, '\n')).toBe('**🧹 Nitpick comments: 1**\n\n**a.ts: 1**\n\nFix it.\n\n`<details>`')
+  })
+
+  it('bolds a summary holding inline code and leaves every kind of code block alone', () => {
+    expect(githubBodyToMarkdown('<details><summary>Run `npm test`</summary>\nok\n</details>').trim()).toBe('**Run `npm test`**\n\nok')
+    const tilde = '~~~~html\n<details><summary>demo</summary>secret</details>\n~~~~'
+    expect(githubBodyToMarkdown(tilde)).toBe(tilde)
+    const fence = '````\n```\n<img src="a.png">\n```\n````'
+    expect(githubBodyToMarkdown(fence)).toBe(fence)
+    const indented = 'Example:\n\n    <details><summary>x</summary></details>\n\nafter'
+    expect(githubBodyToMarkdown(indented)).toBe(indented)
+    expect(githubBodyToMarkdown('``a ` <img src="b.png"> ``')).toBe('``a ` <img src="b.png"> ``')
+  })
+
+  it('keeps a quote someone wrote, dropping only the one a fold wraps', () => {
+    expect(githubBodyToMarkdown('<blockquote>quoted</blockquote>')).toBe('<blockquote>quoted</blockquote>')
+    expect(githubBodyToMarkdown('<details><summary>S</summary><blockquote>inner</blockquote></details>').trim()).toBe('**S**\n\ninner')
   })
 })
