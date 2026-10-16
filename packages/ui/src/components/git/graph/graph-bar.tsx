@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronDown, GitPullRequest, History, MessageSquare, Trash2 } from 'lucide-react'
 
 import { GRAPH_PRESETS, presetSpec, type AgentProvider, type GraphPreset, type GraphScope, type PullRequestChoice } from '@canopy/shared'
@@ -21,6 +21,8 @@ export interface CommitRange {
   from: string
   to: string
   count: number
+  /** The graph on screen when the run was picked: once another is shown, the bar starts from that one's scope. */
+  pickedOn?: string
 }
 
 /** Which of the worktree's graphs is on screen, and the way to drop the one that is. */
@@ -131,6 +133,7 @@ export function GraphBar({
   range,
   prs,
   ownPr,
+  onKind,
   onPickCommits,
   done,
   total,
@@ -139,10 +142,12 @@ export function GraphBar({
   state: ReviewGraphState
   /** Commits picked in History, for the Commits scope. */
   range?: CommitRange
-  /** PRs out of and into the branch, to pick which one the Pull request scope draws. */
-  prs: PullRequestChoice[]
+  /** PRs out of and into the branch, to pick which one the Pull request scope draws; undefined until read. */
+  prs?: PullRequestChoice[]
   /** The branch has a PR of its own; drawable even when the list could not be read. */
   ownPr: boolean
+  /** Which scope the bar is on, so the PRs are asked for only when they are wanted. */
+  onKind?: (kind: ScopeKind) => void
   /** Goes to History to pick commits. */
   onPickCommits: () => void
   done: number
@@ -150,17 +155,29 @@ export function GraphBar({
   stale: boolean
 }): React.JSX.Element {
   const record = state.record
-  const [kind, setKind] = useState<ScopeKind>(range ? 'commits' : (record?.scope.kind ?? 'uncommitted'))
+  // A run picked while this graph was on screen is what the bar offers; otherwise it starts from
+  // the graph on screen, so viewing a PR graph after drawing a run does not snap back to Commits.
+  const fresh = range !== undefined && range.pickedOn === record?.id
+  const [kind, setKind] = useState<ScopeKind>(fresh ? 'commits' : (record?.scope.kind ?? (range ? 'commits' : 'uncommitted')))
+  useEffect(() => onKind?.(kind), [kind, onKind])
+  const run = fresh ? range : record?.scope.kind === 'commits' ? record.scope : range
   const [preset, setPreset] = useState<GraphPreset>(record?.preset ?? 'features')
   const [wording, setWording] = useState('')
   const [provider, setProvider] = useState<AgentProvider | undefined>(undefined)
   const chosen = provider ?? state.providers[0]
   // The PR the graph on screen is of, else the branch's own, else the newest one into it.
   const [prNumber, setPrNumber] = useState<number | undefined>(record?.scope.kind === 'pull-request' ? record.scope.number : undefined)
-  const pr = prNumber ?? prs[0]?.number
+  const pr = prNumber ?? prs?.[0]?.number
   const [prMenu, setPrMenu] = useState(false)
+  // With more than one PR to choose from, choosing the scope is choosing which — once they are read.
+  const [wantMenu, setWantMenu] = useState(false)
+  useEffect(() => {
+    if (!wantMenu || !prs) return
+    if (prs.length > 1) setPrMenu(true)
+    setWantMenu(false)
+  }, [wantMenu, prs])
   const scope: GraphScope | undefined =
-    kind === 'commits' ? (range ? { kind, from: range.from, to: range.to } : undefined) : kind === 'pull-request' ? (pr !== undefined ? { kind, number: pr } : ownPr ? { kind } : undefined) : { kind }
+    kind === 'commits' ? (run ? { kind, from: run.from, to: run.to } : undefined) : kind === 'pull-request' ? (pr !== undefined ? { kind, number: pr } : ownPr ? { kind } : undefined) : { kind }
   const has = record !== undefined
   return (
     <form
@@ -176,16 +193,15 @@ export function GraphBar({
           value={kind}
           onValueChange={(value) => {
             setKind(value as ScopeKind)
-            // With more than one PR to choose from, choosing the scope is choosing which.
-            if (value === 'pull-request' && prs.length > 1) setPrMenu(true)
+            if (value === 'pull-request') setWantMenu(true)
           }}
           aria-label="Which change to draw"
           className="text-xs"
         >
           <SegmentedControlOption type="button" value="uncommitted">Uncommitted</SegmentedControlOption>
           <SegmentedControlOption type="button" value="branch">Branch</SegmentedControlOption>
-          <SegmentedControlOption type="button" value="commits">{range ? plural(range.count, 'commit') : 'Commits'}</SegmentedControlOption>
-          <SegmentedControlOption type="button" value="pull-request" disabled={!ownPr && prs.length === 0}>
+          <SegmentedControlOption type="button" value="commits">{run && run === range ? plural(range.count, 'commit') : 'Commits'}</SegmentedControlOption>
+          <SegmentedControlOption type="button" value="pull-request" disabled={!ownPr && prs?.length === 0}>
             Pull request
           </SegmentedControlOption>
         </SegmentedControl>
@@ -195,7 +211,15 @@ export function GraphBar({
             {range ? 'Change in History' : 'Pick in History…'}
           </Button>
         ) : null}
-        {kind === 'pull-request' && prs.length > 0 ? <PrPicker prs={prs} value={pr} onChange={setPrNumber} open={prMenu} onOpenChange={setPrMenu} /> : null}
+        {kind === 'pull-request' ? (
+          prs && prs.length > 0 ? (
+            <PrPicker prs={prs} value={pr} onChange={setPrNumber} open={prMenu} onOpenChange={setPrMenu} />
+          ) : !prs ? (
+            <span className="text-xs text-muted-foreground">Finding pull requests…</span>
+          ) : !ownPr ? (
+            <span className="text-xs text-muted-foreground">No pull requests from or into this branch</span>
+          ) : null
+        ) : null}
         <PresetPicker value={preset} onChange={setPreset} />
         {has ? (
           <span className="ml-auto text-xs text-muted-foreground tabular-nums">

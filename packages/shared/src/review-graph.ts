@@ -45,12 +45,13 @@ export function resolveGraph(reply: GraphReply, ids: HunkIds): Pick<ReviewGraph,
     const at = node.parent === undefined ? undefined : byRef.get(node.parent)
     return at === undefined || at === i ? undefined : at
   })
-  // A parent chain that comes back round to where it started is cut where it closes.
+  // A parent chain that comes back round on itself is cut where it closes: the link back into a
+  // node already on the chain goes, so a node that only leads into a loop keeps its parent.
   reply.nodes.forEach((_, i) => {
     const seen = new Set([i])
-    for (let at = parent[i]; at !== undefined; at = parent[at]) {
+    for (let from = i, at = parent[i]; at !== undefined; from = at, at = parent[at]) {
       if (seen.has(at)) {
-        parent[i] = undefined
+        parent[from] = undefined
         break
       }
       seen.add(at)

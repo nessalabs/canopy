@@ -1,4 +1,4 @@
-import { CONTAINS, childrenOf, coverageOf, type ReviewGraph, type ReviewNode } from '@canopy/shared'
+import { CONTAINS, childrenOf, coverageOf, lineKey, type ReviewGraph, type ReviewNode } from '@canopy/shared'
 
 import { isReviewed, lineTotals } from './review-graph'
 
@@ -77,7 +77,7 @@ export function networkOf(graph: Pick<ReviewGraph, 'nodes' | 'edges'>, reviewed:
     if (level === 1) edge({ id: `contains:${ROOT_ID}>${node.id}`, source: ROOT_ID, target: node.id, relation: CONTAINS })
     if (!atoms) continue
     for (const ref of node.refs) {
-      const id = `hunk:${ref.path}#${ref.hunk ?? '*'}`
+      const id = `hunk:${lineKey(ref)}`
       const test = looksLikeTest(ref.path)
       if (!nodes.has(id)) nodes.set(id, { id, kind: test ? 'test' : 'hunk', label: leaf(ref.path), level: depth, path: ref.path, ...(ref.hunk !== undefined ? { hunk: ref.hunk } : {}) })
       edge({ id: `owns:${node.id}>${id}`, source: node.id, target: id, relation: test ? 'tested-by' : 'owns' })

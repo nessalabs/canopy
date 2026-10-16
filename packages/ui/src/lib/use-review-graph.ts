@@ -1,28 +1,53 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 
-import { presetSpec, type AgentProvider, type DiffSpec, type GraphPatch, type GraphPreset, type GraphRecord, type GraphScope, type Worktree } from '@canopy/shared'
+import { presetSpec, type AgentProvider, type DiffSpec, type GraphPatch, type GraphPreset, type GraphRecord, type GraphScope, type ReviewGraph, type Worktree } from '@canopy/shared'
 
 import { useApi } from '../providers/api'
 import { useGraphs, useTranscript } from './api-hooks'
 import { sameSession } from './git-agent'
 import { readStored, writeStored } from './local-store'
 import { keys } from './query-keys'
-import { latestGraph, pickGraph, scopeLabel } from './review-graph'
+import { latestGraph, pickGraph, reviewedKey as refsKeyOf, scopeLabel } from './review-graph'
 import type { GitAgent } from './use-git-agent'
 
 /** The graph last on screen, per worktree, so a reload comes back to it. */
 const pickedKey = (worktreeId: string): string => `canopy-graph:${worktreeId}`
-/** Ticks, kept by the hunks they cover. Groups kept them under the same keys, so a review in progress carries over. */
+/** Ticks, kept by the graph they were made in and the hunks they cover. */
 const reviewedKey = (worktreeId: string): string => `canopy-graph-reviewed:${worktreeId}`
 const oldReviewedKey = (worktreeId: string): string => `canopy-groups-reviewed:${worktreeId}`
+/** A path never holds a NUL, so it parts a tick's graph from its hunks. */
+const TICK = '\u0000'
+const tickOf = (graphId: string, refsKey: string): string => `${graphId}${TICK}${refsKey}`
+
+/**
+ * Ticks from before they were kept per graph — the Groups pane's, and the first Graph pane's —
+ * name hunks alone, so a tick in one graph showed in every graph that shared a hunk. Each is
+ * handed to the graphs it ticks a node of (a converted grouping keeps its review) and then let go.
+ */
+export function adoptTicks(ticks: readonly string[], graphs: readonly Pick<GraphRecord, 'id' | 'result'>[]): string[] {
+  const kept = ticks.filter((tick) => tick.includes(TICK))
+  const loose = new Set(ticks.filter((tick) => !tick.includes(TICK)))
+  if (loose.size === 0) return [...ticks]
+  const adopted = graphs.flatMap((graph) => (graph.result?.nodes ?? []).map((node) => refsKeyOf(node.refs)).filter((key) => loose.has(key)).map((key) => tickOf(graph.id, key)))
+  return [...new Set([...kept, ...adopted])]
+}
+
+/** The same graph object for as long as its content is the same, so a re-read answer does not look new. */
+function useSameGraph(graph: ReviewGraph | undefined): ReviewGraph | undefined {
+  const held = useRef<{ json: string; graph: ReviewGraph } | undefined>(undefined)
+  if (!graph) return undefined
+  const json = JSON.stringify(graph)
+  if (held.current?.json !== json) held.current = { json, graph }
+  return held.current.graph
+}
 
 /**
  * One worktree's Graph pane state. The daemon keeps every graph made of the worktree's change —
  * of any scope, about anything — each pinned to the trees it was cut from, so they survive a
  * commit and several can sit side by side. Each runs as a Git Agent conversation in a tab of its
  * own: the pane sends it a brief, follows the picked graph's answers, and keeps the newest one — so
- * "merge 3 and 4" in that chat redraws the pane. Ticks are kept per worktree.
+ * "merge 3 and 4" in that chat redraws the pane. Ticks are kept per graph.
  */
 export function useReviewGraph(worktree: Worktree, agent: GitAgent) {
   const api = useApi()
@@ -101,8 +126,13 @@ export function useReviewGraph(worktree: Worktree, agent: GitAgent) {
   }
 
   const remove = async (id: string): Promise<void> => {
-    await api.deleteGraph(worktree.id, id)
-    store((current) => current.filter((candidate) => candidate.id !== id))
+    setError(undefined)
+    try {
+      await api.deleteGraph(worktree.id, id)
+      store((current) => current.filter((candidate) => candidate.id !== id))
+    } catch (failure) {
+      setError(failure)
+    }
   }
 
   const tab = graph ? agent.tabs.find((candidate) => candidate.id === started[graph.id] || sameSession(candidate.session, graph.session)) : undefined
@@ -117,19 +147,36 @@ export function useReviewGraph(worktree: Worktree, agent: GitAgent) {
       ? () => agent.show(session)
       : undefined
 
-  const [reviewed, setReviewed] = useState(() => new Set(readStored<string[]>(reviewedKey(worktree.id)) ?? readStored<string[]>(oldReviewedKey(worktree.id)) ?? []))
+  const [ticks, setTicks] = useState(() => new Set(readStored<string[]>(reviewedKey(worktree.id)) ?? readStored<string[]>(oldReviewedKey(worktree.id)) ?? []))
+  // Ticks from before they were kept per graph go to the graphs they tick, once the graphs are in.
+  useEffect(() => {
+    if (!listed.data || ![...ticks].some((tick) => !tick.includes(TICK))) return
+    const next = new Set(adoptTicks([...ticks], listed.data))
+    writeStored(reviewedKey(worktree.id), [...next])
+    setTicks(next)
+  }, [listed.data, ticks, worktree.id])
+  const graphId = graph?.id
+  // The picked graph's ticks, by the hunks they cover: what the views compare a node against.
+  const reviewed = useMemo(() => {
+    const prefix = graphId === undefined ? undefined : tickOf(graphId, '')
+    return new Set(prefix === undefined ? [] : [...ticks].filter((tick) => tick.startsWith(prefix)).map((tick) => tick.slice(prefix.length)))
+  }, [ticks, graphId])
   const setReviewedOne = useCallback(
-    (refsKey: string, on: boolean) =>
-      setReviewed((current) => {
-        if (current.has(refsKey) === on) return current
+    (refsKey: string, on: boolean) => {
+      if (graphId === undefined) return
+      const tick = tickOf(graphId, refsKey)
+      setTicks((current) => {
+        if (current.has(tick) === on) return current
         const next = new Set(current)
-        if (on) next.add(refsKey)
-        else next.delete(refsKey)
+        if (on) next.add(tick)
+        else next.delete(tick)
         writeStored(reviewedKey(worktree.id), [...next])
         return next
-      }),
-    [worktree.id]
+      })
+    },
+    [worktree.id, graphId]
   )
+  const result = useSameGraph(latest ?? graph?.result)
 
   const [before, after] = [graph?.before, graph?.after]
   const spec = useMemo<DiffSpec | undefined>(() => (before && after ? { kind: 'trees', before, after } : undefined), [before, after])
@@ -138,7 +185,8 @@ export function useReviewGraph(worktree: Worktree, agent: GitAgent) {
     record: graph,
     pick,
     remove,
-    result: latest ?? graph?.result,
+    /** The picked graph's newest answer; the same object until its content changes. */
+    result,
     /** The trees the picked graph was cut from: its hunks read from here, committed or not. */
     spec,
     providers: agent.providers,

@@ -98,6 +98,26 @@ describe('graph brief route', () => {
     expect((await start({ scope: { kind: 'commits', from: shas[3], to: shas[1] } })).status).toBe(400)
   })
 
+  it('cuts a run with a merge along first parents, and only between its own endpoints', async () => {
+    // main: init → m1 → merge(side); side: init → s1.
+    await repo.git('checkout', '-q', '-b', 'side')
+    const s1 = await repo.commit({ 'b.txt': 'side\n' }, 'side work')
+    await repo.git('checkout', '-q', 'main')
+    const m1 = await repo.commit({ 'a.txt': 'main\n' }, 'main work')
+    await repo.git('merge', '-q', '--no-ff', '-m', 'merge side', 'side')
+    const merge = (await repo.git('rev-parse', 'HEAD')).trim()
+
+    const res = await start({ scope: { kind: 'commits', from: m1, to: merge } })
+    expect(res.status).toBe(201)
+    expect(res.body.prompt).toContain(`${m1.slice(0, 10)} main work`)
+    expect(res.body.prompt).toContain('merge side')
+    expect(res.body.prompt).not.toContain('side work')
+    // The diff runs from m1's parent to the merge: both files' changes, nothing before init.
+    expect(Object.values(res.body.graph.ids).map((ref) => (ref as HunkRef).path).sort()).toEqual(['a.txt', 'b.txt'])
+    // A side-branch commit is not on the merge's first-parent line, so it cannot start a run to it.
+    expect((await start({ scope: { kind: 'commits', from: s1, to: merge } })).status).toBe(400)
+  })
+
   it('keeps every graph, and its hunks still read once the change is committed', async () => {
     repo.write({ 'a.txt': 'a changed\n' })
     const first = (await start({ scope: { kind: 'uncommitted' } })).body.graph

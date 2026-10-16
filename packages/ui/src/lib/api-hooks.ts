@@ -88,7 +88,7 @@ export const useWorktree = (id: string) => {
 /** Staging mutations are keyed on this so the poll can stand aside while one is in flight. */
 const stageKey = (worktreeId: string) => ['stage', worktreeId] as const
 
-export const useDiffFiles = (worktreeId: string, spec: DiffSpec) => {
+export const useDiffFiles = (worktreeId: string, spec: DiffSpec, enabled = true) => {
   const api = useApi()
   // A poll that started before a checkbox was clicked can land after it and undo the optimistic
   // flip, so the interval pauses while a stage request is outstanding.
@@ -98,6 +98,7 @@ export const useDiffFiles = (worktreeId: string, spec: DiffSpec) => {
   return useQuery({
     queryKey: keys.diffFiles(worktreeId, spec),
     queryFn: () => api.diffFiles(worktreeId, spec),
+    enabled,
     refetchInterval: spec.kind === 'worktree' && staging === 0 ? (watch ? WATCHED_POLL_MS : POLL_MS) : false
   })
 }

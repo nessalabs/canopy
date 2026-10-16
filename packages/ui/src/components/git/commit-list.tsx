@@ -23,7 +23,7 @@ export function CommitList({
   selected?: string
   /** `extend` when shift was held: the click stretches a run of commits from the selected one. */
   onSelect: (sha: string, extend: boolean) => void
-  /** Commits in the picked run, drawn as picked. */
+  /** Commits in the picked run, drawn as picked. Given only by a caller that picks runs; without it there are no checkboxes. */
   marked?: ReadonlySet<string>
   hasMore: boolean
   loadingMore: boolean
@@ -38,18 +38,20 @@ export function CommitList({
             className={cn('flex items-start border-b border-border/60 transition-colors hover:bg-accent/50', (commit.sha === selected || marked?.has(commit.sha)) && 'bg-accent')}
           >
             {/* Ticked for every commit in the picked run, or the one selected when there is no run; a tick stretches the run to it, as shift-click does. */}
-            <Checkbox
-              checked={marked && marked.size > 0 ? marked.has(commit.sha) : commit.sha === selected}
-              onChange={() => onSelect(commit.sha, true)}
-              aria-label={`Pick ${commit.shortSha} for a run of commits`}
-              title="Pick a run of commits from the selected one (or shift-click)"
-              className="mt-2.5 ml-3 size-3.5 shrink-0"
-            />
+            {marked ? (
+              <Checkbox
+                checked={marked.size > 0 ? marked.has(commit.sha) : commit.sha === selected}
+                onChange={() => onSelect(commit.sha, true)}
+                aria-label={`Pick ${commit.shortSha} for a run of commits`}
+                title="Pick a run of commits from the selected one (or shift-click)"
+                className="mt-2.5 ml-3 size-3.5 shrink-0"
+              />
+            ) : null}
             <button
               type="button"
               role="option"
               aria-selected={commit.sha === selected || marked?.has(commit.sha)}
-              className="flex min-w-0 flex-1 items-start gap-2.5 py-2 pr-3 pl-2.5 text-left"
+              className={cn('flex min-w-0 flex-1 items-start gap-2.5 py-2 pr-3 text-left', marked ? 'pl-2.5' : 'pl-3')}
               onClick={(event) => onSelect(commit.sha, event.shiftKey)}
             >
               <RandomAvatar seed={commit.email} name={commit.author} className="mt-0.5 size-6 shrink-0 rounded-full" />

@@ -56,8 +56,21 @@ describe('resolveGraph', () => {
       ]),
       ids
     )
-    expect(graph.nodes.map((n) => n.title)).toEqual(['A', 'B', 'Group', 'Leaf'])
+    // The loop closes on B's link back to A, so that link goes and A stays inside B.
+    expect(graph.nodes.map((n) => [n.id, n.title])).toEqual([['1', 'B'], ['1.1', 'A'], ['2', 'Group'], ['2.1', 'Leaf']])
     expect(graph.edges.filter((e) => e.kind === 'contains')).toHaveLength(2)
+  })
+
+  it('cuts a parent loop where it closes, not at a node that only leads into it', () => {
+    const graph = resolveGraph(
+      reply([
+        { ref: 'a', title: 'A', parent: 'b', ids: ['h1'] },
+        { ref: 'b', title: 'B', parent: 'c', ids: ['h2'] },
+        { ref: 'c', title: 'C', parent: 'b', ids: ['h3', 'f4'] }
+      ]),
+      ids
+    )
+    expect(graph.nodes.map((n) => [n.id, n.title])).toEqual([['1', 'C'], ['1.1', 'B'], ['1.1.1', 'A']])
   })
 
   it('keeps sideways edges by ref or place once, defaulting the kind, and drops nesting repeats', () => {
