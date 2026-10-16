@@ -11,7 +11,9 @@
  *
  * 4 catches what the patch questions cannot: a rebase-merge onto a base that moved since the
  * branch was cut rewrites a commit's surrounding lines, so its patch-id no longer matches
- * although every line it adds is there (PR #54, 2026-10-15).
+ * although every line it adds is there (PR #54, 2026-10-15). It is asked of the base tip and
+ * of each base commit carrying the branch tip's subject — where a rebase-merge put it — since a
+ * base that kept moving and edited the same lines makes the merge into its tip conflict.
  *
  * 2 to 4 cost a patch-id for every base commit since the merge base, so the answer is cached
  * per (HEAD, base tips): a worktree nobody commits to and a base nobody moves is one cheap
@@ -24,7 +26,7 @@ const MAX_BEHIND_FOR_PATCH_CHECK = 1000
 /** Keyed by shas, so entries die of irrelevance rather than age; a bound keeps it a cache. */
 const MAX_ENTRIES = 500
 
-type MergedRepo = Pick<Repo, 'refTips' | 'refsContaining' | 'cherryApplied' | 'commitTree' | 'mergeBase' | 'mergeChangesNothing'>
+type MergedRepo = Pick<Repo, 'refTips' | 'refsContaining' | 'cherryApplied' | 'commitTree' | 'mergeBase' | 'mergeChangesNothing' | 'sameSubject'>
 
 export interface MergedQuery {
   cwd: string
@@ -79,6 +81,9 @@ export class MergedDetector {
       const probe = await this.repo.commitTree(cwd, `${head}^{tree}`, mergeBase, 'canopy merged probe')
       if (await this.repo.cherryApplied(cwd, sha, probe)) return true
       if (await this.repo.mergeChangesNothing(cwd, sha, head)) return true
+      for (const landed of await this.repo.sameSubject(cwd, `${mergeBase}..${sha}`, head)) {
+        if (await this.repo.mergeChangesNothing(cwd, landed, head)) return true
+      }
     }
     return false
   }

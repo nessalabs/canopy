@@ -218,6 +218,10 @@ describe('worktrees', () => {
       // GitHub's rebase-merge: the commit replayed on the new base, same lines added, new context.
       await repo.git('cherry-pick', 'feat/rebased')
       expect(await mergedOf(wt.id)).toBe(true)
+      // Later work on the base edits the same line, so merging the branch into the tip conflicts;
+      // the commit where it landed still says merged.
+      await repo.commit({ 'f.txt': lines([1, 'main'], [3, 'later']) }, 'later edit')
+      expect(await mergedOf(wt.id)).toBe(true)
     })
 
     it('counts a branch that only origin/main has as merged', async () => {
