@@ -10,12 +10,13 @@ describe('codexModels', () => {
           id: 'gpt-5.3-codex',
           displayName: 'GPT-5.3 Codex',
           description: 'Coding',
-          supportedReasoningEfforts: [{ reasoningEffort: 'minimal' }, { reasoningEffort: 'low' }, { reasoningEffort: 'xhigh' }]
+          supportedReasoningEfforts: [{ reasoningEffort: 'minimal' }, { reasoningEffort: 'low' }, { reasoningEffort: 'max' }, { reasoningEffort: 'ultra' }]
         },
-        { id: 'bare' }
+        { id: 'bare' },
+        { id: 'internal', hidden: true }
       ])
     ).toEqual([
-      { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', description: 'Coding', effortLevels: ['low', 'xhigh'] },
+      { id: 'gpt-5.3-codex', label: 'GPT-5.3 Codex', description: 'Coding', effortLevels: ['low', 'max'] },
       { id: 'bare', label: 'bare', description: undefined, effortLevels: [] }
     ])
   })
