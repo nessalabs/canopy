@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Download, GitMerge, GitPullRequestDraft, MessageSquareText, MoreHorizontal, RotateCw, Send, Upload, Users } from 'lucide-react'
 
-import type { ChangedFile, DiffSpec, PullRequest, PullRequestAction, PullRequestResponse, ReviewComment, Worktree } from '@canopy/shared'
+import type { ChangedFile, DiffSpec, GitHubThread, PullRequest, PullRequestAction, PullRequestResponse, ReviewComment, Worktree } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
@@ -12,20 +12,21 @@ import { Input } from '@/components/ui/input'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useCommitAllAndPush, useDiffFiles, useFetchPullRequest, usePullRequestAction, usePushBranch } from '@/lib/api-hooks'
+import { useCommitAllAndPush, useDiffFiles, useFetchPullRequest, usePullRequestAction, usePullRequestThreads, usePushBranch } from '@/lib/api-hooks'
 import { useDraftJob } from '@/lib/draft-jobs'
 import { absoluteTime, plural, relativeTime } from '@/lib/format'
+import { groupBy } from '@/lib/group'
 import { cn } from '@/lib/utils'
 
 import { CommitDetail } from '../commit-detail'
 import { CommitList } from '../commit-list'
 import { DiffExplorer, type ExplorerFocus } from '../diff-explorer'
 import { DraftButton } from '../draft-button'
-import { SendToAgentButton } from '../send-to-agent'
+import { AskAgentButton, SendToAgentButton } from '../send-to-agent'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
 import { SidePicker } from './pickers'
 import { CHECK_ICON, Empty, GitHubAvatar, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
-import { eventAsNote } from './threads'
+import { ThreadRow, eventAsNote, threadAsNote } from './threads'
 
 type View = 'overview' | 'commits' | 'files'
 
@@ -377,7 +378,7 @@ function Overview({ worktreeId, pr, host, onRun, running }: { worktreeId: string
         <div className="flex min-w-0 flex-col gap-5">
           <section className="rounded-lg border border-border p-4">{pr.body.trim() ? <Markdown>{pr.body}</Markdown> : <p className="text-sm text-muted-foreground italic">No description.</p>}</section>
 
-          <Conversation pr={pr} host={host} />
+          <Conversation worktreeId={worktreeId} pr={pr} host={host} />
           <section className="flex flex-col gap-2 rounded-lg border border-border p-3">
             <div className="flex items-center gap-2">
               <h4 className="flex-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
@@ -423,12 +424,19 @@ function Overview({ worktreeId, pr, host, onRun, running }: { worktreeId: string
   )
 }
 
-function Conversation({ pr, host }: { pr: PullRequest; host: string | null }): React.JSX.Element | null {
-  if (pr.events.length === 0) return null
+/**
+ * Comments and reviews in time order, each review with the line comments it was posted with, as
+ * GitHub's conversation shows them. A review with neither a body nor threads at hand is left out.
+ */
+function Conversation({ worktreeId, pr, host }: { worktreeId: string; pr: PullRequest; host: string | null }): React.JSX.Element | null {
+  const threads = usePullRequestThreads(worktreeId, true).data?.threads
+  const byReview = useMemo(() => groupBy((threads ?? []).filter((thread) => thread.reviewId), (thread) => thread.reviewId!), [threads])
+  const events = pr.events.filter((event) => event.body.trim() || event.verdict !== 'COMMENTED' || (event.id && byReview.has(event.id)))
+  if (events.length === 0) return null
   return (
     <section className="flex flex-col gap-3">
       <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Conversation</h4>
-      {pr.events.map((event, index) => (
+      {events.map((event, index) => (
         <article key={`${event.at}:${index}`} className="flex gap-3">
           <GitHubAvatar login={event.author} host={host} className="mt-0.5 size-6 shrink-0 rounded-full" />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -448,10 +456,33 @@ function Conversation({ pr, host }: { pr: PullRequest; host: string | null }): R
                 <Markdown>{event.body}</Markdown>
               </div>
             ) : null}
+            {event.id && byReview.has(event.id) ? <ReviewThreads threads={byReview.get(event.id)!} host={host} /> : null}
           </div>
         </article>
       ))}
     </section>
+  )
+}
+
+/** The line comments a review was posted with, and one button to hand the open ones to an agent. */
+function ReviewThreads({ threads, host }: { threads: GitHubThread[]; host: string | null }): React.JSX.Element {
+  const open = threads.filter((thread) => !thread.resolved)
+  return (
+    <div className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-1 rounded-lg border border-border py-1">
+        {threads.map((thread) => (
+          <ThreadRow key={thread.id} thread={thread} host={host} showFile />
+        ))}
+      </ul>
+      {open.length ? (
+        <AskAgentButton
+          className="self-start"
+          notes={() => open.map(threadAsNote)}
+          label={open.length === 1 ? 'Ask an agent to address this' : `Ask an agent to address these ${open.length}`}
+          hint={`Hand ${plural(open.length, 'open comment')} from this review to an agent to fix`}
+        />
+      ) : null}
+    </div>
   )
 }
 

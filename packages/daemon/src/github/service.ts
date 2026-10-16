@@ -178,7 +178,7 @@ type RawPr = {
   reviewDecision?: string
   mergeable?: string
   statusCheckRollup?: RawCheck[]
-  reviews?: Array<{ author?: { login?: string }; body?: string; state?: string; submittedAt?: string }>
+  reviews?: Array<{ id?: string; author?: { login?: string }; body?: string; state?: string; submittedAt?: string }>
   comments?: Array<{ author?: { login?: string }; body?: string; createdAt?: string; isMinimized?: boolean }>
   assignees?: Array<{ login: string; name?: string }>
   reviewRequests?: Array<{ __typename?: string; login?: string; slug?: string; name?: string }>
@@ -216,9 +216,9 @@ const when = (value: string | null | undefined): string | null => (value && !val
 export function toPullRequest(raw: RawPr): PullRequest {
   const reviews: PullRequestEvent[] = (raw.reviews ?? [])
     // A review with no body and a plain COMMENTED verdict is the wrapper GitHub puts around inline
-    // comments; the pane does not show those, and an empty card says nothing.
-    .filter((review) => (review.body ?? '').trim().length > 0 || review.state !== 'COMMENTED')
-    .map((review) => ({ kind: 'review', author: review.author?.login ?? 'ghost', body: review.body ?? '', verdict: review.state ?? null, at: review.submittedAt ?? raw.createdAt }))
+    // comments. It is kept: the conversation shows it when its threads are at hand, and drops it
+    // otherwise, since an empty card says nothing.
+    .map((review) => ({ kind: 'review', ...(review.id ? { id: review.id } : {}), author: review.author?.login ?? 'ghost', body: review.body ?? '', verdict: review.state ?? null, at: review.submittedAt ?? raw.createdAt }))
   const comments: PullRequestEvent[] = (raw.comments ?? [])
     .filter((comment) => !comment.isMinimized)
     .map((comment) => ({ kind: 'comment', author: comment.author?.login ?? 'ghost', body: comment.body ?? '', verdict: null, at: comment.createdAt ?? raw.createdAt }))
@@ -460,7 +460,7 @@ export class GitHubService {
     if (held && this.now() - held.at < PR_TTL_MS) return held.response
     const [owner, name] = gh.repo.split('/') as [string, string]
     const query =
-      'query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ pullRequest(number:$n){ reviewThreads(first:100){ nodes{ id isResolved isOutdated path line originalLine diffSide comments(first:50){ nodes{ databaseId author{login} body createdAt url } } } } } } }'
+      'query($o:String!,$r:String!,$n:Int!){ repository(owner:$o,name:$r){ pullRequest(number:$n){ reviewThreads(first:100){ nodes{ id isResolved isOutdated path line originalLine diffSide comments(first:50){ nodes{ databaseId author{login} body createdAt url diffHunk pullRequestReview{id} } } } } } } }'
     const run = await this.deps.gh(path, ['api', 'graphql', '-f', `query=${query}`, '-f', `o=${owner}`, '-f', `r=${name}`, '-F', `n=${pr.number}`])
     if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', githubMessage(run.stderr) ?? `gh api graphql exited with ${run.exitCode}`)
     const raw = JSON.parse(run.stdout || '{}') as {
@@ -476,7 +476,7 @@ export class GitHubService {
                 line?: number | null
                 originalLine?: number | null
                 diffSide?: string
-                comments?: { nodes?: Array<{ databaseId?: number | string; author?: { login?: string } | null; body?: string; createdAt?: string; url?: string }> }
+                comments?: { nodes?: Array<{ databaseId?: number | string; author?: { login?: string } | null; body?: string; createdAt?: string; url?: string; diffHunk?: string; pullRequestReview?: { id?: string } | null }> }
               }>
             }
           }
@@ -491,6 +491,8 @@ export class GitHubService {
       side: thread.diffSide === 'LEFT' ? 'old' : 'new',
       resolved: thread.isResolved ?? false,
       outdated: thread.isOutdated ?? false,
+      ...(thread.comments?.nodes?.[0]?.pullRequestReview?.id ? { reviewId: thread.comments.nodes[0].pullRequestReview.id } : {}),
+      ...(thread.comments?.nodes?.[0]?.diffHunk ? { hunk: thread.comments.nodes[0].diffHunk } : {}),
       comments: (thread.comments?.nodes ?? []).map((comment) => ({
         id: String(comment.databaseId ?? ''),
         author: comment.author?.login ?? 'ghost',

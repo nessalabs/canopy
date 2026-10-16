@@ -39,6 +39,8 @@ export type PullRequestCheck = z.infer<typeof PullRequestCheck>
 /** A review verdict or a conversation comment; the tab shows them as one timeline. */
 export const PullRequestEvent = z.object({
   kind: z.enum(['review', 'comment']),
+  /** A review's GitHub node id, which its line comments' threads point back to. */
+  id: z.string().optional(),
   author: z.string(),
   body: z.string(),
   /** Review verdict (APPROVED, CHANGES_REQUESTED, COMMENTED, …); null for comments. */
@@ -243,6 +245,10 @@ export const GitHubThread = z.object({
   side: z.enum(['old', 'new']),
   resolved: z.boolean(),
   outdated: z.boolean(),
+  /** The review the thread was opened in, as `PullRequestEvent.id`. */
+  reviewId: z.string().optional(),
+  /** GitHub's diff hunk ending at the commented line (with its `@@` header), for showing the code in place. */
+  hunk: z.string().optional(),
   comments: z.array(GitHubThreadComment)
 })
 export type GitHubThread = z.infer<typeof GitHubThread>
