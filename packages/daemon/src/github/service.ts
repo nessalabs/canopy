@@ -7,7 +7,7 @@
  * each pay for `gh auth status` (which goes to the network). A failed check is never remembered,
  * so "Check again" after installing or signing in answers at once.
  */
-import type { CreatePullRequestInput, GhStatus, GitHubThread, MergeMethod, PullRequest, PullRequestAction, PullRequestActionResult, PullRequestOptions, PullRequestThreadsResponse, PullRequestCheck, PullRequestEvent, PullRequestResponse, PullRequestSummary, ProjectPullRequests, PushResult, UpstreamStatus } from '@canopy/shared'
+import type { CreatePullRequestInput, GhStatus, GitHubThread, MergeMethod, PullRequest, PullRequestAction, PullRequestActionResult, PullRequestOptions, PullRequestThreadsResponse, PullRequestCheck, PullRequestChoice, PullRequestChoices, PullRequestEvent, PullRequestResponse, PullRequestSummary, ProjectPullRequests, PushResult, UpstreamStatus } from '@canopy/shared'
 
 import type { GitRunner } from '../git/exec'
 import type { ReviewService } from '../review/service'
@@ -33,6 +33,11 @@ const LIST_TTL_MS = 30_000
 /** Recent PRs enough to cover the branches anyone still has a worktree for. */
 const LIST_LIMIT = 100
 const SUMMARY_FIELDS = 'number,title,url,state,isDraft,headRefName,baseRefName,reviewDecision,statusCheckRollup,updatedAt,isCrossRepository'
+
+/** A picker's row: the summary, its head (to tell a graph of it is old) and who opened it. */
+const CHOICE_FIELDS = `${SUMMARY_FIELDS},headRefOid,author`
+/** A branch rarely has more than a PR or two of its own; past this they are long closed. */
+const CHOICE_LIMIT = 10
 
 /** Every field the pane shows, in one `gh pr list` call. */
 const PR_FIELDS = [
@@ -292,20 +297,36 @@ export function toSummaries(raw: Array<RawPr & { isCrossRepository?: boolean }>)
   for (const pr of raw) {
     if (pr.isCrossRepository || seen.has(pr.headRefName)) continue
     seen.add(pr.headRefName)
-    out.push({
-      number: pr.number,
-      title: pr.title,
-      url: pr.url,
-      state: pr.state,
-      draft: pr.isDraft ?? false,
-      headBranch: pr.headRefName,
-      baseBranch: pr.baseRefName,
-      reviewDecision: pr.reviewDecision || null,
-      checks: checksVerdict(pr.statusCheckRollup),
-      updatedAt: pr.updatedAt
-    })
+    out.push(toSummary(pr))
   }
   return out
+}
+
+function toSummary(pr: RawPr): PullRequestSummary {
+  return {
+    number: pr.number,
+    title: pr.title,
+    url: pr.url,
+    state: pr.state,
+    draft: pr.isDraft ?? false,
+    headBranch: pr.headRefName,
+    baseBranch: pr.baseRefName,
+    reviewDecision: pr.reviewDecision || null,
+    checks: checksVerdict(pr.statusCheckRollup),
+    updatedAt: pr.updatedAt
+  }
+}
+
+/**
+ * The PRs a branch can be reviewed against: its own (a fork's PR that happens to share the
+ * branch's name is not one of them), then the ones into it, a fork's included — whoever opened
+ * it, it asks to change this branch. A PR in both lists (a branch into itself) is kept once.
+ */
+export function toChoices(own: Array<RawPr & { isCrossRepository?: boolean }>, incoming: RawPr[]): PullRequestChoice[] {
+  const choice = (pr: RawPr, into: boolean): PullRequestChoice => ({ ...toSummary(pr), headSha: pr.headRefOid ?? '', incoming: into, author: pr.author?.login ?? 'ghost' })
+  const mine = own.filter((pr) => !pr.isCrossRepository).map((pr) => choice(pr, false))
+  const seen = new Set(mine.map((pr) => pr.number))
+  return [...mine, ...incoming.filter((pr) => !seen.has(pr.number)).map((pr) => choice(pr, true))]
 }
 
 /** `feat/add-pr-tab` → "Add pr tab": a starting point for a PR opened from several commits. */
@@ -614,6 +635,52 @@ export class GitHubService {
     const remoteDefault = head.trim().startsWith(prefix) ? head.trim().slice(prefix.length) : null
     const suggestedBase = [baseBranch, remoteDefault, 'main', 'master'].find((name): name is string => !!name && names.includes(name)) ?? names[0] ?? null
     return { bases: names, suggestedBase }
+  }
+
+  /** The PRs out of and into the worktree's branch, newest first in each, for picking one to review. */
+  async prChoices(worktreeId: string): Promise<PullRequestChoices> {
+    const { path } = this.deps.worktrees.location(worktreeId)
+    const branch = await this.branchOf(path)
+    const { remote: _remote, ...gh } = await this.status(path, branch)
+    if (!branch || gh.state !== 'ready') return { gh, branch, prs: [] }
+    const list = async (args: string[]): Promise<Array<RawPr & { isCrossRepository?: boolean }>> => {
+      const run = await this.deps.gh(path, ['pr', 'list', ...args, '--json', CHOICE_FIELDS])
+      if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', firstLine(run.stderr) ?? `gh pr list exited with ${run.exitCode}`)
+      return JSON.parse(run.stdout || '[]')
+    }
+    const [own, incoming] = await Promise.all([
+      list(['--head', branch, '--state', 'all', '--limit', String(CHOICE_LIMIT)]),
+      list(['--base', branch, '--state', 'open', '--limit', String(LIST_LIMIT)])
+    ])
+    return { gh, branch, prs: toChoices(own, incoming) }
+  }
+
+  /**
+   * One PR by number, whichever branch it comes from or goes to, with its head fetched
+   * (`refs/pull/N/head`, so a fork's works too) and its target's remote branch brought up to date
+   * when either is missing here, so `filesRange` can be worked out as GitHub does.
+   */
+  async pullRequest(worktreeId: string, number: number): Promise<PullRequest> {
+    const { path } = this.deps.worktrees.location(worktreeId)
+    const branch = await this.branchOf(path)
+    const gh = await this.status(path, branch)
+    if (gh.state !== 'ready') throw conflict(`gh_${gh.state.replace('-', '_')}`, 'GitHub is not reachable through gh for this worktree')
+    const run = await this.deps.gh(path, ['pr', 'view', String(number), '--json', PR_FIELDS])
+    if (run.exitCode !== 0) throw new ApiError(502, 'gh_failed', firstLine(run.stderr) ?? `gh pr view exited with ${run.exitCode}`)
+    const pr = toPullRequest(JSON.parse(run.stdout || '{}') as RawPr)
+    const remote = gh.remote
+    if (remote) {
+      const target = `refs/remotes/${remote}/${pr.baseBranch}`
+      const [headMissing, hasTarget] = await Promise.all([
+        pr.headSha ? this.missing(path, [pr.headSha]).then((gone) => gone.length > 0) : Promise.resolve(false),
+        this.deps.git(path, ['rev-parse', '--verify', '-q', target], { okCodes: [0, 1] }).then((out) => out.trim() !== '')
+      ])
+      const wanted = [...(headMissing ? [`refs/pull/${pr.number}/head`] : []), ...(hasTarget ? [] : [`+refs/heads/${pr.baseBranch}:${target}`])]
+      if (wanted.length > 0) await this.deps.git(path, ['fetch', '--no-tags', '--no-write-fetch-head', remote, ...wanted], { env: NO_PROMPT, timeout: PUSH_TIMEOUT_MS })
+    }
+    const missingCommits = await this.missing(path, pr.commitLog.map((commit) => commit.sha))
+    const headHere = pr.headSha !== '' && (await this.missing(path, [pr.headSha])).length === 0
+    return { ...pr, missingCommits, filesRange: headHere ? await this.range(path, remote, pr.baseBranch, pr.headSha) : null }
   }
 
   async read(worktreeId: string, { fresh = false } = {}): Promise<PullRequestResponse> {

@@ -177,7 +177,7 @@ export function scopeLabel(scope: GraphScope): string {
     case 'commits':
       return scope.from === scope.to ? `Commit ${scope.from.slice(0, 7)}` : `Commits ${scope.from.slice(0, 7)}…${scope.to.slice(0, 7)}`
     case 'pull-request':
-      return 'Pull request'
+      return scope.number !== undefined ? `PR #${scope.number}` : 'Pull request'
   }
 }
 
@@ -194,6 +194,7 @@ export const pickGraph = <T extends Pick<GraphRecord, 'id'>>(records: T[], picke
  * the PR. A run of commits never moves.
  */
 export function isStale(record: Pick<GraphRecord, 'scope' | 'headSha'>, result: Pick<ReviewGraph, 'fingerprint'>, live: { files?: ChangedFile[]; prHead?: string }): boolean {
+  // `prHead` is the head of the PR this graph is of — the branch's own, or the one it numbers.
   switch (record.scope.kind) {
     case 'uncommitted':
     case 'branch':

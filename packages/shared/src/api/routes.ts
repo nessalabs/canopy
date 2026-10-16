@@ -72,6 +72,8 @@ export const routes = {
   pullRequestOptions: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/options`,
   /** The PR's inline review threads from GitHub. */
   pullRequestThreads: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/threads`,
+  /** PRs out of and into the worktree's branch, for picking which one to review. */
+  pullRequestChoices: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/choices`,
   pullRequestFetch: (id: string) => `${API_PREFIX}/worktrees/${id}/pull-request/fetch`,
   push: (id: string) => `${API_PREFIX}/worktrees/${id}/push`,
   /** The worktree's in-app terminals: GET lists them, POST starts a shell in the worktree. */

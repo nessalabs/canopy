@@ -694,6 +694,12 @@ const checksRunning = (data: PullRequestResponse | undefined): boolean => Boolea
  * The Pull request pane's read. Only mounted while the pane is open (Radix unmounts hidden
  * tabs), so nothing talks to GitHub for a worktree nobody is looking at.
  */
+/** PRs out of and into the worktree's branch, for the Graph's Pull request scope. */
+export const usePullRequestChoices = (worktreeId: string, enabled = true) => {
+  const api = useApi()
+  return useQuery({ queryKey: keys.pullRequestChoices(worktreeId), queryFn: () => api.pullRequestChoices(worktreeId), enabled, staleTime: 60_000 })
+}
+
 export const usePullRequest = (worktreeId: string, enabled = true) => {
   const api = useApi()
   return useQuery({

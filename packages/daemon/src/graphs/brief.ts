@@ -19,7 +19,7 @@ const MAX_COMMITS = 50
 
 export interface GraphDeps {
   history: Pick<HistoryService, 'snapshot' | 'pinned' | 'commitRange' | 'trees' | 'filePatch'>
-  github: Pick<GitHubService, 'read'>
+  github: Pick<GitHubService, 'read' | 'pullRequest'>
   store: Pick<GraphStore, 'add'>
 }
 
@@ -54,7 +54,7 @@ async function cut({ history, github }: GraphDeps, worktreeId: string, scope: Gr
       return history.commitRange(worktreeId, scope.from, scope.to)
     case 'pull-request': {
       // Read fresh: a graph pins the PR's head and range, and a cached answer may predate a push.
-      const { pr } = await github.read(worktreeId, { fresh: true })
+      const pr = scope.number !== undefined ? await github.pullRequest(worktreeId, scope.number) : (await github.read(worktreeId, { fresh: true })).pr
       if (!pr) throw badRequest('no_pull_request', 'this branch has no pull request')
       if (!pr.filesRange) throw badRequest('pull_request_not_local', 'this checkout lacks the pull request’s head or target; fetch first')
       // GitHub's two commits are pinned to their trees, so the graph reads after a force-push.

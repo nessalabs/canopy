@@ -138,6 +138,21 @@ export const ProjectPullRequests = z.object({
 })
 export type ProjectPullRequests = z.infer<typeof ProjectPullRequests>
 
+/**
+ * A PR a worktree can be reviewed against: one whose head is its branch (`incoming: false`), or
+ * one asking to merge into it (`incoming: true`) — the many PRs into `main`, from a main checkout.
+ */
+export const PullRequestChoice = PullRequestSummary.extend({ headSha: z.string(), incoming: z.boolean(), author: z.string() })
+export type PullRequestChoice = z.infer<typeof PullRequestChoice>
+
+export const PullRequestChoices = z.object({
+  gh: GhStatus,
+  branch: z.string().nullable(),
+  /** The branch's own PRs first, newest first, then the open PRs into it, newest first. */
+  prs: z.array(PullRequestChoice)
+})
+export type PullRequestChoices = z.infer<typeof PullRequestChoices>
+
 /** Where the local branch stands against the branch it pushes to. */
 export const UpstreamStatus = z.object({
   /** e.g. `origin/feat/x`; null when the branch has never been pushed. */

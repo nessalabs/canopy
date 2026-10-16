@@ -31,6 +31,7 @@ export const keys = {
   /** The repository's assignable users, labels and milestones, read when a sidebar picker opens. */
   pullRequestOptions: (worktreeId: string) => ['pull-request-options', worktreeId] as const,
   pullRequestThreads: (worktreeId: string) => ['pull-request-threads', worktreeId] as const,
+  pullRequestChoices: (worktreeId: string) => ['pull-request-choices', worktreeId] as const,
   sessions: (worktreeId: string) => ['agent-sessions', worktreeId] as const,
   /** The Git Agent's past conversations on a worktree, for its history. */
   gitAgentSessions: (worktreeId: string) => ['git-agent-sessions', worktreeId] as const,
