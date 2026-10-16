@@ -32,14 +32,14 @@ export function SendToAgentButton({ note, className }: { note: () => GitHubNote;
   )
 }
 
-/** A labelled button that hands several comments to an agent at once — a review's open threads. */
+/** A labelled button that hands several comments to an agent at once — a review and its open threads. */
 export function AskAgentButton({ notes, label, hint, className }: { notes: () => GitHubNote[]; label: string; hint: string; className?: string }): React.JSX.Element | null {
   const send = useContext(SendToAgent)
   if (!send) return null
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="outline" size="sm" className={cn('h-7 gap-1.5 text-xs', className)} onClick={() => send(notes())}>
+        <Button variant="outline" size="sm" className={cn('h-7 gap-1.5 text-xs text-foreground hover:border-primary/50 hover:text-primary', className)} onClick={() => send(notes())}>
           <Bot className="size-3.5" />
           {label}
         </Button>
