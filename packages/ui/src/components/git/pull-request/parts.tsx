@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CircleCheck, CircleDashed, CircleMinus, CircleX, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MessageSquare } from 'lucide-react'
 
-import type { PullRequest, PullRequestCheck, PullRequestReviewer, ReviewComment } from '@canopy/shared'
+import { htmlImagesToMarkdown, type PullRequest, type PullRequestCheck, type PullRequestReviewer, type ReviewComment } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
@@ -103,7 +103,7 @@ export function Markdown({ children }: { children: string }): React.JSX.Element 
   const open = useExternalLink()
   return (
     <MessageMarkdown
-      className="text-sm"
+      className="text-sm [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md"
       components={{
         a: ({ href, children: label }) => (
           <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2" onClick={href ? open(href) : undefined}>
@@ -112,7 +112,7 @@ export function Markdown({ children }: { children: string }): React.JSX.Element 
         )
       }}
     >
-      {children}
+      {htmlImagesToMarkdown(children)}
     </MessageMarkdown>
   )
 }

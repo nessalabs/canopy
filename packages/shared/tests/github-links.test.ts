@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { classifyGitHubLink, linkIssueRefs, repoUrlOf } from '../src/github-links'
+import { classifyGitHubLink, htmlImagesToMarkdown, linkIssueRefs, repoUrlOf } from '../src/github-links'
 
 const REPO = 'https://github.com/acme/app'
 
@@ -35,5 +35,18 @@ describe('linkIssueRefs', () => {
 describe('repoUrlOf', () => {
   it('reads the repository from an issue URL', () => {
     expect(repoUrlOf(`${REPO}/issues/249`)).toBe(REPO)
+  })
+})
+
+describe('htmlImagesToMarkdown', () => {
+  it('turns a pasted screenshot tag into a markdown image', () => {
+    const body = '<img width="980" height="641" alt="Image" src="https://github.com/user-attachments/assets/af52d625" />\nFor some reason'
+    expect(htmlImagesToMarkdown(body)).toBe('![Image](<https://github.com/user-attachments/assets/af52d625>)\nFor some reason')
+  })
+
+  it('takes single quotes, a missing alt, and leaves code and src-less tags alone', () => {
+    expect(htmlImagesToMarkdown("<IMG src='a.png'>")).toBe('![](<a.png>)')
+    expect(htmlImagesToMarkdown('`<img src="a.png">`')).toBe('`<img src="a.png">`')
+    expect(htmlImagesToMarkdown('<img alt="x">')).toBe('<img alt="x">')
   })
 })
