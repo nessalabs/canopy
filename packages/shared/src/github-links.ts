@@ -64,3 +64,23 @@ export function htmlImagesToMarkdown(markdown: string): string {
     )
     .join('')
 }
+
+/**
+ * GitHub's own HTML in a comment, as markdown the renderer shows: pasted `<img>` tags become
+ * images, and the `<details>`/`<summary>` folds review bots write become a bold summary line with
+ * the folded text under it (the blockquote and fold tags are dropped). Code is left alone.
+ */
+export function githubBodyToMarkdown(markdown: string): string {
+  return htmlImagesToMarkdown(markdown)
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : part
+            .replace(/<summary>\s*([\s\S]*?)\s*<\/summary>/gi, (_, text: string) => `\n\n**${text.replace(/\s+/g, ' ')}**\n\n`)
+            .replace(/<\/?(?:details|blockquote)\b[^>]*>/gi, '\n\n')
+            // Blank lines left around the dropped tags (some holding only spaces) close up to one.
+            .replace(/\n(?:[ \t]*\n)+/g, '\n\n')
+    )
+    .join('')
+}

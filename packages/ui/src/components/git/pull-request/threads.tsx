@@ -245,7 +245,7 @@ export function HunkTail({ hunk }: { hunk: string }): React.JSX.Element {
 }
 
 /** Review bots write screens of text; a reply shows its first few lines until asked for the rest. */
-function ClampedBody({ children }: { children: string }): React.JSX.Element {
+export function ClampedBody({ children }: { children: string }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [expanded, setExpanded] = useState(false)
   const [overflows, setOverflows] = useState(false)

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { classifyGitHubLink, htmlImagesToMarkdown, linkIssueRefs, repoUrlOf } from '../src/github-links'
+import { classifyGitHubLink, githubBodyToMarkdown, htmlImagesToMarkdown, linkIssueRefs, repoUrlOf } from '../src/github-links'
 
 const REPO = 'https://github.com/acme/app'
 
@@ -48,5 +48,13 @@ describe('htmlImagesToMarkdown', () => {
     expect(htmlImagesToMarkdown("<IMG src='a.png'>")).toBe('![](<a.png>)')
     expect(htmlImagesToMarkdown('`<img src="a.png">`')).toBe('`<img src="a.png">`')
     expect(htmlImagesToMarkdown('<img alt="x">')).toBe('<img alt="x">')
+  })
+})
+
+describe('githubBodyToMarkdown', () => {
+  it('unfolds review-bot details into bold summaries and keeps code', () => {
+    const body = '<details> <summary>🧹 Nitpick comments: 1</summary><blockquote> <details> <summary>a.ts: 1</summary><blockquote>\n\nFix it.\n\n</blockquote></details>\n\n</blockquote></details>\n`<details>`'
+    expect(githubBodyToMarkdown('para\n\n    indented code\n  \n\n  - nested')).toBe('para\n\n    indented code\n\n  - nested')
+    expect(githubBodyToMarkdown(body).replace(/^[ \n]+/, '').replace(/ +\n/g, '\n')).toBe('**🧹 Nitpick comments: 1**\n\n**a.ts: 1**\n\nFix it.\n\n`<details>`')
   })
 })

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { CircleCheck, CircleDashed, CircleMinus, CircleX, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, MessageSquare } from 'lucide-react'
 
-import { htmlImagesToMarkdown, type PullRequest, type PullRequestCheck, type PullRequestReviewer, type ReviewComment } from '@canopy/shared'
+import { githubBodyToMarkdown, type PullRequest, type PullRequestCheck, type PullRequestReviewer, type ReviewComment } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
 import { MessageMarkdown } from '@/components/ui/message-markdown'
@@ -112,7 +112,7 @@ export function Markdown({ children }: { children: string }): React.JSX.Element 
         )
       }}
     >
-      {htmlImagesToMarkdown(children)}
+      {githubBodyToMarkdown(children)}
     </MessageMarkdown>
   )
 }
