@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Download, GitMerge, GitPullRequestDraft, MessageSquareText, MoreHorizontal, RotateCw, Send, Upload, Users } from 'lucide-react'
+import { ChevronRight, Download, GitMerge, GitPullRequestDraft, MessageSquareText, MoreHorizontal, RotateCw, Send, Upload, Users } from 'lucide-react'
 
-import type { ChangedFile, DiffSpec, GitHubThread, PullRequest, PullRequestAction, PullRequestResponse, ReviewComment, Worktree } from '@canopy/shared'
+import type { ChangedFile, DiffSpec, GitHubThread, PullRequest, PullRequestEvent, PullRequestAction, PullRequestResponse, ReviewComment, Worktree } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
@@ -26,7 +26,7 @@ import { AskAgentButton, SendToAgentButton } from '../send-to-agent'
 import { MergePullRequestDialog, ReviewDialog, postableComments } from './dialogs'
 import { SidePicker } from './pickers'
 import { CHECK_ICON, Empty, GitHubAvatar, MERGE_STATE, Markdown, REVIEW_LABEL, REVIEWER_LOOK, TONE_CLASS, VERDICT_LABEL, at, checksSummary, stateLook, useExternalLink, type ReviewProps } from './parts'
-import { ThreadRow, eventAsNote, threadAsNote } from './threads'
+import { ClampedBody, ThreadRow, eventAsNote, threadAsNote } from './threads'
 
 type View = 'overview' | 'commits' | 'files'
 
@@ -437,30 +437,46 @@ function Conversation({ worktreeId, pr, host }: { worktreeId: string; pr: PullRe
     <section className="flex flex-col gap-3">
       <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Conversation</h4>
       {events.map((event, index) => (
-        <article key={`${event.at}:${index}`} className="flex gap-3">
-          <GitHubAvatar login={event.author} host={host} className="mt-0.5 size-6 shrink-0 rounded-full" />
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="font-medium text-foreground">{event.author}</span>
-              {event.verdict ? <span>{VERDICT_LABEL[event.verdict] ?? event.verdict.toLowerCase()}</span> : <span>commented</span>}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span>· {relativeTime(at(event.at))}</span>
-                </TooltipTrigger>
-                <TooltipContent>{absoluteTime(at(event.at))}</TooltipContent>
-              </Tooltip>
-              {event.body.trim() ? <SendToAgentButton note={() => eventAsNote(event, pr.url)} className="ml-auto" /> : null}
-            </p>
-            {event.body.trim() ? (
-              <div className="rounded-lg border border-border px-3 py-2">
-                <Markdown>{event.body}</Markdown>
-              </div>
-            ) : null}
-            {event.id && byReview.has(event.id) ? <ReviewThreads threads={byReview.get(event.id)!} host={host} /> : null}
-          </div>
-        </article>
+        <ConversationItem key={`${event.at}:${index}`} event={event} threads={event.id ? byReview.get(event.id) : undefined} prUrl={pr.url} host={host} />
       ))}
     </section>
+  )
+}
+
+/**
+ * One comment or review. Its header folds it away — review bots write screens of text — and a
+ * long body shows its first lines until asked for the rest.
+ */
+function ConversationItem({ event, threads, prUrl, host }: { event: PullRequestEvent; threads: GitHubThread[] | undefined; prUrl: string; host: string | null }): React.JSX.Element {
+  const [open, setOpen] = useState(true)
+  const hasBody = event.body.trim() !== ''
+  return (
+    <article className="flex gap-3">
+      <GitHubAvatar login={event.author} host={host} className="mt-0.5 size-6 shrink-0 rounded-full" />
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <button type="button" aria-expanded={open} onClick={() => setOpen(!open)} className="flex min-w-0 flex-wrap items-center gap-1.5 rounded-sm text-left hover:text-foreground">
+            <ChevronRight className={cn('size-3.5 shrink-0 transition-transform', open && 'rotate-90')} aria-hidden="true" />
+            <span className="font-medium text-foreground">{event.author}</span>
+            {event.verdict ? <span>{VERDICT_LABEL[event.verdict] ?? event.verdict.toLowerCase()}</span> : <span>commented</span>}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>· {relativeTime(at(event.at))}</span>
+              </TooltipTrigger>
+              <TooltipContent>{absoluteTime(at(event.at))}</TooltipContent>
+            </Tooltip>
+            {!open && threads?.length ? <span>· {plural(threads.length, 'line comment')}</span> : null}
+          </button>
+          {hasBody ? <SendToAgentButton note={() => eventAsNote(event, prUrl)} className="ml-auto" /> : null}
+        </div>
+        {open && hasBody ? (
+          <div className="rounded-lg border border-border px-3 py-2">
+            <ClampedBody>{event.body}</ClampedBody>
+          </div>
+        ) : null}
+        {open && threads?.length ? <ReviewThreads threads={threads} host={host} /> : null}
+      </div>
+    </article>
   )
 }
 

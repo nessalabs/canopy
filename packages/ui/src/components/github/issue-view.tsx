@@ -17,7 +17,7 @@ import {
   type LucideIcon
 } from 'lucide-react'
 
-import { classifyGitHubLink, htmlImagesToMarkdown, linkIssueRefs, repoUrlOf, type IssueKind, type IssueThread, type IssueTimelineItem, type PullRequestState } from '@canopy/shared'
+import { classifyGitHubLink, githubBodyToMarkdown, linkIssueRefs, repoUrlOf, type IssueKind, type IssueThread, type IssueTimelineItem, type PullRequestState } from '@canopy/shared'
 
 import { ErrorNote } from '@/components/error-note'
 import { Button } from '@/components/ui/button'
@@ -86,7 +86,7 @@ function Avatar({ login }: { login: string | null }): React.JSX.Element {
 
 /** A post on the thread — the opening one or a comment — as GitHub frames it: who, when, what. */
 function Post({ author, at, verb, body, repoUrl }: { author: string | null; at: string; verb: string; body: string; repoUrl: string }): React.JSX.Element {
-  const text = useMemo(() => linkIssueRefs(htmlImagesToMarkdown(body.trim()) || '_No description provided._', repoUrl), [body, repoUrl])
+  const text = useMemo(() => linkIssueRefs(githubBodyToMarkdown(body.trim()) || '_No description provided._', repoUrl), [body, repoUrl])
   return (
     <article className="relative overflow-hidden rounded-md border border-border bg-card">
       <header className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-xs">
