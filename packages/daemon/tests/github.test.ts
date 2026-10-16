@@ -9,7 +9,7 @@ import type { ReviewComment } from '@canopy/shared'
 
 import { runGit } from '../src/git/exec'
 import type { GhRun, GhRunner } from '../src/github/gh'
-import { GitHubService, parseRemote, titleFromBranch, toPullRequest } from '../src/github/service'
+import { GitHubService, parseRemote, titleFromBranch, toChoices, toPullRequest } from '../src/github/service'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 
 const ok = (stdout = ''): GhRun => ({ found: true, exitCode: 0, stdout, stderr: '' })
@@ -576,5 +576,20 @@ describe('GitHubService', () => {
     const { ready, github } = service(gh)
     await ready
     await expect(github.read('w')).rejects.toMatchObject({ status: 502, code: 'gh_failed', message: 'HTTP 502: Bad Gateway' })
+  })
+})
+
+describe('toChoices', () => {
+  const raw = (number: number, head: string, base: string, extra: object = {}) =>
+    ({ number, title: `PR ${number}`, url: '', state: 'OPEN', headRefName: head, baseRefName: base, createdAt: '', updatedAt: '', headRefOid: `sha${number}`, author: { login: 'ana' }, ...extra }) as Parameters<typeof toChoices>[1][number]
+
+  it('lists the branch’s own PRs first, then those into it, forks included only when incoming', () => {
+    const own = [raw(3, 'main', 'release'), raw(9, 'main', 'main', { isCrossRepository: true })]
+    const incoming = [raw(5, 'feat/a', 'main'), raw(6, 'main', 'main', { isCrossRepository: true }), raw(3, 'main', 'release')]
+    expect(toChoices(own, incoming).map((pr) => [pr.number, pr.incoming, pr.headSha, pr.author])).toEqual([
+      [3, false, 'sha3', 'ana'],
+      [5, true, 'sha5', 'ana'],
+      [6, true, 'sha6', 'ana']
+    ])
   })
 })

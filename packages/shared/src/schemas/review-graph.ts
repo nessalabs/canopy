@@ -18,13 +18,14 @@ export type HunkRef = z.infer<typeof HunkRef>
 /**
  * Which change a graph is cut from. `uncommitted` is the checkout against HEAD; `branch` is the
  * checkout against where it left its base; `commits` is a contiguous run, `from` the oldest;
- * `pull-request` is the pair of commits GitHub diffs.
+ * `pull-request` is the pair of commits GitHub diffs, for the branch's own PR or one numbered.
  */
 export const GraphScope = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('uncommitted') }),
   z.object({ kind: z.literal('branch') }),
   z.object({ kind: z.literal('commits'), from: z.string().regex(/^[0-9a-f]{4,40}$/i), to: z.string().regex(/^[0-9a-f]{4,40}$/i) }),
-  z.object({ kind: z.literal('pull-request') })
+  /** `number` picks one of the PRs into or out of this branch; without it, the branch's own PR. */
+  z.object({ kind: z.literal('pull-request'), number: z.number().int().positive().optional() })
 ])
 export type GraphScope = z.infer<typeof GraphScope>
 

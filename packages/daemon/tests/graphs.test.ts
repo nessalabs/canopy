@@ -139,7 +139,7 @@ describe('a pull-request graph', () => {
           trees: async () => ({ files: [{ path: 'a.ts', status: 'M', additions: 1, deletions: 1, binary: false }] as ChangedFile[] }),
           filePatch: async () => ({ patch: [`diff --git a/a.ts b/a.ts`, '--- a/a.ts', '+++ b/a.ts', '@@ -1,1 +1,1 @@', '-o', '+n'].join('\n') + '\n' })
         },
-        github: { read: async () => ({ pr: found }) },
+        github: { read: async () => ({ pr: found }), pullRequest: async (_: string, number: number) => ({ ...pr, number, headSha: `head-${number}` }) },
         store: { add: (_: string, graph: object) => (added.push(graph), { ...graph, id: 'g1', createdAt: 0 }) }
       } as unknown as Parameters<typeof startGraph>[0]
     }
@@ -151,6 +151,13 @@ describe('a pull-request graph', () => {
     expect(added[0]).toMatchObject({ before: 'tree-b0', after: 'tree-a1', prNumber: 7, headSha: 'head1' })
     expect(prompt).toContain('#7 Refunds\n\nAdds refunds.')
     expect(prompt).toContain('abcdef1234 Add refunds')
+  })
+
+  it('draws a PR picked by number, whichever branch it is from', async () => {
+    const { deps: d, added } = deps(null)
+    const { prompt } = await startGraph(d, 'wt', { scope: { kind: 'pull-request', number: 42 } })
+    expect(added[0]).toMatchObject({ scope: { kind: 'pull-request', number: 42 }, prNumber: 42, headSha: 'head-42' })
+    expect(prompt).toContain('#42 Refunds')
   })
 
   it('refuses a branch with no pull request', async () => {

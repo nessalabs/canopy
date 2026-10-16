@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { ChevronDown, History, MessageSquare, Trash2 } from 'lucide-react'
+import { ChevronDown, GitPullRequest, History, MessageSquare, Trash2 } from 'lucide-react'
 
-import { GRAPH_PRESETS, presetSpec, type AgentProvider, type GraphPreset, type GraphScope } from '@canopy/shared'
+import { GRAPH_PRESETS, presetSpec, type AgentProvider, type GraphPreset, type GraphScope, type PullRequestChoice } from '@canopy/shared'
 
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -55,6 +55,50 @@ function GraphPicker({ state }: { state: ReviewGraphState }): React.JSX.Element 
   )
 }
 
+/**
+ * Which pull request to draw: the branch's own, or one of those asking to merge into it — on a
+ * main checkout, every open PR into main.
+ */
+function PrPicker({ prs, value, onChange, open, onOpenChange }: { prs: PullRequestChoice[]; value?: number; onChange: (number: number) => void; open: boolean; onOpenChange: (open: boolean) => void }): React.JSX.Element {
+  const picked = prs.find((pr) => pr.number === value)
+  const group = (label: string, rows: PullRequestChoice[]) =>
+    rows.length === 0 ? null : (
+      <>
+        <DropdownMenuLabel className="text-xs">{label}</DropdownMenuLabel>
+        {rows.map((pr) => (
+          <DropdownMenuItem key={pr.number} onSelect={() => onChange(pr.number)} className={cn('flex-col items-start gap-0 text-xs', pr.number === value && 'bg-accent')}>
+            <span className="flex w-full min-w-0 items-baseline gap-1.5">
+              <span className="shrink-0 text-muted-foreground tabular-nums">#{pr.number}</span>
+              <span className="min-w-0 flex-1 truncate font-medium">{pr.title}</span>
+              {pr.draft || pr.state !== 'OPEN' ? <span className="shrink-0 text-muted-foreground lowercase">{pr.draft && pr.state === 'OPEN' ? 'draft' : pr.state}</span> : null}
+            </span>
+            <span className="w-full truncate text-muted-foreground">
+              {pr.headBranch} → {pr.baseBranch} · {pr.author} · {relativeTime(Date.parse(pr.updatedAt))}
+            </span>
+          </DropdownMenuItem>
+        ))}
+      </>
+    )
+  const own = prs.filter((pr) => !pr.incoming)
+  const incoming = prs.filter((pr) => pr.incoming)
+  return (
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
+      <DropdownMenuTrigger asChild>
+        <Button type="button" variant="outline" size="sm" className="h-8 max-w-72 min-w-0 gap-1.5 px-2.5 text-xs" title="Which pull request to draw">
+          <GitPullRequest className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{picked ? `#${picked.number} ${picked.title}` : 'Pick a pull request'}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="max-h-96 w-96 overflow-y-auto">
+        {group('From this branch', own)}
+        {own.length > 0 && incoming.length > 0 ? <DropdownMenuSeparator /> : null}
+        {group('Into this branch', incoming)}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 /** What the graph is about: one of the presets, each with a line on what it draws. */
 function PresetPicker({ value, onChange }: { value: GraphPreset; onChange: (preset: GraphPreset) => void }): React.JSX.Element {
   return (
@@ -85,7 +129,8 @@ function PresetPicker({ value, onChange }: { value: GraphPreset; onChange: (pres
 export function GraphBar({
   state,
   range,
-  hasPr,
+  prs,
+  ownPr,
   onPickCommits,
   done,
   total,
@@ -94,7 +139,10 @@ export function GraphBar({
   state: ReviewGraphState
   /** Commits picked in History, for the Commits scope. */
   range?: CommitRange
-  hasPr: boolean
+  /** PRs out of and into the branch, to pick which one the Pull request scope draws. */
+  prs: PullRequestChoice[]
+  /** The branch has a PR of its own; drawable even when the list could not be read. */
+  ownPr: boolean
   /** Goes to History to pick commits. */
   onPickCommits: () => void
   done: number
@@ -107,7 +155,12 @@ export function GraphBar({
   const [wording, setWording] = useState('')
   const [provider, setProvider] = useState<AgentProvider | undefined>(undefined)
   const chosen = provider ?? state.providers[0]
-  const scope: GraphScope | undefined = kind === 'commits' ? (range ? { kind, from: range.from, to: range.to } : undefined) : { kind }
+  // The PR the graph on screen is of, else the branch's own, else the newest one into it.
+  const [prNumber, setPrNumber] = useState<number | undefined>(record?.scope.kind === 'pull-request' ? record.scope.number : undefined)
+  const pr = prNumber ?? prs[0]?.number
+  const [prMenu, setPrMenu] = useState(false)
+  const scope: GraphScope | undefined =
+    kind === 'commits' ? (range ? { kind, from: range.from, to: range.to } : undefined) : kind === 'pull-request' ? (pr !== undefined ? { kind, number: pr } : ownPr ? { kind } : undefined) : { kind }
   const has = record !== undefined
   return (
     <form
@@ -119,11 +172,20 @@ export function GraphBar({
     >
       <div className="flex flex-wrap items-center gap-2">
         <GraphPicker state={state} />
-        <SegmentedControl value={kind} onValueChange={(value) => setKind(value as ScopeKind)} aria-label="Which change to draw" className="text-xs">
+        <SegmentedControl
+          value={kind}
+          onValueChange={(value) => {
+            setKind(value as ScopeKind)
+            // With more than one PR to choose from, choosing the scope is choosing which.
+            if (value === 'pull-request' && prs.length > 1) setPrMenu(true)
+          }}
+          aria-label="Which change to draw"
+          className="text-xs"
+        >
           <SegmentedControlOption type="button" value="uncommitted">Uncommitted</SegmentedControlOption>
           <SegmentedControlOption type="button" value="branch">Branch</SegmentedControlOption>
           <SegmentedControlOption type="button" value="commits">{range ? plural(range.count, 'commit') : 'Commits'}</SegmentedControlOption>
-          <SegmentedControlOption type="button" value="pull-request" disabled={!hasPr}>
+          <SegmentedControlOption type="button" value="pull-request" disabled={!ownPr && prs.length === 0}>
             Pull request
           </SegmentedControlOption>
         </SegmentedControl>
@@ -133,6 +195,7 @@ export function GraphBar({
             {range ? 'Change in History' : 'Pick in History…'}
           </Button>
         ) : null}
+        {kind === 'pull-request' && prs.length > 0 ? <PrPicker prs={prs} value={pr} onChange={setPrNumber} open={prMenu} onOpenChange={setPrMenu} /> : null}
         <PresetPicker value={preset} onChange={setPreset} />
         {has ? (
           <span className="ml-auto text-xs text-muted-foreground tabular-nums">

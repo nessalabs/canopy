@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import type { DiffMode } from '@/components/worktree-diff'
-import { useDiffFiles } from '@/lib/api-hooks'
+import { useDiffFiles, usePullRequestChoices } from '@/lib/api-hooks'
 import { isMissingRoute, isReviewed, isStale, reviewedKey, tourSteps, type NodeCard, type TourStep } from '@/lib/review-graph'
 import type { ReviewGraphState } from '@/lib/use-review-graph'
 import { oneOf, useStoredState } from '@/lib/local-store'
@@ -199,7 +199,11 @@ export function GraphView({
   const done = reviewable.filter((step) => isReviewed(state.reviewed, step.node)).length
   const liveKind = record?.scope.kind === 'branch' ? 'base' : 'head'
   const live = useDiffFiles(worktreeId, { kind: 'worktree', against: liveKind }).data
-  const stale = record !== undefined && result !== undefined && isStale(record, result, { files: live && 'files' in live ? live.files : undefined, prHead })
+  const prs = usePullRequestChoices(worktreeId).data?.prs
+  // A graph of a numbered PR is old once that PR has a new head; one of the branch's own, once the branch's PR has.
+  const graphed = record?.scope.kind === 'pull-request' ? record.scope.number : undefined
+  const head = graphed !== undefined ? prs?.find((pr) => pr.number === graphed)?.headSha || undefined : prHead
+  const stale = record !== undefined && result !== undefined && isStale(record, result, { files: live && 'files' in live ? live.files : undefined, prHead: head })
 
   return (
     <FileRefLinks onOpen={onOpenRef}>
@@ -208,7 +212,8 @@ export function GraphView({
           key={`${worktreeId}:${record?.id ?? 'none'}:${range ? `${range.from}..${range.to}` : ''}`}
           state={state}
           range={range}
-          hasPr={prHead !== undefined}
+          prs={prs ?? []}
+          ownPr={prHead !== undefined}
           onPickCommits={onPickCommits}
           done={done}
           total={reviewable.length}
