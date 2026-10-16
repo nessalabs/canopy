@@ -602,6 +602,28 @@ export class GitHubService {
     return { fetched: pr.missingCommits.length }
   }
 
+  /**
+   * Once a PR is merged, moves the local branch up to the head GitHub merged when that only adds
+   * commits: a review fix pushed from elsewhere, then the remote branch deleted, leaves the local
+   * tip short of what landed, and the merged check — which reads the local tip — would keep the
+   * worktree as unmerged (PR #54). Fast-forward only, so nothing local is ever dropped; a dirty
+   * file in the way just leaves the branch where it was. True when the branch moved.
+   */
+  private async catchUp(cwd: string, remote: string | null, pr: PullRequest): Promise<boolean> {
+    if (pr.state !== 'MERGED' || !pr.headSha) return false
+    const head = (await this.deps.git(cwd, ['rev-parse', '-q', '--verify', 'HEAD'], { okCodes: [0, 1, 128] })).trim()
+    if (!head || head === pr.headSha) return false
+    if ((await this.missing(cwd, [pr.headSha])).length > 0) {
+      if (!remote) return false
+      await this.deps.git(cwd, ['fetch', '--no-tags', '--no-write-fetch-head', remote, `refs/pull/${pr.number}/head`], { env: NO_PROMPT, timeout: PUSH_TIMEOUT_MS, okCodes: [0, 1, 128] })
+      if ((await this.missing(cwd, [pr.headSha])).length > 0) return false
+    }
+    const ownCommits = (await this.deps.git(cwd, ['rev-list', '--count', `${pr.headSha}..HEAD`], { okCodes: [0, 128] })).trim()
+    if (ownCommits !== '0') return false
+    await this.deps.git(cwd, ['merge', '--ff-only', '-q', pr.headSha], { okCodes: [0, 1, 128] })
+    return (await this.deps.git(cwd, ['rev-parse', 'HEAD'])).trim() === pr.headSha
+  }
+
   /** A title and body for a new PR, from what the branch adds over its base. */
   private async suggest(cwd: string, branch: string, base: string, remote: string | null): Promise<{ title: string; body: string }> {
     const remoteBase = remote ? `${remote}/${base}` : null
@@ -715,7 +737,10 @@ export class GitHubService {
       this.repo(path),
       this.viewer(path, gh.host)
     ])
-    if (pr) return { ...empty, upstream, pr, viewer, ...repo }
+    if (pr) {
+      const current = (await this.catchUp(path, remote, pr)) ? await this.withRange(path, remote, pr) : pr
+      return { ...empty, upstream, pr: current, viewer, ...repo }
+    }
     return { ...empty, upstream, draft: suggested, ...(targets ?? {}) }
   }
 
@@ -870,6 +895,8 @@ export class GitHubService {
         if (action.deleteBranch) await run(['api', '-X', 'DELETE', `repos/{owner}/{repo}/git/refs/heads/${encodeURIComponent(pr.headBranch)}`])
         // The target moved on GitHub; fetching it lets the worktree's merged check see it.
         if (gh.remote) await this.deps.git(path, ['fetch', '--no-tags', gh.remote, pr.baseBranch], { env: NO_PROMPT, timeout: PUSH_TIMEOUT_MS, okCodes: [0, 1, 128] })
+        // GitHub merged pr.headSha (--match-head-commit), which may hold commits this checkout lacks.
+        await this.catchUp(path, gh.remote, { ...pr, state: 'MERGED' })
         return { message: `Merged #${n} into ${pr.baseBranch}${action.deleteBranch ? ` and deleted ${pr.headBranch} on GitHub` : ''}.` }
       }
       case 'review': {

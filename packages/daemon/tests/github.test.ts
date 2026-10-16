@@ -239,6 +239,40 @@ describe('GitHubService', () => {
     expect((await github.read('w')).pr?.missingCommits).toEqual([])
   })
 
+  it('moves the branch up to the head GitHub merged, never past a local commit of its own', async () => {
+    await repo.commit({ 'b.txt': 'two\n' }, 'Add b')
+    const ours = await repo.git('rev-parse', 'HEAD')
+    // A review fix pushed from elsewhere; this checkout has the commit but the branch stops short.
+    await repo.commit({ 'c.txt': 'three\n' }, 'Review fix')
+    const merged = await repo.git('rev-parse', 'HEAD')
+    await repo.git('reset', '-q', '--hard', ours)
+    const raw = { ...RAW_PR, state: 'MERGED', headRefOid: merged, commits: [{ oid: ours }, { oid: merged }] }
+    const { ready, github } = service(fakeGh((args) => (args[0] === 'pr' ? ok(JSON.stringify([raw])) : ok())))
+    await ready
+
+    expect((await github.read('w')).pr?.headSha).toBe(merged)
+    expect(await repo.git('rev-parse', 'HEAD')).toBe(merged)
+
+    // A commit GitHub never saw stays: catching up would have to drop it.
+    await repo.git('reset', '-q', '--hard', ours)
+    await repo.commit({ 'd.txt': 'four\n' }, 'Local only')
+    const local = await repo.git('rev-parse', 'HEAD')
+    await github.read('w')
+    expect(await repo.git('rev-parse', 'HEAD')).toBe(local)
+  })
+
+  it('leaves an open PR\'s branch alone', async () => {
+    await repo.commit({ 'b.txt': 'two\n' }, 'Add b')
+    const ours = await repo.git('rev-parse', 'HEAD')
+    await repo.commit({ 'c.txt': 'three\n' }, 'Later')
+    const later = await repo.git('rev-parse', 'HEAD')
+    await repo.git('reset', '-q', '--hard', ours)
+    const { ready, github } = service(fakeGh((args) => (args[0] === 'pr' ? ok(JSON.stringify([{ ...RAW_PR, headRefOid: later }])) : ok())))
+    await ready
+    await github.read('w')
+    expect(await repo.git('rev-parse', 'HEAD')).toBe(ours)
+  })
+
   it('does not treat a tracked base branch as the upstream', async () => {
     await repo.git('branch', '--set-upstream-to=origin/main')
     const { ready, github } = service(fakeGh((args) => (args[0] === 'pr' ? ok('[]') : ok())))
