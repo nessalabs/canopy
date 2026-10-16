@@ -202,6 +202,24 @@ describe('worktrees', () => {
       expect(await mergedOf(squashed.id)).toBe(false)
     })
 
+    it('counts a branch rebase-merged onto a base that moved its surrounding lines as merged', async () => {
+      const lines = (...changed: [number, string][]): string => {
+        const out = ['l1', 'l2', 'l3', 'l4', 'l5', 'l6']
+        for (const [at, text] of changed) out[at] = text
+        return `${out.join('\n')}\n`
+      }
+      await repo.commit({ 'f.txt': lines() }, 'six lines')
+      const wt = await create('rebased', 'feat/rebased')
+      writeFileSync(join(wt.path, 'f.txt'), lines([3, 'branch']))
+      await execa('git', ['-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.com', 'commit', '-qam', 'branch edit'], { cwd: wt.path })
+      // Another PR lands first and edits a line inside the branch commit's context.
+      await repo.commit({ 'f.txt': lines([1, 'main']) }, 'main edit')
+      expect(await mergedOf(wt.id)).toBe(false)
+      // GitHub's rebase-merge: the commit replayed on the new base, same lines added, new context.
+      await repo.git('cherry-pick', 'feat/rebased')
+      expect(await mergedOf(wt.id)).toBe(true)
+    })
+
     it('counts a branch that only origin/main has as merged', async () => {
       const remote = mkdtempSync(join(tmpdir(), 'canopy-remote-'))
       try {
