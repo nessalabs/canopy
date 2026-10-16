@@ -49,6 +49,8 @@ export interface Repo {
    * moved base, a squash of a branch with a merge in it). False on a conflict or an old git.
    */
   mergeChangesNothing(cwd: string, base: string, head: string): Promise<boolean>
+  /** The commits of `range` whose subject is `rev`'s, newest first: where a rebase-merge may have put `rev`. */
+  sameSubject(cwd: string, range: string, rev: string): Promise<string[]>
   /** The commit a revision names, or null when it does not exist (e.g. HEAD on an unborn branch). */
   resolveCommit(cwd: string, rev: string): Promise<string | null>
   log(cwd: string, limit: number, skip: number): Promise<{ commits: Commit[]; hasMore: boolean }>
@@ -198,6 +200,16 @@ export function createRepo(run: GitRunner): Repo {
       const [merged, tree] = await Promise.all([tryRun(cwd, ['merge-tree', '--write-tree', base, head]), tryRun(cwd, ['rev-parse', `${base}^{tree}`])])
       const result = merged?.split('\n')[0]?.trim()
       return !!result && result === tree?.trim()
+    },
+
+    async sameSubject(cwd, range, rev) {
+      const [subject, log] = await Promise.all([tryRun(cwd, ['log', '-1', '--format=%s', rev]), tryRun(cwd, ['log', '--format=%H%x00%s', range])])
+      const wanted = subject?.trim()
+      if (!wanted || !log) return []
+      return log.split('\n').flatMap((line) => {
+        const [sha, rest] = line.split('\0')
+        return sha && rest === wanted ? [sha] : []
+      })
     },
 
     async log(cwd, limit, skip) {
