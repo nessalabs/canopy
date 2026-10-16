@@ -41,3 +41,26 @@ export function linkIssueRefs(markdown: string, repoUrl: string): string {
     .map((part, index) => (index % 2 === 1 ? part : part.replace(/(^|[\s(,;:])#(\d+)\b(?!\])/g, (_, lead: string, n: string) => `${lead}[#${n}](${repoUrl}/issues/${n})`)))
     .join('')
 }
+
+const attribute = (tag: string, name: string): string | undefined => new RegExp(`\\s${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i').exec(tag)?.slice(1).find((value) => value !== undefined)
+
+/**
+ * The text with each HTML `<img>` tag — what GitHub's editor writes for a pasted screenshot —
+ * turned into a markdown image, since the renderer shows raw HTML as text. Only the source and
+ * alt text carry over; code, fenced or inline, is left alone.
+ */
+export function htmlImagesToMarkdown(markdown: string): string {
+  return markdown
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : part.replace(/<img\b[^>]*>/gi, (tag) => {
+            const src = attribute(tag, 'src')
+            if (!src) return tag
+            const alt = (attribute(tag, 'alt') ?? '').replace(/[[\]]/g, '')
+            return `![${alt}](<${src}>)`
+          })
+    )
+    .join('')
+}
