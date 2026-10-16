@@ -246,6 +246,17 @@ export const threadRange = (pr: { headSha: string; filesRange: { before: string;
   pr ? { before: pr.filesRange?.before, after: pr.filesRange?.after ?? pr.headSha } : {}
 
 /**
+ * A diff hunk's code lines: no `@@` header, no "\\ No newline" marker, and none of the empty
+ * entries a trailing newline leaves, so the last line is the commented one. No hunk, no lines.
+ */
+export function hunkLines(hunk: string | undefined): string[] {
+  if (!hunk) return []
+  const lines = hunk.split('\n').filter((line) => !line.startsWith('@@') && !line.startsWith('\\'))
+  while (lines.length > 0 && lines.at(-1) === '') lines.pop()
+  return lines
+}
+
+/**
  * The code a thread was left on, as GitHub's conversation shows it with a little more context:
  * the lines leading up to it from GitHub's diff hunk (the whole hunk on request), the commented
  * line marked, and a few lines after it read from the PR's own commit. GitHub's hunk stops at the
@@ -257,7 +268,7 @@ export function ThreadCode({ thread, worktreeId, range }: { thread: GitHubThread
   const rev = thread.side === 'old' ? range?.before : range?.after
   const canRead = Boolean(worktreeId && rev && thread.line !== null && !thread.outdated)
   const file = useFileContents(worktreeId ?? '', thread.file, rev, canRead)
-  const hunk = (thread.hunk ?? '').split('\n').filter((line) => !line.startsWith('@@') && !line.startsWith('\\'))
+  const hunk = hunkLines(thread.hunk)
   if (hunk.length === 0) return null
   const above = all ? hunk : hunk.slice(-(ABOVE + 1))
   const hidden = hunk.length - above.length
