@@ -91,16 +91,17 @@ export class HistoryService {
   /**
    * A contiguous run of commits as two pinned trees — the parent of `from` (the empty tree for a
    * root commit) and `to` — and the commits in it, oldest first. Refuses a run that is not one
-   * unbroken line of history.
+   * unbroken first-parent line of history. The trees are pinned from the endpoints themselves,
+   * never from the ends of the log, so the diff is exactly `from^..to`.
    */
   async commitRange(worktreeId: string, from: string, to: string): Promise<{ spec: Extract<DiffSpec, { kind: 'trees' }>; commits: Commit[] }> {
     const { path } = this.deps.worktrees.location(worktreeId)
     const commits = await this.deps.repo.rangeLog(path, from, to)
-    const [first, last] = [commits?.[0], commits?.at(-1)]
-    if (!first || !last) throw badRequest('bad_range', `${from}..${to} is not a run of commits on one line of history`)
-    const parent = await this.deps.repo.resolveCommit(path, `${first.sha}^`)
-    const [before, after] = await Promise.all([parent ? this.deps.snapshots.pin(path, parent) : EMPTY_TREE, this.deps.snapshots.pin(path, last.sha)])
-    return { spec: { kind: 'trees', before, after }, commits: commits! }
+    const tip = commits && commits.length > 0 ? await this.deps.repo.resolveCommit(path, to) : null
+    if (!commits || !tip) throw badRequest('bad_range', `${from}..${to} is not a run of commits on one line of history`)
+    const parent = await this.deps.repo.resolveCommit(path, `${from}^`)
+    const [before, after] = await Promise.all([parent ? this.deps.snapshots.pin(path, parent) : EMPTY_TREE, this.deps.snapshots.pin(path, tip)])
+    return { spec: { kind: 'trees', before, after }, commits }
   }
 
   /** Files that differ between two snapshot trees (see agents/edit-diffs). */

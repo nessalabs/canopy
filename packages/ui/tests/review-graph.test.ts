@@ -6,7 +6,9 @@ import type { AgentEvent } from '@canopy/shared/agent-stream'
 
 import { parseGitLink } from '../src/lib/environment-ui'
 import { slicePatch } from '../src/lib/patch'
-import { cardsOf, changeShape, graphTitle, lineTotals, isMissingRoute, isStale, latestGraph, leaves, liftEdges, nodeFiles, pickGraph, reviewedKey, tourSteps } from '../src/lib/review-graph'
+import { cardsOf, changeShape, details, graphTitle, lineTotals, isMissingRoute, isStale, latestGraph, leaves, liftEdges, nodeFiles, pickGraph, reviewedKey, tourSteps } from '../src/lib/review-graph'
+import { adoptTicks } from '../src/lib/use-review-graph'
+import { isFirstParentLine } from '../src/components/git/history-view'
 
 const ids = { h1: { path: 'db.sql', hunk: 0 }, h2: { path: 'api.ts', hunk: 0 }, h3: { path: 'api.ts', hunk: 1 }, h4: { path: 'ui.tsx', hunk: 0 } }
 const reply = (nodes: object[], edges: object[] = []) => ({ nodes, edges }) as unknown as GraphReply
@@ -56,6 +58,46 @@ describe('liftEdges', () => {
     const top = graph.nodes.filter((n) => n.title === 'Schema' || n.title === 'Refunds')
     expect(liftEdges(graph, top)).toEqual([{ from: '2', to: '1', kind: 'reads', label: 'refund rows' }])
     expect(liftEdges(graph, leaves(graph)).map((e) => [e.from, e.to])).toEqual([['2.2', '1']])
+  })
+
+  it('keeps, at every detail, edges and hunks a node with nodes inside it has of its own', () => {
+    const nested = resolveGraph(
+      fill(
+        reply(
+          [
+            { ref: 'schema', title: 'Schema', ids: ['h1'] },
+            { ref: 'refunds', title: 'Refunds', ids: ['h2'] },
+            { ref: 'api', title: 'API', ids: ['h3'], parent: 'refunds' },
+            { ref: 'ui', title: 'UI', ids: ['h4'], parent: 'refunds' }
+          ],
+          [{ from: 'refunds', to: 'schema', kind: 'builds-on' }]
+        )
+      ),
+      ids
+    )
+    expect(liftEdges(nested, leaves(nested))).toEqual([])
+    expect(details(nested).map((n) => n.title)).toEqual(['Schema', 'Refunds', 'API', 'UI'])
+    expect(liftEdges(nested, details(nested)).map((e) => [e.from, e.to])).toEqual([['2', '1']])
+    // A node holding nothing itself and linked to nothing is left to its children.
+    expect(details(graph).map((n) => n.title)).toEqual(['Schema', 'API', 'UI'])
+  })
+})
+
+describe('ticks', () => {
+  it('hands ticks kept by hunks alone to the graphs they tick a node of, and drops the rest', () => {
+    const graphs = [{ id: 'g1', result: graph }, { id: 'g2', result: undefined }]
+    const schema = reviewedKey([ids.h1])
+    expect(adoptTicks([schema, 'gone.ts#0', 'g9\u0000x.ts#0'], graphs)).toEqual(['g9\u0000x.ts#0', `g1\u0000${schema}`])
+    expect(adoptTicks(['g1\u0000a'], graphs)).toEqual(['g1\u0000a'])
+  })
+})
+
+describe('isFirstParentLine', () => {
+  it('takes rows that follow first parents, newest first, and refuses a merged branch’s row between them', () => {
+    const c = (sha: string, ...parents: string[]) => ({ sha, parents })
+    expect(isFirstParentLine([c('m', 'b', 's'), c('b', 'a'), c('a')])).toBe(true)
+    expect(isFirstParentLine([c('m', 'b', 's'), c('s', 'a'), c('b', 'a')])).toBe(false)
+    expect(isFirstParentLine([c('a')])).toBe(true)
   })
 })
 

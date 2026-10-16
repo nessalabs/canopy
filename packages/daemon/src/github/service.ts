@@ -529,7 +529,11 @@ export class GitHubService {
 
   private async findPr(cwd: string, branch: string, remote: string | null = null, fresh = false): Promise<PullRequest | null> {
     const pr = await this.cachedPr(cwd, branch, fresh)
-    if (!pr) return null
+    return pr ? this.withRange(cwd, remote, pr) : null
+  }
+
+  /** GitHub's PR with what this checkout lacks of it, and — when its head is here — the range Files changed shows. */
+  private async withRange(cwd: string, remote: string | null, pr: PullRequest): Promise<PullRequest> {
     const missingCommits = await this.missing(cwd, pr.commitLog.map((commit) => commit.sha))
     const headHere = pr.headSha !== '' && !missingCommits.includes(pr.headSha) && (await this.missing(cwd, [pr.headSha])).length === 0
     return { ...pr, missingCommits, filesRange: headHere ? await this.range(cwd, remote, pr.baseBranch, pr.headSha) : null }
@@ -658,9 +662,10 @@ export class GitHubService {
   }
 
   /**
-   * One PR by number, whichever branch it comes from or goes to, with its head fetched
-   * (`refs/pull/N/head`, so a fork's works too) and its target's remote branch brought up to date
-   * when either is missing here, so `filesRange` can be worked out as GitHub does.
+   * One PR by number, whichever branch it comes from or goes to, with its head fetched when it is
+   * missing here (`refs/pull/N/head`, so a fork's works too) and its target's remote branch always
+   * brought up to date: a stale target gives an older merge base than GitHub's, and the graph
+   * would hold hunks Files changed does not show.
    */
   async pullRequest(worktreeId: string, number: number): Promise<PullRequest> {
     const { path } = this.deps.worktrees.location(worktreeId)
@@ -672,17 +677,11 @@ export class GitHubService {
     const pr = toPullRequest(JSON.parse(run.stdout || '{}') as RawPr)
     const remote = gh.remote
     if (remote) {
-      const target = `refs/remotes/${remote}/${pr.baseBranch}`
-      const [headMissing, hasTarget] = await Promise.all([
-        pr.headSha ? this.missing(path, [pr.headSha]).then((gone) => gone.length > 0) : Promise.resolve(false),
-        this.deps.git(path, ['rev-parse', '--verify', '-q', target], { okCodes: [0, 1] }).then((out) => out.trim() !== '')
-      ])
-      const wanted = [...(headMissing ? [`refs/pull/${pr.number}/head`] : []), ...(hasTarget ? [] : [`+refs/heads/${pr.baseBranch}:${target}`])]
-      if (wanted.length > 0) await this.deps.git(path, ['fetch', '--no-tags', '--no-write-fetch-head', remote, ...wanted], { env: NO_PROMPT, timeout: PUSH_TIMEOUT_MS })
+      const headMissing = pr.headSha !== '' && (await this.missing(path, [pr.headSha])).length > 0
+      const wanted = [...(headMissing ? [`refs/pull/${pr.number}/head`] : []), `+refs/heads/${pr.baseBranch}:refs/remotes/${remote}/${pr.baseBranch}`]
+      await this.deps.git(path, ['fetch', '--no-tags', '--no-write-fetch-head', remote, ...wanted], { env: NO_PROMPT, timeout: PUSH_TIMEOUT_MS })
     }
-    const missingCommits = await this.missing(path, pr.commitLog.map((commit) => commit.sha))
-    const headHere = pr.headSha !== '' && (await this.missing(path, [pr.headSha])).length === 0
-    return { ...pr, missingCommits, filesRange: headHere ? await this.range(path, remote, pr.baseBranch, pr.headSha) : null }
+    return this.withRange(path, remote, pr)
   }
 
   async read(worktreeId: string, { fresh = false } = {}): Promise<PullRequestResponse> {

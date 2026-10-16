@@ -79,11 +79,13 @@ function GraphReview({
   const [at, setAt] = useState<string>()
   const [depth, setDepth] = useStoredState<Depth>('canopy-graph-depth', 'top', oneOf<Depth>('top', 'all'))
   const [layout, setLayout] = useStoredState<NetworkLayout>('canopy-graph-network-layout', 'flat', oneOf<NetworkLayout>('flat', 'hierarchical'))
-  // A new graph starts over at its top; the view the reviewer chose stays.
+  // A new graph starts over at its top; the view the reviewer chose stays. `graph` keeps its
+  // identity while its content is unchanged, so a polled transcript or a saved answer moves no one.
+  const recordId = state.record?.id
   useEffect(() => {
     setCurrent(0)
     setAt(undefined)
-  }, [graph])
+  }, [recordId, graph])
 
   const go = (index: number): void => setCurrent(Math.max(0, Math.min(steps.length - 1, index)))
   const index = Math.min(current, Math.max(0, steps.length - 1))
@@ -197,9 +199,15 @@ export function GraphView({
   const steps = useMemo(() => (result ? tourSteps(result) : []), [result])
   const reviewable = steps.filter((step) => step.reviewable)
   const done = reviewable.filter((step) => isReviewed(state.reviewed, step.node)).length
-  const liveKind = record?.scope.kind === 'branch' ? 'base' : 'head'
-  const live = useDiffFiles(worktreeId, { kind: 'worktree', against: liveKind }).data
-  const prs = usePullRequestChoices(worktreeId).data?.prs
+  // Only a graph of the uncommitted change or the branch is checked against the live diff; a run
+  // of commits never moves, and a PR's is checked against its head.
+  const scopeKind = record?.scope.kind
+  const liveKind = scopeKind === 'branch' ? 'base' : 'head'
+  const live = useDiffFiles(worktreeId, { kind: 'worktree', against: liveKind }, scopeKind === 'uncommitted' || scopeKind === 'branch').data
+  // GitHub is asked for the PRs only when one is wanted: the bar is on the PR scope, or the graph is of a PR.
+  const [barKind, setBarKind] = useState<string>()
+  const choices = usePullRequestChoices(worktreeId, scopeKind === 'pull-request' || barKind === 'pull-request')
+  const prs = choices.data?.prs
   // A graph of a numbered PR is old once that PR has a new head; one of the branch's own, once the branch's PR has.
   const graphed = record?.scope.kind === 'pull-request' ? record.scope.number : undefined
   const head = graphed !== undefined ? prs?.find((pr) => pr.number === graphed)?.headSha || undefined : prHead
@@ -212,8 +220,9 @@ export function GraphView({
           key={`${worktreeId}:${record?.id ?? 'none'}:${range ? `${range.from}..${range.to}` : ''}`}
           state={state}
           range={range}
-          prs={prs ?? []}
+          prs={prs}
           ownPr={prHead !== undefined}
+          onKind={setBarKind}
           onPickCommits={onPickCommits}
           done={done}
           total={reviewable.length}

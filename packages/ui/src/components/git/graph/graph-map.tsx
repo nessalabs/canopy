@@ -5,7 +5,7 @@ import { childrenOf, trailTo, type ChangedFile, type ReviewGraph, type ReviewNod
 
 import { Button } from '@/components/ui/button'
 import { ChangeMap, type ChangeMapNode } from '@/components/ui/change-map'
-import { cardsOf, edgeWords, leaves, liftEdges, type NodeCard } from '@/lib/review-graph'
+import { cardsOf, details, edgeWords, liftEdges, type NodeCard } from '@/lib/review-graph'
 import { cn } from '@/lib/utils'
 
 /** A node's card: what it is, how much it touches, how far it is reviewed, and whether it opens a level down. */
@@ -148,7 +148,7 @@ export function GraphLayered({
   current?: string
   onTour: (card: NodeCard) => void
 }): React.JSX.Element {
-  const shown = useMemo<ReviewNode[]>(() => (depth === 'top' ? childrenOf(graph) : leaves(graph)), [graph, depth])
+  const shown = useMemo<ReviewNode[]>(() => (depth === 'top' ? childrenOf(graph) : details(graph)), [graph, depth])
   const cards = useMemo(() => cardsOf(graph, shown, files, reviewed, lines), [graph, shown, files, reviewed, lines])
   const nodes = useMemo(() => toMapNodes(cards), [cards])
   const edges = useMemo(() => liftEdges(graph, shown).map(({ from, to, kind }) => ({ from, to, label: edgeWords(kind) })), [graph, shown])

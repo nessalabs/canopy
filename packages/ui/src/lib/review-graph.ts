@@ -53,7 +53,7 @@ export function tourSteps(graph: Graph): TourStep[] {
 }
 
 /** What a tick is kept under: the hunks it covers, so redrawing the same hunks keeps it and changing them drops it. */
-export const reviewedKey = (refs: HunkRef[]): string => refs.map(({ path, hunk }) => `${path}#${hunk ?? '*'}`).join('\n')
+export const reviewedKey = (refs: HunkRef[]): string => refs.map(lineKey).join('\n')
 
 export const isReviewed = (reviewed: ReadonlySet<string>, node: Pick<ReviewNode, 'refs'>): boolean => node.refs.length > 0 && reviewed.has(reviewedKey(node.refs))
 
@@ -143,6 +143,16 @@ export function cardsOf(graph: Graph, nodes: ReviewNode[], files: ChangedFile[],
 
 /** Nodes with nothing inside them: the finest level of the graph. */
 export const leaves = (graph: Graph): ReviewNode[] => graph.nodes.filter((node) => childrenOf(graph, node.id).length === 0)
+
+/**
+ * Every node with something of its own to show: the leaves, and any node that holds hunks itself
+ * or has a sideways edge — so a feature's own hunks, and the edges drawn between features with
+ * sub-features, are not lost when the layered view shows every detail.
+ */
+export const details = (graph: Graph): ReviewNode[] => {
+  const linked = new Set(graph.edges.filter((edge) => edge.kind !== CONTAINS).flatMap((edge) => [edge.from, edge.to]))
+  return graph.nodes.filter((node) => node.refs.length > 0 || linked.has(node.id) || childrenOf(graph, node.id).length === 0)
+}
 
 /**
  * The sideways edges as they read among the nodes on screen: each end moved up to the shown node

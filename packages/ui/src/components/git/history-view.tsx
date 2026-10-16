@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Network } from 'lucide-react'
 
-import type { ReviewComment } from '@canopy/shared'
+import type { Commit, ReviewComment } from '@canopy/shared'
 
 import type { DiffMode } from '@/components/worktree-diff'
 import { SplitView, SplitViewOrientation, SplitViewPanel, SplitViewSeparator } from '@/components/split-view'
@@ -14,6 +14,9 @@ import { CommitDetail } from './commit-detail'
 import type { ExplorerFocus } from './diff-explorer'
 import { CommitList } from './commit-list'
 import type { CommitRange } from './graph/graph-bar'
+
+/** Whether rows, newest first, follow one another along first parents: each row's first parent is the row under it. */
+export const isFirstParentLine = (rows: readonly Pick<Commit, 'sha' | 'parents'>[]): boolean => rows.every((row, i) => i === rows.length - 1 || row.parents[0] === rows[i + 1]!.sha)
 
 /**
  * Commit list on the left, the selected commit's files and diffs on the right. Shift-click
@@ -48,6 +51,9 @@ export function HistoryView({
     return commits.slice(Math.min(a, b), Math.max(a, b) + 1)
   }, [commits, current, end])
   const marked = useMemo(() => new Set(run.map((c) => c.sha)), [run])
+  // The daemon reads a run along first parents, from the oldest's parent to the newest; rows that
+  // are not one such line (a merged branch's commits interleaved by date) would graph other commits.
+  const linear = isFirstParentLine(run)
   useHotkeys(run.length > 1 ? { Escape: () => setEnd(undefined) } : {})
   const select = (sha: string, extend: boolean): void => {
     // Ticking the run's far end again, or the selected commit itself, lets the run go.
@@ -76,11 +82,13 @@ export function HistoryView({
             <div className="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs text-muted-foreground">
               {run.length > 1 ? (
                 <>
-                  <span>{plural(run.length, 'commit')} picked</span>
+                  <span className="truncate" title={linear ? undefined : 'Pick commits that follow each other along first parents, without a merged branch’s commits between them'}>
+                    {linear ? `${plural(run.length, 'commit')} picked` : 'Not one line of history'}
+                  </span>
                   <Button size="sm" variant="ghost" className="ml-auto h-7 text-xs" onClick={() => setEnd(undefined)} title="Let go of the picked run  Esc">
                     Clear
                   </Button>
-                  <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" onClick={() => onGraph({ from: run.at(-1)!.sha, to: run[0]!.sha, count: run.length })}>
+                  <Button size="sm" variant="outline" className="h-7 gap-1.5 text-xs" disabled={!linear} onClick={() => onGraph({ from: run.at(-1)!.sha, to: run[0]!.sha, count: run.length })}>
                     <Network className="size-3.5" />
                     Graph these
                   </Button>

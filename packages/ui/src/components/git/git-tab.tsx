@@ -229,7 +229,7 @@ export function GitTab({
                   focusCommit={jump?.commitSha ?? link.commit}
                   focus={focusFor('history')}
                   onGraph={(picked) => {
-                    setRange(picked)
+                    setRange({ ...picked, pickedOn: graph.record?.id })
                     onPaneChange('graph')
                   }}
                   {...shared}
