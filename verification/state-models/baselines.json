@@ -1,0 +1,76 @@
+{
+  "ok": true,
+  "documents": 17,
+  "issues": [],
+  "models": [
+    {
+      "document": "changes",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "saved": true,
+      "result": {
+        "sourceRevision": "b8d983c7b7b0221adb6d702207773f3a6c1752bd",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:07:38.750Z",
+        "config": "tla/HunkSelection.cfg",
+        "modelDigest": "0660f58696ef00ab0841b425a2fea1d0261f331f83e04969cdb3700712f78b13",
+        "states": 11,
+        "held": ["CurrentPatchOnly", "PreserveUnrepresentedIndex"],
+        "broke": [],
+        "unchecked": []
+      }
+    },
+    {
+      "document": "permissions",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "saved": true,
+      "result": {
+        "sourceRevision": "b8d983c7b7b0221adb6d702207773f3a6c1752bd",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:07:39.869Z",
+        "config": "tla/PermissionDecision.cfg",
+        "modelDigest": "e2bcc45eb804cdb7017bb4aca62fcdc9d063335d30f7b6ab47e4bd12193479ba",
+        "states": 24,
+        "held": ["CurrentRequestOnly", "ForcedAskRequiresReply"],
+        "broke": [],
+        "unchecked": []
+      }
+    },
+    {
+      "document": "provisioning",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "saved": true,
+      "result": {
+        "sourceRevision": "b8d983c7b7b0221adb6d702207773f3a6c1752bd",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:07:40.848Z",
+        "config": "tla/ProvisionOrder.cfg",
+        "modelDigest": "ccecf02ec3b67a132d21619cdde72d9564d6071c51f5de0c5c8c0593f5272cc9",
+        "states": 8,
+        "held": ["NoStageAfterFailure", "NoStageAfterObservedAbort"],
+        "broke": [],
+        "unchecked": []
+      }
+    },
+    {
+      "document": "services",
+      "state": "passed",
+      "message": "Every rule held. This checks the design, not the code.",
+      "saved": true,
+      "result": {
+        "sourceRevision": "b8d983c7b7b0221adb6d702207773f3a6c1752bd",
+        "checker": "tlc-1.7.4",
+        "date": "2026-11-03T09:07:41.874Z",
+        "config": "tla/ServiceCallback.cfg",
+        "modelDigest": "12a53c9501a77b92867a8410a17a823a24ff22b560586d4eea4913f8b9c8e4fc",
+        "states": 14,
+        "held": ["CurrentCallbackOnly", "NoDisposedPublish"],
+        "broke": [],
+        "unchecked": []
+      }
+    }
+  ],
+  "saved": ["changes", "permissions", "provisioning", "services"]
+}
