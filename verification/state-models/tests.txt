@@ -1,0 +1,75 @@
+
+> canopy@0.1.0 test
+> npm test --workspaces --if-present
+
+
+> @canopy/daemon@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /Users/nessa/Documents/Codex/2026-11-02/hey-can-you-update-the-nessa/work/org-docs/canopy/packages/daemon
+
+ ❯ tests/migrate.test.ts (3 tests | 1 failed) 44ms
+     × applies a migration added below the version already reached 21ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tests/migrate.test.ts > migrate > applies a migration added below the version already reached
+SqliteError: duplicate column name: lines_json
+ ❯ Database.exec ../../node_modules/better-sqlite3/lib/methods/wrappers.js:9:14
+ ❯ src/db/migrate.ts:40:10
+     38|     if (applied.has(file)) continue
+     39|     db.transaction(() => {
+     40|       db.exec(readFileSync(join(migrationsDir, file), 'utf8'))
+       |          ^
+     41|       record.run(file, Date.now())
+     42|       db.pragma(`user_version = ${versionOf(file)}`)
+ ❯ sqliteTransaction ../../node_modules/better-sqlite3/lib/methods/transaction.js:65:24
+ ❯ migrate src/db/migrate.ts:43:6
+ ❯ tests/migrate.test.ts:59:5
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 58 passed | 4 skipped (63)
+      Tests  1 failed | 498 passed | 24 skipped (523)
+   Start at  01:00:02
+   Duration  19.39s (transform 3.89s, setup 0ms, import 16.85s, tests 117.03s, environment 3ms)
+
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /Users/nessa/Documents/Codex/2026-11-02/hey-can-you-update-the-nessa/work/org-docs/canopy/packages/daemon
+npm error workspace @canopy/daemon@0.1.0
+npm error location /Users/nessa/Documents/Codex/2026-11-02/hey-can-you-update-the-nessa/work/org-docs/canopy/packages/daemon
+npm error command failed
+npm error command sh -c vitest run
+
+
+> @canopy/shared@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /Users/nessa/Documents/Codex/2026-11-02/hey-can-you-update-the-nessa/work/org-docs/canopy/packages/shared
+
+
+ Test Files  8 passed (8)
+      Tests  93 passed (93)
+   Start at  01:00:22
+   Duration  290ms (transform 553ms, setup 0ms, import 851ms, tests 59ms, environment 0ms)
+
+
+> @canopy/ui@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.11 /Users/nessa/Documents/Codex/2026-11-02/hey-can-you-update-the-nessa/work/org-docs/canopy/packages/ui
+
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+Not implemented: HTMLCanvasElement's getContext() method: without installing the canvas npm package
+
+ Test Files  58 passed (58)
+      Tests  359 passed (359)
+   Start at  01:00:22
+   Duration  3.61s (transform 5.88s, setup 0ms, import 16.95s, tests 1.50s, environment 5.29s)
+

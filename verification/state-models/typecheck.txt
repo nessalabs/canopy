@@ -1,0 +1,32 @@
+
+> canopy@0.1.0 typecheck
+> npm run typecheck --workspaces --if-present
+
+
+> @canopy/daemon@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
+
+> @canopy/shared@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
+
+> @canopy/ui@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
+
+> @canopy/desktop@0.1.0 typecheck
+> npm run typecheck:node && npm run typecheck:web
+
+
+> @canopy/desktop@0.1.0 typecheck:node
+> tsc --noEmit -p tsconfig.node.json --composite false
+
+
+> @canopy/desktop@0.1.0 typecheck:web
+> tsc --noEmit -p tsconfig.web.json --composite false
+
+
+> @canopy/web@0.1.0 typecheck
+> tsc --noEmit -p tsconfig.json
+
