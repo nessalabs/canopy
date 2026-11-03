@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "browser": "156.0.8078.80",
+  "viewport": {
+    "width": 1440,
+    "height": 1000
+  },
+  "pages": 17,
+  "diagrams": 6,
+  "errors": [],
+  "results": [
+    {
+      "id": "canopy",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "agents",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "changes",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "connection",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "desktop",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "destruction",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "edits",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "github",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "inventory",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "permissions",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "provisioning",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "resources",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "reviews",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "services",
+      "figures": 1,
+      "failed": 0
+    },
+    {
+      "id": "terminals",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "verification",
+      "figures": 0,
+      "failed": 0
+    },
+    {
+      "id": "worktrees",
+      "figures": 0,
+      "failed": 0
+    }
+  ]
+}

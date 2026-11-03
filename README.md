@@ -6,6 +6,10 @@ dashboard) talk to it over REST + SSE, and the worktrees themselves are made by 
 binary from [nessalabs/canopyd](https://github.com/nessalabs/canopyd), the Rust worktree manager
 that shares the name.
 
+## Behavior and verification
+
+[The state atlas](docs/state/README.md) maps feature owners, partial results and recovery decisions. [Current verification](docs/state/verification.md) records local checks, bounded models and the known baseline test failure.
+
 ## Layout
 
 ```

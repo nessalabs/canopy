@@ -1,0 +1,217 @@
+{
+  "ok": true,
+  "checker": "tlc-1.7.4",
+  "date": "2026-11-03T09:09:30.229Z",
+  "models": 4,
+  "baselines": [
+    {
+      "document": "changes",
+      "state": "passed",
+      "states": 11,
+      "modelDigest": "0660f58696ef00ab0841b425a2fea1d0261f331f83e04969cdb3700712f78b13",
+      "sourceRevision": "b8d983c7b7b0221adb6d702207773f3a6c1752bd",
+      "checker": "tlc-1.7.4",
+      "date": "2026-11-03T09:09:17.353Z",
+      "held": ["CurrentPatchOnly", "PreserveUnrepresentedIndex"]
+    },
+    {
+      "document": "permissions",
+      "state": "passed",
+      "states": 24,
+      "modelDigest": "e2bcc45eb804cdb7017bb4aca62fcdc9d063335d30f7b6ab47e4bd12193479ba",
+      "sourceRevision": "b8d983c7b7b0221adb6d702207773f3a6c1752bd",
+      "checker": "tlc-1.7.4",
+      "date": "2026-11-03T09:09:18.059Z",
+      "held": ["CurrentRequestOnly", "ForcedAskRequiresReply"]
+    },
+    {
+      "document": "provisioning",
+      "state": "passed",
+      "states": 8,
+      "modelDigest": "ccecf02ec3b67a132d21619cdde72d9564d6071c51f5de0c5c8c0593f5272cc9",
+      "sourceRevision": "b8d983c7b7b0221adb6d702207773f3a6c1752bd",
+      "checker": "tlc-1.7.4",
+      "date": "2026-11-03T09:09:18.724Z",
+      "held": ["NoStageAfterFailure", "NoStageAfterObservedAbort"]
+    },
+    {
+      "document": "services",
+      "state": "passed",
+      "states": 14,
+      "modelDigest": "12a53c9501a77b92867a8410a17a823a24ff22b560586d4eea4913f8b9c8e4fc",
+      "sourceRevision": "b8d983c7b7b0221adb6d702207773f3a6c1752bd",
+      "checker": "tlc-1.7.4",
+      "date": "2026-11-03T09:09:19.407Z",
+      "held": ["CurrentCallbackOnly", "NoDisposedPublish"]
+    }
+  ],
+  "probes": 8,
+  "completed": 8,
+  "results": [
+    {
+      "document": "permissions",
+      "name": "foreign-request",
+      "ok": true,
+      "state": "broke",
+      "expected": ["CurrentRequestOnly"],
+      "broke": ["CurrentRequestOnly"],
+      "unchecked": [],
+      "counterexamples": [
+        {
+          "rule": "CurrentRequestOnly",
+          "path": [
+            "Start with offered is 2, pending is TRUE, forced is FALSE, automatic is FALSE, current is 1, allowed is FALSE, accepted is 0.",
+            "Reply: offered is 2, pending is FALSE, forced is FALSE, automatic is FALSE, current is 1, allowed is TRUE, accepted is 2."
+          ],
+          "states": []
+        }
+      ],
+      "modelDigest": "b1d1b3ef7d3c5452191df74ef485f6597754e5eea6ff0a417a4ad50f5099ee37"
+    },
+    {
+      "document": "permissions",
+      "name": "autoallow-forced",
+      "ok": true,
+      "state": "broke",
+      "expected": ["ForcedAskRequiresReply"],
+      "broke": ["ForcedAskRequiresReply"],
+      "unchecked": [],
+      "counterexamples": [
+        {
+          "rule": "ForcedAskRequiresReply",
+          "path": [
+            "Start with offered is 1, pending is TRUE, forced is TRUE, automatic is FALSE, current is 1, allowed is FALSE, accepted is 0.",
+            "AutoAllow: offered is 1, pending is FALSE, forced is TRUE, automatic is TRUE, current is 1, allowed is TRUE, accepted is 1."
+          ],
+          "states": []
+        }
+      ],
+      "modelDigest": "50c5a17f192be2463085419f03c4c26c989af9467bf600370397660e8b244415"
+    },
+    {
+      "document": "services",
+      "name": "old-health-result",
+      "ok": true,
+      "state": "broke",
+      "expected": ["CurrentCallbackOnly"],
+      "broke": ["CurrentCallbackOnly"],
+      "unchecked": [],
+      "counterexamples": [
+        {
+          "rule": "CurrentCallbackOnly",
+          "path": [
+            "Start with offered is 1, atGeneration is 0, generation is 1, published is FALSE, wasDisposed is FALSE, accepted is 0, disposed is FALSE.",
+            "Replace: offered is 1, atGeneration is 0, generation is 2, published is FALSE, wasDisposed is FALSE, accepted is 0, disposed is FALSE.",
+            "HealthReply: offered is 1, atGeneration is 2, generation is 2, published is TRUE, wasDisposed is FALSE, accepted is 1, disposed is FALSE."
+          ],
+          "states": []
+        }
+      ],
+      "modelDigest": "a4e14472c4eac1adc7cebf2be03680d07a349f6d3b9821258f10a5ffcbc5c872"
+    },
+    {
+      "document": "services",
+      "name": "disposed-health-result",
+      "ok": true,
+      "state": "broke",
+      "expected": ["NoDisposedPublish"],
+      "broke": ["NoDisposedPublish"],
+      "unchecked": [],
+      "counterexamples": [
+        {
+          "rule": "NoDisposedPublish",
+          "path": [
+            "Start with offered is 1, atGeneration is 0, generation is 1, published is FALSE, wasDisposed is FALSE, accepted is 0, disposed is FALSE.",
+            "Dispose: offered is 1, atGeneration is 0, generation is 1, published is FALSE, wasDisposed is FALSE, accepted is 0, disposed is TRUE.",
+            "HealthReply: offered is 1, atGeneration is 1, generation is 1, published is TRUE, wasDisposed is TRUE, accepted is 1, disposed is TRUE."
+          ],
+          "states": []
+        }
+      ],
+      "modelDigest": "00b67310c842848cdb58e4a77aee5b54c1782aaf2b61174c9c28aee00ed6262c"
+    },
+    {
+      "document": "changes",
+      "name": "stale-hunk-selection",
+      "ok": true,
+      "state": "broke",
+      "expected": ["CurrentPatchOnly"],
+      "broke": ["CurrentPatchOnly"],
+      "unchecked": [],
+      "counterexamples": [
+        {
+          "rule": "CurrentPatchOnly",
+          "path": [
+            "Start with offered is 2, wrote is FALSE, representable is TRUE, current is 1, accepted is 0, atRepresentable is TRUE, atPatch is 0.",
+            "Apply: offered is 2, wrote is TRUE, representable is TRUE, current is 1, accepted is 2, atRepresentable is TRUE, atPatch is 1."
+          ],
+          "states": []
+        }
+      ],
+      "modelDigest": "f07355feb663034484165310c9a391b824c0521d750584cf3a5be348f020f23d"
+    },
+    {
+      "document": "changes",
+      "name": "discard-unrepresented-index",
+      "ok": true,
+      "state": "broke",
+      "expected": ["PreserveUnrepresentedIndex"],
+      "broke": ["PreserveUnrepresentedIndex"],
+      "unchecked": [],
+      "counterexamples": [
+        {
+          "rule": "PreserveUnrepresentedIndex",
+          "path": [
+            "Start with offered is 1, wrote is FALSE, representable is FALSE, current is 1, accepted is 0, atRepresentable is TRUE, atPatch is 0.",
+            "Apply: offered is 1, wrote is TRUE, representable is FALSE, current is 1, accepted is 1, atRepresentable is FALSE, atPatch is 1."
+          ],
+          "states": []
+        }
+      ],
+      "modelDigest": "c201076f9a89fdcd3805f8e5c8d00d6ee6573f526b12b11a3b9450cd3f935ff9"
+    },
+    {
+      "document": "provisioning",
+      "name": "continue-after-failure",
+      "ok": true,
+      "state": "broke",
+      "expected": ["NoStageAfterFailure"],
+      "broke": ["NoStageAfterFailure"],
+      "unchecked": [],
+      "counterexamples": [
+        {
+          "rule": "NoStageAfterFailure",
+          "path": [
+            "Start with hadAbort is FALSE, aborted is FALSE, phase is First, startedSecond is FALSE, hadFailure is FALSE, failed is FALSE.",
+            "FirstFails: hadAbort is FALSE, aborted is FALSE, phase is Between, startedSecond is FALSE, hadFailure is FALSE, failed is TRUE.",
+            "StartSecond: hadAbort is FALSE, aborted is FALSE, phase is Second, startedSecond is TRUE, hadFailure is TRUE, failed is TRUE."
+          ],
+          "states": []
+        }
+      ],
+      "modelDigest": "445a055146e0edb578002b506612e2b5ee343bc4867d8cf36c2dc90285ebacaf"
+    },
+    {
+      "document": "provisioning",
+      "name": "ignore-observed-abort",
+      "ok": true,
+      "state": "broke",
+      "expected": ["NoStageAfterObservedAbort"],
+      "broke": ["NoStageAfterObservedAbort"],
+      "unchecked": [],
+      "counterexamples": [
+        {
+          "rule": "NoStageAfterObservedAbort",
+          "path": [
+            "Start with hadAbort is FALSE, aborted is FALSE, phase is First, startedSecond is FALSE, hadFailure is FALSE, failed is FALSE.",
+            "FirstDone: hadAbort is FALSE, aborted is FALSE, phase is Between, startedSecond is FALSE, hadFailure is FALSE, failed is FALSE.",
+            "Abort: hadAbort is FALSE, aborted is TRUE, phase is Between, startedSecond is FALSE, hadFailure is FALSE, failed is FALSE.",
+            "StartSecond: hadAbort is TRUE, aborted is TRUE, phase is Second, startedSecond is TRUE, hadFailure is FALSE, failed is FALSE."
+          ],
+          "states": []
+        }
+      ],
+      "modelDigest": "c178b36106a2e2b447afd461bd98a2837d93967608f753c8f05ddd10d8679911"
+    }
+  ]
+}
