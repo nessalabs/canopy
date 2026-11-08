@@ -75,16 +75,16 @@ export function ImagePreview({ worktreeId, path, rev }: FileProps): React.JSX.El
 /**
  * Which blob each side of a diff reads. The after side is the one the non-diff views read
  * (see `revOf` in the content pane); the before side is its parent: the commit's first parent,
- * the earlier snapshot tree, or the revision the working tree is compared against. For a
- * vs-base diff that revision is the merge base, which only the changes listing knows, so it is
- * read from there — the listing is already in the cache whenever the pane is open.
+ * the earlier snapshot tree, or the revision the working tree is compared against. That last
+ * one is taken from the changes listing as the commit it resolved to, never as `HEAD`: a blob
+ * read is cached by its revision for good, so the name would keep showing the old parent
+ * after a commit moved it. The listing is already in the cache whenever the pane is open.
  */
 function useSides(worktreeId: string, spec: DiffSpec): { before: string | undefined; after: string | undefined } {
-  const needsListing = spec.kind === 'worktree' && spec.against === 'base'
-  const changes = useDiffFiles(worktreeId, spec, needsListing)
+  const changes = useDiffFiles(worktreeId, spec, spec.kind === 'worktree')
   if (spec.kind === 'commit') return { before: `${spec.sha}^`, after: spec.sha }
   if (spec.kind === 'trees') return { before: spec.before, after: spec.after }
-  return { before: spec.against === 'head' ? 'HEAD' : (changes.data as ChangesResponse | undefined)?.rev, after: undefined }
+  return { before: (changes.data as ChangesResponse | undefined)?.rev, after: undefined }
 }
 
 /**
