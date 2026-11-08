@@ -23,6 +23,15 @@ const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown', 'mdown', 'mkd', 'mdx'])
 /** Whether a path holds markdown, and so should open rendered rather than as source. */
 export const isMarkdownPath = (path: string): boolean => MARKDOWN_EXTENSIONS.has(extensionOfPath(path))
 
+/** Extensions a browser can draw in an `<img>`; the daemon types each of them for the raw read. */
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg'])
+
+/** Whether a path holds an image, and so should be shown rather than described as binary. */
+export const isImagePath = (path: string): boolean => IMAGE_EXTENSIONS.has(extensionOfPath(path))
+
+/** An SVG is an image with a text source too: it is the one image the source view has anything to show for. */
+export const isSvgPath = (path: string): boolean => extensionOfPath(path) === 'svg'
+
 /**
  * The grammars a set of changed files needs, deduped and in a stable order. Shiki resolves a
  * grammar the first time it highlights one, so knowing the whole set up front is what lets the

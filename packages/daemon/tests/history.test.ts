@@ -1,10 +1,13 @@
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { routes, type ChangedFile } from '@canopy/shared'
 
 import { FILE_CAP_BYTES, PATCH_CAP_BYTES } from '../src/git/diff'
 import { UNSTAGED } from '../src/git/parse'
-import { repoPath } from '../src/worktrees/history'
+import { RAW_CAP_BYTES, repoPath } from '../src/worktrees/history'
 import { createFixtureRepo, type FixtureRepo } from './helpers/fixture-repo'
 import { createTestServer, type TestServer } from './helpers/test-server'
 
@@ -50,6 +53,34 @@ describe('changes and history', () => {
     repo.write({ 'big.txt': 'x'.repeat(FILE_CAP_BYTES + 1), 'bin.dat': 'a\0b' })
     expect((await server.call('GET', `${routes.file(worktreeId)}?path=big.txt`)).body).toMatchObject({ content: null, truncated: true })
     expect((await server.call('GET', `${routes.file(worktreeId)}?path=bin.dat`)).body).toMatchObject({ content: null, binary: true, size: 3 })
+  })
+
+  it('serves a file as typed bytes, from the working tree or at a revision', async () => {
+    // A PNG header followed by a NUL: bytes a text read would refuse and a utf8 decode would mangle.
+    const first = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff, 0xfe])
+    const second = Buffer.concat([first, Buffer.from([0x01, 0x02])])
+    writeFileSync(join(repo.path, 'pic.png'), first)
+    await repo.git('add', 'pic.png')
+    await repo.git('commit', '-q', '-m', 'pic')
+    const sha = (await repo.git('rev-parse', 'HEAD')).trim()
+    writeFileSync(join(repo.path, 'pic.png'), second)
+
+    const now = await server.call('GET', `${routes.fileRaw(worktreeId)}?path=pic.png`)
+    expect(now.status).toBe(200)
+    expect(now.headers['content-type']).toBe('image/png')
+    expect(now.headers['cache-control']).toBe('no-cache')
+    expect(Buffer.compare(now.raw, second)).toBe(0)
+
+    const then = await server.call('GET', `${routes.fileRaw(worktreeId)}?path=pic.png&rev=${sha}`)
+    expect(then.headers['cache-control']).toContain('immutable')
+    expect(Buffer.compare(then.raw, first)).toBe(0)
+
+    expect((await server.call('GET', `${routes.fileRaw(worktreeId)}?path=nope.png`)).status).toBe(404)
+    expect((await server.call('GET', `${routes.fileRaw(worktreeId)}?path=pic.png&rev=${sha}^`)).status).toBe(404)
+    expect((await server.call('GET', `${routes.fileRaw(worktreeId)}?path=../etc/passwd`)).status).toBe(400)
+    expect((await server.call('GET', `${routes.fileRaw(worktreeId)}?path=a.txt`)).headers['content-type']).toBe('application/octet-stream')
+    writeFileSync(join(repo.path, 'huge.png'), Buffer.alloc(RAW_CAP_BYTES + 1))
+    expect((await server.call('GET', `${routes.fileRaw(worktreeId)}?path=huge.png`)).status).toBe(413)
   })
 
   it('rejects paths that leave the worktree', async () => {

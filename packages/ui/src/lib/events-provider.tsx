@@ -130,7 +130,10 @@ function applyEvent(queryClient: QueryClient, samples: SampleStore, event: Canop
       if (event.git) void queryClient.invalidateQueries({ queryKey: keys.log(id) })
       if (event.paths.length === 0) return
       const paths = new Set(event.paths)
-      for (const path of paths) void queryClient.invalidateQueries({ queryKey: keys.fileContents(id, path) })
+      for (const path of paths) {
+        void queryClient.invalidateQueries({ queryKey: keys.fileContents(id, path) })
+        void queryClient.invalidateQueries({ queryKey: keys.fileBlob(id, path) })
+      }
       void queryClient.invalidateQueries({ predicate: (query) => query.queryKey[0] === 'file-patch' && query.queryKey[1] === id && paths.has(query.queryKey[3] as string) })
       // A save may be a create or a delete; the listings are cheap to read again.
       void queryClient.invalidateQueries({ queryKey: keys.worktreeFiles(id) })

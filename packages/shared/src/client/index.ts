@@ -214,6 +214,15 @@ export function createClient({ baseUrl, token, fetch: fetchImpl = fetch }: Clien
     worktreeFiles: (worktreeId: string) => get<{ paths: string[]; truncated: boolean }>(routes.files(worktreeId)),
     /** A file's contents from the working tree, or from `rev` when given. */
     fileContents: (worktreeId: string, path: string, rev?: string) => get<FileContents>(routes.file(worktreeId), { path, rev }),
+    /**
+     * The file's bytes, typed by its extension. Fetched with the bearer header like everything
+     * else, so an `<img>` shows it through an object URL and the token never lands in a `src`.
+     */
+    fileBlob: async (worktreeId: string, path: string, rev?: string): Promise<Blob> => {
+      const response = await fetchImpl(`${base}${withQuery(routes.fileRaw(worktreeId), { path, rev })}`, { headers: { authorization: `Bearer ${token}` } })
+      if (!response.ok) throw await toApiError(response)
+      return response.blob()
+    },
     log: (worktreeId: string, limit: number, skip: number) => get<LogResponse>(routes.log(worktreeId), { limit, skip }),
 
     /** Stage/unstage a batch of paths; the answer is the whole refreshed list, so no refetch. */

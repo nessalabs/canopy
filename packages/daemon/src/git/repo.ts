@@ -67,6 +67,8 @@ export interface Repo {
   lsFiles(cwd: string, dir: string): Promise<string[]>
   /** A file's blob at `rev`, or null when it does not exist there. */
   showFile(cwd: string, rev: string, path: string): Promise<string | null>
+  /** The same blob as bytes, for content that is not text: an image, say. */
+  showBlob(cwd: string, rev: string, path: string): Promise<Buffer | null>
   worktreeAdd(repo: string, path: string, branch: { mode: 'new'; name: string; base: string } | { mode: 'existing'; name: string }): Promise<void>
   worktreeRemove(repo: string, path: string, force: boolean): Promise<void>
   /**
@@ -243,6 +245,12 @@ export function createRepo(run: GitRunner): Repo {
 
     async showFile(cwd, rev, path) {
       return tryRun(cwd, ['show', `${rev}:${path}`])
+    },
+
+    async showBlob(cwd, rev, path) {
+      // latin1 is the runner's byte-for-byte encoding, so decoding it again hands back the blob as git holds it.
+      const out = await run(cwd, ['show', `${rev}:${path}`], { binary: true }).catch(() => null)
+      return out === null ? null : Buffer.from(out, 'latin1')
     },
 
     async statusEntries(cwd) {

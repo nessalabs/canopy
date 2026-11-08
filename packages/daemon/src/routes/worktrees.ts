@@ -66,6 +66,15 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
     return history.file(id, path, rev)
   })
 
+  app.get(routes.fileRaw(':id'), async (request, reply) => {
+    const { path, rev } = PathQuery.merge(RevQuery).parse(request.query)
+    const { id } = IdParams.parse(request.params)
+    if (rev === undefined) watch.ensure(id)
+    const { bytes, type } = await history.fileRaw(id, path, rev)
+    // A blob at a commit never changes; a working-tree file is re-read on the next look.
+    return reply.type(type).header('cache-control', rev === undefined ? 'no-cache' : 'private, max-age=31536000, immutable').send(bytes)
+  })
+
   app.get(routes.log(':id'), async (request) => {
     const { limit, skip } = PageQuery.parse(request.query)
     return history.log(IdParams.parse(request.params).id, limit, skip)

@@ -41,6 +41,8 @@ export const routes = {
   /** Every file in the worktree, flat — what the open-anything picker searches. */
   files: (id: string) => `${API_PREFIX}/worktrees/${id}/files`,
   file: (id: string) => `${API_PREFIX}/worktrees/${id}/file`,
+  /** The same file as bytes with a content type (`?path=&rev=`), for showing an image rather than describing it. */
+  fileRaw: (id: string) => `${API_PREFIX}/worktrees/${id}/file/raw`,
   log: (id: string) => `${API_PREFIX}/worktrees/${id}/log`,
   commit: (id: string, sha: string) => `${API_PREFIX}/worktrees/${id}/commits/${sha}`,
   commitFile: (id: string, sha: string) => `${API_PREFIX}/worktrees/${id}/commits/${sha}/file`,
