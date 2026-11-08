@@ -13,7 +13,7 @@ import { DiffStat, FileDiffPath } from '@/components/ui/file-diff-list'
 import { SegmentedControl, SegmentedControlOption } from '@/components/ui/segmented-control'
 import { useFilePatch } from '@/lib/api-hooks'
 import type { LineRange } from '@/lib/file-refs'
-import { isMarkdownPath } from '@/lib/language'
+import { isImagePath, isMarkdownPath, isSvgPath } from '@/lib/language'
 import { lineAt, slicePatch } from '@/lib/patch'
 import { fileWindowHash } from '@/lib/pop-out'
 import { usePlatform } from '@/providers/platform'
@@ -21,8 +21,15 @@ import { FILE_STATUS_LABEL } from '@/lib/status'
 
 import { FileViewer, MarkdownDiff, MarkdownPreview, type OpenPath } from './file-viewer'
 import { HunkCards } from './hunk-cards'
+import { ImageDiff, ImagePreview } from './image-viewer'
 
 type View = 'diff' | 'hunks' | 'file'
+
+/** What a file shows instead of its source: prose for markdown, the picture for an image, or nothing but the source. */
+type Rendering = 'markdown' | 'image' | false
+
+/** How a path reads when it is not shown as source. */
+const renderingOf = (path: string): Rendering => (isMarkdownPath(path) ? 'markdown' : isImagePath(path) ? 'image' : false)
 
 /** How a pane was reached, and where its own links lead: shared by the changed-file and loose panes. */
 interface Navigation {
@@ -105,22 +112,29 @@ function FileBody({ worktreeId, spec, file, anchor, onOpenPath }: Props): React.
   return <FileViewer worktreeId={worktreeId} path={file.path} rev={revOf(spec)} anchor={anchor} patch={patch.data?.patch ?? undefined} onOpenPath={onOpenPath} />
 }
 
-/** Each view is one component; the tabs pick the row of this table, the toggle picks the column. */
-const BODY: Record<View, (props: Props, rendered: boolean) => React.JSX.Element> = {
-  diff: (props, rendered) => (rendered ? <RenderedDiffBody {...props} /> : <DiffBody {...props} />),
+/** Each view is one component; the tabs pick the row of this table, the rendering picks the column. */
+const BODY: Record<View, (props: Props, rendering: Rendering) => React.JSX.Element> = {
+  diff: (props, rendering) => (rendering === 'markdown' ? <RenderedDiffBody {...props} /> : rendering === 'image' ? <ImageDiff worktreeId={props.worktreeId} spec={props.spec} file={props.file} /> : <DiffBody {...props} />),
   hunks: (props) => <HunksBody {...props} />,
-  file: (props, rendered) =>
-    rendered ? <MarkdownPreview worktreeId={props.worktreeId} path={props.file.path} rev={revOf(props.spec)} anchor={props.anchor} onOpenPath={props.onOpenPath} /> : <FileBody {...props} />
+  file: (props, rendering) =>
+    rendering === 'markdown' ? (
+      <MarkdownPreview worktreeId={props.worktreeId} path={props.file.path} rev={revOf(props.spec)} anchor={props.anchor} onOpenPath={props.onOpenPath} />
+    ) : rendering === 'image' ? (
+      <ImagePreview worktreeId={props.worktreeId} path={props.file.path} rev={revOf(props.spec)} />
+    ) : (
+      <FileBody {...props} />
+    )
 }
 
 /**
  * Markdown reads as prose everywhere it can — a rendered diff in the Diff tab, the rendered doc
- * in File — and this drops to the source of whichever one is showing. Every other file type only
- * ever has source, so the toggle is not offered.
+ * in File — and this drops to the source of whichever one is showing. An SVG is the one image
+ * with a source worth reading, so it gets the same toggle; every other file type only ever has
+ * one form, and the toggle is not offered.
  */
-function RawToggle({ raw, onToggle }: { raw: boolean; onToggle: () => void }): React.JSX.Element {
+function RawToggle({ raw, what, onToggle }: { raw: boolean; what: 'markdown' | 'image'; onToggle: () => void }): React.JSX.Element {
   return (
-    <IconAction label={raw ? 'Show the rendered markdown' : 'Show the raw markdown'} pressed={raw} onClick={onToggle}>
+    <IconAction label={raw ? `Show the rendered ${what}` : `Show the ${what === 'markdown' ? 'raw markdown' : 'svg source'}`} pressed={raw} onClick={onToggle}>
       {raw ? <Eye aria-hidden className="size-3.5" /> : <Code2 aria-hidden className="size-3.5" />}
     </IconAction>
   )
@@ -180,9 +194,13 @@ export function ContentPane(props: Props): React.JSX.Element {
   }, [props.focusLines, patchText])
   const view = picked ?? 'diff'
   const resolved: View = (view === 'hunks' && !canHunks) || (view === 'file' && !canView) ? 'diff' : view
-  // A deleted file has no blob left to render, and hunk picking is line work by definition.
-  const markdown = canView && !file.binary && isMarkdownPath(file.path)
-  const canRender = markdown && resolved !== 'hunks'
+  // Hunk picking is line work by definition. A deleted doc has no blob left to render, but a
+  // deleted image still has its before side to show, which is the whole diff.
+  const kind = renderingOf(file.path)
+  const rendering: Rendering = resolved === 'hunks' || (kind === 'markdown' && (!canView || file.binary)) ? false : kind
+  // Only a form with a source behind it can be toggled to that source: prose, or an svg.
+  const canToggle = rendering === 'markdown' || (rendering === 'image' && isSvgPath(file.path))
+  const shown: Rendering = canToggle && raw ? false : rendering
 
   return (
     // A diagram in this file expands to fill the pane, not the window: the doc it belongs to
@@ -201,10 +219,10 @@ export function ContentPane(props: Props): React.JSX.Element {
             File
           </SegmentedControlOption>
         </SegmentedControl>
-        {canRender ? <RawToggle raw={raw} onToggle={() => setRaw(!raw)} /> : null}
+        {canToggle ? <RawToggle raw={raw} what={rendering as 'markdown' | 'image'} onToggle={() => setRaw(!raw)} /> : null}
       </PaneHeader>
-      <div key={`${resolved}:${canRender && !raw}:${file.path}`} className="min-h-0 flex-1 overflow-auto">
-        {BODY[resolved](props, canRender && !raw)}
+      <div key={`${resolved}:${shown}:${file.path}`} className="min-h-0 flex-1 overflow-auto">
+        {BODY[resolved](props, shown)}
       </div>
     </div>
   )
@@ -226,9 +244,10 @@ export function FilePane({ worktreeId, path, rev, badge, actions, className, dra
   dragPaneId?: string
 } & Navigation): React.JSX.Element {
   const [raw, setRaw] = useState(false)
-  // Markdown opens rendered, the way it opens in the diff pane; anything else has only source.
-  const markdown = isMarkdownPath(path)
-  const rendered = markdown && !raw
+  // Markdown opens rendered and an image shown, the way they open in the diff pane; anything else has only source.
+  const kind = renderingOf(path)
+  const canToggle = kind === 'markdown' || (kind === 'image' && isSvgPath(path))
+  const shown: Rendering = canToggle && raw ? false : kind
 
   return (
     <div data-diagram-surface data-file-path={path} className={cn('relative flex h-full min-h-0 flex-col', className)}>
@@ -238,13 +257,15 @@ export function FilePane({ worktreeId, path, rev, badge, actions, className, dra
             {badge}
           </Badge>
         ) : null}
-        {markdown ? <RawToggle raw={raw} onToggle={() => setRaw(!raw)} /> : null}
+        {canToggle ? <RawToggle raw={raw} what={kind as 'markdown' | 'image'} onToggle={() => setRaw(!raw)} /> : null}
         <OpenInWindow worktreeId={worktreeId} path={path} rev={rev} />
         {actions}
       </PaneHeader>
       <div className="min-h-0 flex-1 overflow-auto">
-        {rendered ? (
+        {shown === 'markdown' ? (
           <MarkdownPreview key={path} worktreeId={worktreeId} path={path} rev={rev} anchor={anchor} onOpenPath={onOpenPath} />
+        ) : shown === 'image' ? (
+          <ImagePreview key={path} worktreeId={worktreeId} path={path} rev={rev} />
         ) : (
           <FileViewer key={path} worktreeId={worktreeId} path={path} rev={rev} anchor={anchor} onOpenPath={onOpenPath} />
         )}

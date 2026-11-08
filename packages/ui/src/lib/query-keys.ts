@@ -15,6 +15,8 @@ export const keys = {
   tree: (worktreeId: string, dir: string) => ['tree', worktreeId, dir] as const,
   worktreeFiles: (worktreeId: string) => ['worktree-files', worktreeId] as const,
   fileContents: (worktreeId: string, path: string, rev?: string) => ['file', worktreeId, rev ?? 'worktree', path] as const,
+  /** The same file as bytes, for an image shown in the pane. */
+  fileBlob: (worktreeId: string, path: string, rev?: string) => ['file-blob', worktreeId, rev ?? 'worktree', path] as const,
   log: (worktreeId: string) => ['log', worktreeId] as const,
   comments: (worktreeId: string) => ['comments', worktreeId] as const,
   /** Which hunks of one file are in the index; only read while that file's hunk view is open. */

@@ -12,11 +12,14 @@ import { worktreeChanges } from '../commit/status'
 import { toFileContents, type DiffReader, type ResolvedDiffSpec } from '../git/diff'
 import { childrenOf } from '../git/parse'
 import type { Repo } from '../git/repo'
-import { badRequest, notFound } from '../lib/errors'
+import { contentTypeOf } from '../lib/content-type'
+import { ApiError, badRequest, notFound } from '../lib/errors'
 import type { WorktreesService } from './service'
 
 /** How many paths the flat file list hands a client at most. */
 const FILE_LIST_LIMIT = 20_000
+/** Bytes the raw read hands over at most: room for any screenshot, not for a video. */
+export const RAW_CAP_BYTES = 20 * 1024 * 1024
 
 /** git's well-known empty tree: what an unborn branch is diffed against. */
 export const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -140,6 +143,20 @@ export class HistoryService {
     const raw = rev ? await this.deps.repo.showFile(cwd, rev, path) : await readFile(join(cwd, path), 'utf8').catch(() => null)
     if (raw === null) throw notFound('file', path)
     return toFileContents(path, raw)
+  }
+
+  /**
+   * The same file as bytes, for a client that wants to show it rather than read it: an image in
+   * the diff pane. Capped so a photo dropped into a repo is shown but a video is not pulled
+   * through the daemon.
+   */
+  async fileRaw(worktreeId: string, file: string, rev?: string): Promise<{ bytes: Buffer; type: string }> {
+    const path = repoPath(file)
+    const cwd = this.deps.worktrees.location(worktreeId).path
+    const bytes = rev ? await this.deps.repo.showBlob(cwd, rev, path) : await readFile(join(cwd, path)).catch(() => null)
+    if (bytes === null) throw notFound('file', path)
+    if (bytes.length > RAW_CAP_BYTES) throw new ApiError(413, 'file_too_large', `${path} is over ${RAW_CAP_BYTES / (1024 * 1024)} MiB`)
+    return { bytes, type: contentTypeOf(path) }
   }
 
   async log(worktreeId: string, limit: number, skip: number): Promise<LogResponse> {

@@ -152,6 +152,18 @@ export const useFileContents = (worktreeId: string, path: string, rev: string | 
   })
 }
 
+/** A file's bytes, for showing an image: cached the way `useFileContents` is, and refreshed by the same file events. */
+export const useFileBlob = (worktreeId: string, path: string, rev: string | undefined, enabled: boolean) => {
+  const api = useApi()
+  return useQuery({
+    queryKey: keys.fileBlob(worktreeId, path, rev),
+    queryFn: () => api.fileBlob(worktreeId, path, rev),
+    enabled,
+    staleTime: rev === undefined ? FILE_STALE_MS : Infinity,
+    notifyOnChangeProps: ['data', 'error', 'isPending']
+  })
+}
+
 /** Reads a working-tree file into the cache ahead of a click, so opening it finds it there. */
 export const usePrefetchFileContents = (worktreeId: string) => {
   const api = useApi()

@@ -39,7 +39,7 @@ export interface TestServer {
   events: EventBus
   home: string
   /** Authenticated inject; JSON bodies encoded, JSON responses decoded. */
-  call<T = any>(method: InjectOptions['method'], url: string, body?: unknown): Promise<{ status: number; body: T; text: string }>
+  call<T = any>(method: InjectOptions['method'], url: string, body?: unknown): Promise<{ status: number; body: T; text: string; raw: Buffer; headers: Record<string, unknown> }>
   close(): Promise<void>
 }
 
@@ -81,7 +81,7 @@ export async function createTestServer(opts: { worktreeBackend?: WorktreeBackend
       } catch {
         parsed = undefined
       }
-      return { status: response.statusCode, body: parsed as never, text }
+      return { status: response.statusCode, body: parsed as never, text, raw: response.rawPayload, headers: response.headers }
     },
     async close() {
       await app.close()
