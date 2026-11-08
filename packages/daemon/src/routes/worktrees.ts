@@ -71,8 +71,10 @@ export function registerWorktreeRoutes(app: FastifyInstance, { worktrees, histor
     const { id } = IdParams.parse(request.params)
     if (rev === undefined) watch.ensure(id)
     const { bytes, type } = await history.fileRaw(id, path, rev)
-    // A blob at a commit never changes; a working-tree file is re-read on the next look.
-    return reply.type(type).header('cache-control', rev === undefined ? 'no-cache' : 'private, max-age=31536000, immutable').send(bytes)
+    // A blob named by its commit never changes. One named by a ref (`HEAD`, a branch) moves
+    // with it, and a working-tree file with every save: both are re-read on the next look.
+    const pinned = rev !== undefined && /^[0-9a-f]{40}(\^|~\d*)*$/.test(rev)
+    return reply.type(type).header('cache-control', pinned ? 'private, max-age=31536000, immutable' : 'no-cache').send(bytes)
   })
 
   app.get(routes.log(':id'), async (request) => {

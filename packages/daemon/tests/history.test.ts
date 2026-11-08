@@ -74,6 +74,8 @@ describe('changes and history', () => {
     const then = await server.call('GET', `${routes.fileRaw(worktreeId)}?path=pic.png&rev=${sha}`)
     expect(then.headers['cache-control']).toContain('immutable')
     expect(Buffer.compare(then.raw, first)).toBe(0)
+    // A ref name moves with the branch, so a browser must not keep what it answered with.
+    expect((await server.call('GET', `${routes.fileRaw(worktreeId)}?path=pic.png&rev=HEAD`)).headers['cache-control']).toBe('no-cache')
 
     expect((await server.call('GET', `${routes.fileRaw(worktreeId)}?path=nope.png`)).status).toBe(404)
     expect((await server.call('GET', `${routes.fileRaw(worktreeId)}?path=pic.png&rev=${sha}^`)).status).toBe(404)
