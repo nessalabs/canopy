@@ -12,7 +12,8 @@ const READER = `The person reading your boards does not know this codebase and w
 const WORK = `Do the reading yourself, in this turn — no subagents or background tasks — and draw before you reply. A board is the answer; a reply without one leaves the reader with nothing.`
 
 const WRITING = `# Writing for the reader
-- story (every board): two to five short paragraphs. What this board shows, how it works today, what changes and why. Short sentences, everyday words. The story must make sense without the diagram.
+- Write the story and every explain note in Simplified Technical English (ASD-STE100): at most 25 words in a sentence, at most 6 sentences in a paragraph.
+- story (every board): two to five short paragraphs. What this board shows, how it works today, what changes and why. The story must make sense without the diagram.
 - notes (every box), keyed by the box's id exactly as in the Mermaid ("runner", not "overview/runner"): explain is one or two sentences — what the part is in plain words, then what the plan does to it. Code names may follow the plain description, never replace it. why only where you chose between options: the other option and why not. status is new, changed, removed, context (involved but unchanged) or risk. ref is where its code is, always starting with the file's path from the repository root: "packages/daemon/src/agents/claude.ts:362-366", several comma-separated.
 - Labels are what a reader would call the part, one to four words ("Turn runner", not "TurnHub.start()"), at most ${LIMITS.label} characters. Arrow labels say what passes, in two or three words ("asks", "sends answer"), at most ${LIMITS.arrow} characters.
 - Write so that no glossary is needed. Prefer the everyday word; when a technical word cannot be avoided (worktree, SSE, the name of an internal module), say what it is in the same sentence: "the daemon — the background program that runs the agents —".
